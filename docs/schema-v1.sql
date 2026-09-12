@@ -41,8 +41,10 @@ CREATE TABLE projects (
   default_thinking_level TEXT,
   version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
   blocked_reason TEXT,
+  blocked_scope_key TEXT,
   created_at INTEGER NOT NULL,
-  last_activity_at INTEGER NOT NULL
+  last_activity_at INTEGER NOT NULL,
+  CHECK ((blocked_reason IS 'PROCESS_CLEANUP_UNCONFIRMED') = (blocked_scope_key IS NOT NULL))
 ) STRICT;
 
 CREATE TABLE sessions (
@@ -52,13 +54,25 @@ CREATE TABLE sessions (
   version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
   pi_session_id TEXT UNIQUE,
   pi_session_file TEXT UNIQUE,
+  pi_persistence_state TEXT NOT NULL DEFAULT 'uninitialized'
+    CHECK(pi_persistence_state IN ('uninitialized','unflushed','persisted')),
+  history_error_code TEXT,
   model_json TEXT CHECK(model_json IS NULL OR json_valid(model_json)),
   thinking_level TEXT,
+  queue_state TEXT NOT NULL DEFAULT 'ready' CHECK(queue_state IN ('ready','paused')),
+  queue_version INTEGER NOT NULL DEFAULT 0 CHECK(queue_version >= 0),
+  queue_pause_run_id TEXT,
+  queue_pause_reason TEXT CHECK(queue_pause_reason IN ('failed','aborted','interrupted')),
   last_event_seq INTEGER NOT NULL DEFAULT 0 CHECK(last_event_seq >= 0),
   live_state_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(live_state_json)),
   created_at INTEGER NOT NULL,
   last_activity_at INTEGER NOT NULL,
-  archived_at INTEGER
+  archived_at INTEGER,
+  CHECK ((pi_persistence_state = 'uninitialized' AND pi_session_id IS NULL AND pi_session_file IS NULL)
+    OR (pi_persistence_state IN ('unflushed','persisted') AND pi_session_id IS NOT NULL AND pi_session_file IS NOT NULL)),
+  CHECK ((queue_state = 'ready' AND queue_pause_run_id IS NULL AND queue_pause_reason IS NULL)
+    OR (queue_state = 'paused' AND queue_pause_run_id IS NOT NULL AND queue_pause_reason IS NOT NULL)),
+  FOREIGN KEY(queue_pause_run_id, id) REFERENCES runs(id, session_id)
 ) STRICT;
 CREATE INDEX sessions_list_idx ON sessions(project_id, archived_at, last_activity_at DESC, id);
 
@@ -77,6 +91,7 @@ CREATE TABLE commands (
   worker_epoch TEXT,
   response_status INTEGER,
   response_json TEXT CHECK(response_json IS NULL OR json_valid(response_json)),
+  result_json TEXT CHECK(result_json IS NULL OR json_valid(result_json)),
   error_code TEXT,
   created_at INTEGER NOT NULL,
   dispatched_at INTEGER,
@@ -100,10 +115,12 @@ CREATE TABLE runs (
   worker_pid INTEGER,
   worker_start_ticks TEXT,
   process_group_id INTEGER,
+  execution_scope_key TEXT,
   error_code TEXT,
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER,
+  CHECK (status NOT IN ('running','waiting_input') OR (worker_epoch IS NOT NULL AND execution_scope_key IS NOT NULL)),
   UNIQUE(id, session_id),
   FOREIGN KEY(command_id, session_id) REFERENCES commands(id, session_id)
 ) STRICT;
@@ -135,15 +152,22 @@ CREATE TABLE ipc_batches (
   FOREIGN KEY(session_id, last_seq) REFERENCES events(session_id, seq)
 ) STRICT;
 
--- Completed immutable timeline items. Partial items live in live_state_json.
+-- Sealed immutable timeline items, including interrupted partial output.
+-- Only still-open items live in live_state_json.
 CREATE TABLE timeline_items (
   session_id TEXT NOT NULL REFERENCES sessions(id),
   item_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('message','tool')),
+  completeness TEXT NOT NULL CHECK(completeness IN ('complete','partial')),
+  end_reason TEXT CHECK(end_reason IN ('failed','aborted','interrupted')),
   ordinal_seq INTEGER NOT NULL,
   finalized_seq INTEGER NOT NULL CHECK(finalized_seq >= ordinal_seq),
   payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
   PRIMARY KEY(session_id, item_id),
+  CHECK ((completeness = 'complete' AND end_reason IS NULL)
+    OR (completeness = 'partial' AND end_reason IS NOT NULL)),
+  FOREIGN KEY(run_id, session_id) REFERENCES runs(id, session_id),
   FOREIGN KEY(session_id, ordinal_seq) REFERENCES events(session_id, seq),
   FOREIGN KEY(session_id, finalized_seq) REFERENCES events(session_id, seq)
 ) STRICT;

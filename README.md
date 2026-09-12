@@ -27,6 +27,7 @@ Android / iOS App 连接统一 Linux 环境中的后端，查看项目、继续�
 5. [验收矩阵](docs/acceptance.md)：正常流程、故障、真实模型和双端设备验证。
 6. [Linux / Docker 部署约定](docs/deployment.md)：工具链、卷、权限、配对、备份和恢复。
 7. [开发进度](docs/progress.md)：实际完成情况及证据。
+8. [独立评审与修订记录](docs/reviews/2026-09-12-design-review.md)：7 项发现、处置与后续验证。
 
 交给其他 AI 开发时，让它先读取 [AGENTS.md](AGENTS.md)，然后从进度表中第一个未完成且前置条件满足的阶段开始。不要将文档、模拟事件或成功构建当作真实 agent 与手机链路已经验收。
 
@@ -36,7 +37,7 @@ Android / iOS App 连接统一 Linux 环境中的后端，查看项目、继续�
 python3 scripts/check_docs.py
 ```
 
-这会检查文档链接、阶段与验收映射、参考 SQL 和示例事件；不调用模型，也不代表应用实现通过测试。
+这会检查文档链接与表格、阶段与验收的双向映射、参考 SQL、正常及异常封存示例事件；不调用模型，也不代表应用实现通过测试。
 
 ## 第一版能力
 
@@ -45,6 +46,7 @@ python3 scripts/check_docs.py
 - 模型选择、思考等级选择、手动压缩、停止、steer 和 follow-up。
 - 手机端回答 agent 的确认、选择和输入请求。
 - 命令幂等、事件持久化、断线重放、worker 崩溃后的明确中断状态。
+- 异常任务后暂停队列，保留未完成输出；确认清理及用户明确恢复后继续。
 
 Matrix、多机 runner、自动 worktree、工作流编排、系统推送、任意 TUI 组件和公开多租户托管留给后续版本。
 

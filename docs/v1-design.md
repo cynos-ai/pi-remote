@@ -19,7 +19,7 @@
 | FR05 | 回复 / thinking 内容块、工具参数、累计输出、结果及异常 |
 | FR06 | 模型选择及对应思考等级，配置按 Session 生效 |
 | FR07 | 手动上下文压缩、取消、自动压缩与重试状态 |
-| FR08 | select / confirm / input / editor 交互请求及手机响应 |
+| FR08 | 活动 Run 内 select / confirm / input / editor 交互请求及手机响应；无 Run 阶段有明确取消行为 |
 | FR09 | 持久事件、快照、历史分页、锁屏和弱网重连 |
 | FR10 | 工作区串行、worker 容量限制、命令幂等和崩溃恢复 |
 | FR11 | Linux Docker 部署、状态持久化、权限、停止与备份恢复 |
@@ -63,7 +63,7 @@ flowchart TB
 | --- | --- |
 | 主进程 | 容器启动后常驻，处理 API、鉴权、调度、SQLite 和 WSS |
 | worker | 需要执行或修改 SDK 状态时加载；默认最多 4 个已加载 worker，空闲 5 分钟可回收 |
-| AgentSession | 位于 worker 内存；从指定文件创建 / 恢复，不随手机页面切换重建 |
+| AgentSession | 位于 worker 内存；按持久状态创建空会话或从校验后的指定文件恢复，不随手机页面切换重建 |
 | 手机连接 | 前台连接，后台可能被操作系统挂起；不负责 worker 保活 |
 | 持久 Session | worker 不存在时依然保留，浏览历史不触发模型请求 |
 
@@ -75,7 +75,7 @@ flowchart TB
 
 1. 手机提交带幂等键的命令。服务端校验归属、状态与 payload，事务保存命令、Run 和事件，返回 202。
 2. 调度器获得 session 操作权、工作区运行权和 worker 容量；记录 dispatching，再向 worker 发出命令。
-3. worker 恢复指定 pi 文件，订阅事件并绑定 UI 后调用 prompt；区分 SDK preflight 接受和完成。
+3. worker 按持久状态初始化，首次分配的 SDK ID / 路径先获数据库 ACK，再订阅、绑定 UI 并调用 prompt；区分路径已分配、文件已落盘、SDK preflight 接受和完成。
 4. worker 按序上报规范化事件，主进程合并相邻小增量，提交事件及投影后才广播。
 5. 手机断网时执行及记录继续。运行真正结束后释放工作区与执行容量，worker 可暂留。
 
@@ -89,7 +89,7 @@ SDK 回调与 SQLite 提交不构成跨进程事务。未收到主进程持久�
 
 | 操作 | 实现语义 |
 | --- | --- |
-| `/new` | 当前项目创建独立 Session，旧会话不清空；第一次加载时创建新的 pi JSONL |
+| `/new` | 当前项目创建独立 Session，旧会话不清空；第一次加载分配 SDK ID / 路径，通常第一条 assistant 消息时才写 JSONL |
 | `/rename` | 修改数据库标题；通过版本号单向同步 pi 显示名，未加载时下次同步 |
 | `/archive` | 仅无活动、排队命令或待答交互时可归档；不删除文件或历史 |
 | `/unarchive` | 恢复列表可见性，继续原上下文 |
@@ -98,20 +98,24 @@ SDK 回调与 SQLite 提交不构成跨进程事务。未收到主进程持久�
 | `/compact` | 空闲时创建 compact Run；完成后保留原消息供历史查看 |
 | `/stop` | 明确指定当前 runId，取消执行 / 压缩；等待停止结果，不回滚文件 |
 | 补充当前任务 | steer，指定当前 runId；在 SDK 允许的工具调用边界生效 |
-| 结束后处理 | follow_up，持久化为后续 Run，由应用队列在前一 Run 完成后调用 prompt |
+| 结束后处理 | follow_up，持久化为后续 Run；前一 Run 正常完成才自动调用 prompt，异常终态暂停队列 |
+| 恢复队列 / 取消待执行项 | 查看暂停原因后用 queueVersion 与暂停 runId 明确恢复；可先逐项取消已不适用的 follow-up |
 
 普通 prompt 在同 Session 已有 Run 或队列时返回冲突，由用户明确选择 follow-up。steer、abort、respond 走控制通道，不等待长 prompt 的 Promise 完成。
 
 配置变更仅在 Session 无活动或排队操作时接受，并在 session mutex 内完成检查与预留。新 Session 使用项目默认配置，未配置时用后端默认；配置只影响当前 Session。压缩通常调用模型生成摘要，有延迟及模型用量。
+
+所有幂等请求在操作锁及短事务内先重查幂等键，再检查 busy / version 等状态，保证并发的相同请求也返回原收据。异常后 queueState=paused 时拒绝新的执行及模型 / 等级配置，用户先取消不再适用的队列项并明确恢复；归档或重启不能绕过暂停。
 
 ### 时间线
 
 - 文本和 thinking 由有序内容块组成；只展示 provider 经 SDK 实际提供的内容，允许摘要、隐藏或不支持。
 - 工具按 toolCallId 关联，展示参数、累计输出、耗时及结果。累计快照使用替换，不反复追加。
 - message 完成不等于 Run 完成。工具调用、自动压缩和重试期间仍保持真实运行状态。
+- 异常终态把该 Run 的打开内容封存为 partial 历史，保留已收到的片段并停止转圈；没有最终结果的工具显示“结果未知”，不捏造退出码。工作区清理状态独立显示。
 - 长输出显示尾部及截断标记，完整已保留内容通过授权 artifact 访问；不承诺 SDK 未保留的内容存在。
 - 阅读历史时不强制滚动，显示新内容提示。断网提示与 agent 状态分别展示。
-- 交互请求支持选择、确认、单行与多行输入。无手机在线时仍保存 pending；重连继续显示。
+- 活动 prompt / compact Run 的交互支持选择、确认、单行与多行输入。无手机在线时仍保存 pending；重连继续显示。初始化 / 配置 hook 中的对话框立即取消并给出提示，不等待手机。
 
 ## 5. 状态与并发
 
@@ -120,6 +124,8 @@ Run 状态：queued → running ↔ waiting_input → completed / failed / abort
 Command 状态：queued → dispatching → accepted → completed / failed / cancelled / unknown。dispatching / accepted 不明结果在恢复时标记 unknown，不能直接重新执行。
 
 Session 列表状态由活动 Run、队列和交互推导；配置操作期间也显示 busy。归档和设备离线不是 Run 状态。
+
+queueState 为 ready / paused，与列表执行状态分开。completed 自动继续队列；failed / aborted / interrupted 在同一事务封存内容、关闭交互并暂停队列，即使队列为空。取消尚未开始的项不自动解除暂停。恢复使用独立 queueVersion 和暂停 runId 防止旧页面越过新的异常；进程清理或历史阻塞尚未解除时不能恢复。
 
 ### 工作区运行权
 
@@ -134,18 +140,22 @@ Session 列表状态由活动 Run、队列和交互推导；配置操作期间�
 | 故障 | 必须行为 |
 | --- | --- |
 | 手机断网 / 锁屏 | 执行继续；按事件 seq 重连，重复事件只应用一次 |
-| HTTP 响应丢失 | 原幂等键返回原命令与响应，不生成第二次执行 |
-| worker 崩溃 | Run interrupted，记录已知结果；清理确认后才释放工作区 |
-| 主进程 / 容器重启 | 排队且确定未分派的工作可继续；已分派但不明结果不自动重发 |
+| HTTP 响应丢失 / 并发重复请求 | 原幂等键返回原命令与响应；锁内先查幂等再检查可变状态，不生成第二次执行 |
+| worker 崩溃 | Run interrupted，封存已知内容，暂停 Session 队列；清理确认后才释放工作区 |
+| 主进程 / 容器重启 | 未分派的执行项保留但服从暂停；旧 steer / abort / respond 取消；已分派但不明结果不自动重发 |
 | 旧 worker 迟到消息 | epoch 不匹配，拒绝写入新状态 |
 | 工具进程未确认结束 | 阻塞工作区，提示重启干净的 app 容器；不启动第二个 writer |
 | 模型重试 / 自动压缩 | 继续记录相应阶段，不因早期 agent_end 错报完成 |
 | 等待输入时断网 | pending 保留；回答按 interactionId 和 epoch 校验 |
 | 等待输入时后端重启 | 回调失效，Interaction cancelled，Run interrupted；旧回答不接受 |
+| 空 Session 回收 / 重启 | 按 uninitialized / unflushed 状态重建，重放 SQLite 已确认配置；不是历史丢失 |
+| 持久会话文件缺失或损坏 | HISTORY_UNAVAILABLE，拒绝 open 与执行；不让 SDK 静默创建空历史 |
 
-单主服务启动时持有 `/state/instance.lock` 的排他系统锁，拒绝第二个主实例。容器 init、信号处理、worker 心跳和进程组负责常规子进程清理；无法证明清理完成时阻塞，不猜测。V1 不支持脱离受管理进程树的 daemonizing 命令。
+单主服务启动时持有 `/state/instance.lock` 的排他系统锁，拒绝第二个主实例。容器 init、信号处理及 SDK abort 负责正常清理。固定 SDK 的 Bash 在 Linux 本身使用 detached 进程组，因此 worker 的 PGID 退出不能证明 Bash 已结束，这不要求用户主动 daemonize 才会发生。
 
-pi JSONL 与业务数据库分别持久化。恢复模型上下文使用 pi 文件，客户端回放使用数据库；重启时读取 pi 实际模型、思考等级及 entry 关联校准业务快照。不能将客户端事件重新拼成模型历史。
+活动执行中 worker SIGKILL 或清理不明时持久化工作区阻塞和 executionScopeKey。只重启 Node、变化的 workerEpoch 或另一容器的新作用域都不是清理证明。V1 采用 [部署文档](deployment.md) 中的宿主机恢复入口：登记容器与作用域归属，确认原 app 容器完整退出，保存清理证据，新作用域验证后才清除进程阻塞。此操作会中断该 app 容器的其他活动 Run；原 unknown 命令不重发，暂停队列不自动恢复。空闲 worker 正常回收不需要重启容器。主动逃逸容器执行边界的工具不在 V1 支持范围内。
+
+pi JSONL 与业务数据库分别持久化。Session 显式保存 uninitialized / unflushed / persisted；SDK 路径已分配不代表文件存在。首次落盘前配置以 SQLite 已确认值为准；落盘后恢复模型上下文使用已校验的 pi 文件，客户端回放使用数据库。文件先落盘、数据库标记后写入的窗口通过检查原映射并认领有效文件处理；空文件、残片或身份不符阻断恢复。不能将客户端事件重新拼成模型历史。详细状态机见 [数据模型](data-model.md)。
 
 不承诺 shell 副作用恰好一次、不承诺中途 shell 原地续跑、不承诺恢复尚未提交的输出。用户决定如何处理 interrupted / unknown 的任务。
 
@@ -155,14 +165,14 @@ pi JSONL 与业务数据库分别持久化。恢复模型上下文使用 pi 文�
 
 | 能力 | SDK 接入点 |
 | --- | --- |
-| 创建 / 恢复 | createAgentSession、SessionManager.create / open；显式 cwd、agentDir 和会话文件 |
-| 模型 | ModelRuntime、setModel；provider 凭据仅留在后端 |
+| 创建 / 恢复 | createAgentSession、SessionManager.create / open；显式 cwd、agentDir 和会话文件；应用先验证持久状态，禁止对缺失持久历史调用 open |
+| 模型 | ModelRuntime、setModel；provider 凭据仅留在后端；hook 抛错后也要回传实际配置，不假称回滚 |
 | 等级 | getAvailableThinkingLevels、setThinkingLevel；不使用 persist:true 修改全局默认 |
 | 流式 | subscribe、message_update、thinking_delta、工具生命周期事件 |
 | 控制 | prompt、steer、abort；应用管理 follow-up 队列 |
 | 压缩 | compact、abortCompaction；compact 会先 abort，必须应用层先核实空闲 |
 | 显示名 | setSessionName；应用标题是来源，pi 名称是镜像 |
-| 扩展交互 | bindExtensions(uiContext 等)，select / confirm / input / editor 映射到手机 |
+| 扩展交互 | bindExtensions(uiContext 等)；只在 execute 的活动 Run 中把 select / confirm / input / editor 映射到手机；其他阶段立即取消并提示 |
 | 完成 | agent_settled、prompt / compact Promise、最终 stopReason 与重试状态综合判断 |
 
 SDK 的 prompt preflight 接受、HTTP 命令接收、完整执行结束是不同边界。SDK / provider 的最终消息与工具结果校准显示。SDK 与 CLI RPC JSON 的类型不同，不能直接混用。
@@ -187,6 +197,8 @@ docs/               设计、计划与证据
 
 - [pi SDK](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)
 - [AgentSession 实现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)
+- [SessionManager 首次落盘与打开行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/session-manager.ts)
+- [Bash 子进程与进程组](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/tools/bash.ts)
 - [pi 压缩机制](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/compaction.md)
 - [pi session 格式](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/session-format.md)
 - [npm 0.85.1 元数据](https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent/0.85.1)
