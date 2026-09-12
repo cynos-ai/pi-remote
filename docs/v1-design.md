@@ -96,13 +96,14 @@ SDK 回调与 SQLite 提交不构成跨进程事务。未收到主进程持久�
 | 操作 | 实现语义 |
 | --- | --- |
 | `/new` | 当前项目创建独立 Session，旧会话不清空；第一次加载分配 SDK ID / 路径，通常第一条 assistant 消息时才写 JSONL |
-| `/rename` | 修改数据库标题；通过版本号单向同步 pi 显示名，未加载时下次同步 |
+| `/rename` | 保存版本化标题并同步 pi；原生扩展改名也回写 SQLite，识别应用写入回声，重启恢复待同步意图 |
 | `/archive` | 只改变列表可见性，不删除历史、不停止活动任务、不中止表单，也不拒绝原会话的操作 |
 | `/unarchive` | 恢复列表可见性，继续原上下文 |
 | `/model` | 按 SDK 行为切换已配置模型，支持原生允许的运行中切换；默认作用于当前 Session，可明确选择保存默认值 |
 | `/thinking` | 选项由当前模型支持能力决定；返回 SDK 实际生效等级 |
 | `/compact` | 按 SDK 原生语义先停止当前运行再压缩；界面展示该行为，保留原消息供历史查看 |
-| `/stop` | 明确指定当前 runId，取消执行 / 压缩；等待停止结果，不回滚文件 |
+| `/stop` | 指定当前 runId；按 TUI 清取未消费 SDK 输入为可恢复草稿，再取消执行 / 压缩；等待实际结果，不自动重发草稿 |
+| `!` / `!!` | 用户 Bash 独立执行，分别纳入 / 排除模型上下文；使用 Bash Operation 记录。停止用户 Bash 使用原生 Session 级 abortBash |
 | 补充当前任务 | steer，指定当前 runId；在 SDK 允许的工具调用边界生效 |
 | 结束后处理 | follow_up，持久化为后续 Run；前一 Run 正常完成才自动调用 prompt，异常终态暂停队列 |
 | 恢复队列 / 取消待执行项 | 查看暂停原因后用 queueVersion 与暂停 runId 明确恢复；可先逐项取消已不适用的 follow-up |
@@ -111,6 +112,8 @@ SDK 回调与 SQLite 提交不构成跨进程事务。未收到主进程持久�
 
 配置变更按 SDK 实际前置条件执行，短操作锁只保护请求幂等、版本及配置提交，不跨模型执行或等待手机。新 Session 采用用户的项目 / pi 配置；返回实际生效配置，不假设当前流式请求会被追溯改写。压缩沿用原生停止与摘要流程。
 
+stop 与 compact 的队列行为分别按原生路径对照；compact 不自动套用 stop 的 clearQueue。setThinkingLevel 返回后异步 hook 仍可等待表单，setModel 的 hook 错误须订阅 runner 错误通道，不只依赖 Promise catch。详见[原生运行契约](native-runtime-contract.md)。
+
 所有幂等请求在短事务内先重查幂等键，再检查具体操作的真实前置条件，保证并发相同请求返回原收据。异常后仅暂停已有后续项的自动执行；仍可新 prompt、改模型 / 等级、回答交互或取消旧项，空队列无需恢复操作。
 
 ### 时间线
@@ -118,6 +121,7 @@ SDK 回调与 SQLite 提交不构成跨进程事务。未收到主进程持久�
 - 文本和 thinking 由有序内容块组成；只展示 provider 经 SDK 实际提供的内容，允许摘要、隐藏或不支持。
 - 工具按 toolCallId 关联，展示参数、累计输出、耗时及结果。累计快照使用替换，不反复追加。
 - message 完成不等于 Run 完成。工具调用、自动压缩和重试期间仍保持真实运行状态。
+- custom 和用户 Bash 内容由 Operation 承载，runId 可空，保留原生显示 / 上下文语义。延迟交付使用独立子 Operation；无 Run 内容也能流式、封存、重连和分页，不占模型 Run 槽。
 - 异常终态把该 Run 的打开内容封存为 partial 历史，保留已收到的片段并停止转圈；没有最终结果的工具显示“结果未知”，不捏造退出码。工作区清理状态独立显示。
 - 长输出显示尾部及截断标记，完整已保留内容通过授权 artifact 访问；不承诺 SDK 未保留的内容存在。
 - 阅读历史时不强制滚动，显示新内容提示。断网提示与 agent 状态分别展示。
@@ -128,6 +132,8 @@ SDK 回调与 SQLite 提交不构成跨进程事务。未收到主进程持久�
 Run 状态：queued → running ↔ waiting_input → completed / failed / aborted / interrupted；尚未开始的 Run 可 cancelled。phase 表示 thinking、tool、compacting、retrying 或 stopping 等，不能仅凭 phase 推断完成。
 
 Command 状态：queued → dispatching → accepted → completed / failed / cancelled / unknown。dispatching / accepted 不明结果在恢复时标记 unknown，不能直接重新执行。
+
+每个 Run 有唯一 operationId、source 和可空因果 commandId。一条扩展命令可触发多个 Run，自主扩展无需伪造手机命令。GET command 返回全部关联 Runs；原生会话替换后的执行归属新 Session，来源 Command 可留在同 owner 的旧 Session，定向控制仍严格绑定实际目标。
 
 Session 列表状态由活动 Run、队列和交互推导；配置操作期间也显示 busy。归档和设备离线不是 Run 状态。
 
@@ -148,7 +154,7 @@ workspaceKey 记录规范路径及 Git common directory 的关系，供状态展
 | 手机断网 / 锁屏 | 执行继续；按事件 seq 重连，重复事件只应用一次 |
 | HTTP 响应丢失 / 并发重复请求 | 原幂等键返回原命令与响应；锁内先查幂等再检查可变状态，不生成第二次执行 |
 | 活动 worker 崩溃 | Run interrupted，封存内容，旧未知命令不自动重跑；有后续项则暂停旧项，仍可主动新操作 |
-| 主进程 / 容器重启 | 未分派的执行项保留但服从暂停；旧 steer / abort / respond 取消；已分派但不明结果不自动重发 |
+| 主进程 / 容器重启 | 先检查旧 target_run_id，活动输入型 prompt 也属于失效控制，不创建后续 Run；独立未分派执行项才可保留，已分派不明结果不自动重发 |
 | 旧 worker 迟到消息 | epoch 不匹配，拒绝写入新状态 |
 | 未完成调用的状态无法确认 | 保留 unknown 及诊断，不自动重复旧调用；根据实际残留选择定向停止或运维重启，不永久封锁项目 |
 | 模型重试 / 自动压缩 | 继续记录相应阶段，不因早期 agent_end 错报完成 |
@@ -162,6 +168,8 @@ workspaceKey 记录规范路径及 Git common directory 的关系，供状态展
 worker / 主进程崩溃时保存实际状态与 executionScopeKey 诊断，不把未知旧命令自动重放。普通启动不需要宿主 helper 登记；后续明确的新请求不被未知旧任务永久封锁。遇到实际残留进程，再按[部署文档](deployment.md)选择定向清理或显式重启；不能通过禁止命令、默认整容器重启或一套提前的清理证明协议规避适配工作。
 
 pi JSONL 与业务数据库分别持久化。Session 显式保存 uninitialized / unflushed / persisted；SDK 路径已分配不代表文件存在。首次落盘前配置以 SQLite 已确认值为准；落盘后恢复模型上下文使用已校验的 pi 文件，客户端回放使用数据库。文件先落盘、数据库标记后写入的窗口通过检查原映射并认领有效文件处理；空文件、残片或身份不符阻断恢复。不能将客户端事件重新拼成模型历史。详细状态机见 [数据模型](data-model.md)。
+
+合法 header-only / 非 assistant JSONL 也可导入及恢复，首次 assistant 的自动落盘时机不是历史有效性的前置条件。原生 new / switch / fork / import 通过 runtime factory / setRebindSession 交接身份、cwd、资源和 UI；fork / import 可能先写出文件，先保存替换意图，取得目标后确认映射再执行后续回调，失败不盲目重做或覆盖源历史。
 
 不承诺 shell 副作用恰好一次、不承诺中途 shell 原地续跑、不承诺恢复尚未提交的输出。用户决定如何处理 interrupted / unknown 的任务。
 
@@ -178,7 +186,7 @@ pi JSONL 与业务数据库分别持久化。Session 显式保存 uninitialized 
 | Bash | 原生 Bash 工具及默认本地执行器；保留 command / timeout、shell 环境、后台执行和模型工具结果；只旁路转换手机事件 |
 | 控制 | prompt、steer、abort；应用管理 follow-up 队列 |
 | 压缩 | compact、abortCompaction；沿用 compact 先 abort 的原生行为，正确区分被停止 Run 与压缩 Run |
-| 显示名 | setSessionName；应用标题是来源，pi 名称是镜像 |
+| 显示名 | setSessionName 与 session_info_changed 双向同步；记录来源、顺序、回声及恢复水位 |
 | 扩展交互 | bindExtensions(uiContext 等)；使用 operationId 将全阶段标准表单映射到手机，包括无 Run 的请求 |
 | 完成 | agent_settled、prompt / compact Promise、最终 stopReason 与重试状态综合判断 |
 

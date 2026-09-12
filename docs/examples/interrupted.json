@@ -1,7 +1,9 @@
 {
   "description": "合成的异常封存契约片段，不是 SDK 实测。两个独立 Session 从空投影消费各自事件；expected 是设计断言摘要，不替代完整 Snapshot DTO。",
   "timestamp": "2026-09-12T09:00:00.000Z",
-  "envelopeDefaults": {"schemaVersion": 1},
+  "envelopeDefaults": {
+    "schemaVersion": 1
+  },
   "scenarios": [
     {
       "name": "tool_interrupted_with_follow_up",
@@ -9,16 +11,16 @@
       "runId": "42222222-2222-4222-8222-222222222222",
       "events": [
         {"seq": 1, "type": "operation.updated", "payload": {"operationId": "46666666-6666-4666-8666-666666666666", "kind": "run", "status": "running"}},
-        {"seq": 2, "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "tool"}},
+        {"seq": 2, "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "tool", "source": "command", "commandId": "45555555-5555-4555-8555-555555555555"}},
         {"seq": 3, "type": "message.started", "payload": {"messageId": "assistant-tool", "role": "assistant"}},
         {"seq": 4, "type": "message.completed", "payload": {"messageId": "assistant-tool", "role": "assistant", "blocks": [{"id": "call", "index": 0, "kind": "tool_call", "toolCallId": "long-tool", "toolName": "bash", "arguments": {"command": "printf 'started\\n'; sleep 30"}}], "stopReason": "toolUse"}},
         {"seq": 5, "type": "tool.started", "payload": {"toolCallId": "long-tool", "messageId": "assistant-tool", "toolName": "bash", "args": {"command": "printf 'started\\n'; sleep 30"}}},
         {"seq": 6, "type": "tool.updated", "payload": {"toolCallId": "long-tool", "output": {"text": "started\n", "truncated": false}}},
-        {"seq": 7, "runId": null, "type": "queue.updated", "payload": {"state": "ready", "version": 1, "pause": null, "items": [{"commandId": "43333333-3333-4333-8333-333333333333", "runId": "44444444-4444-4444-8444-444444444444", "kind": "follow_up", "position": 0}]}},
+        {"seq": 7, "runId": null, "type": "queue.updated", "payload": {"state": "ready", "version": 1, "pause": null, "items": [{"commandId": "43333333-3333-4333-8333-333333333333", "runId": "44444444-4444-4444-8444-444444444444", "kind": "follow_up", "position": 0}]}, "operationId": null},
         {"seq": 8, "type": "run.content_sealed", "payload": {"reason": "interrupted"}},
         {"seq": 9, "type": "run.updated", "payload": {"kind": "prompt", "status": "interrupted", "phase": null, "error": {"code": "WORKER_EXITED"}}},
         {"seq": 10, "type": "operation.updated", "payload": {"operationId": "46666666-6666-4666-8666-666666666666", "kind": "run", "status": "interrupted"}},
-        {"seq": 11, "runId": null, "type": "queue.updated", "payload": {"state": "paused", "version": 2, "pause": {"runId": "42222222-2222-4222-8222-222222222222", "reason": "interrupted"}, "items": [{"commandId": "43333333-3333-4333-8333-333333333333", "runId": "44444444-4444-4444-8444-444444444444", "kind": "follow_up", "position": 0}]}},
+        {"seq": 11, "runId": null, "type": "queue.updated", "payload": {"state": "paused", "version": 2, "pause": {"runId": "42222222-2222-4222-8222-222222222222", "reason": "interrupted"}, "items": [{"commandId": "43333333-3333-4333-8333-333333333333", "runId": "44444444-4444-4444-8444-444444444444", "kind": "follow_up", "position": 0}]}, "operationId": null},
         {"seq": 12, "type": "command.updated", "payload": {"commandId": "45555555-5555-4555-8555-555555555555", "kind": "prompt", "state": "unknown"}}
       ],
       "expected": {
@@ -28,10 +30,15 @@
         "queueVersion": 2,
         "queuedCount": 1,
         "liveItemCount": 0,
-        "partialItems": [{"itemId": "long-tool", "runId": "42222222-2222-4222-8222-222222222222", "kind": "tool", "completeness": "partial", "endReason": "interrupted", "ordinalSeq": 5, "finalizedSeq": 8, "data": {"toolCallId": "long-tool", "messageId": "assistant-tool", "toolName": "bash", "args": {"command": "printf 'started\\n'; sleep 30"}, "output": {"text": "started\n", "truncated": false}, "outcome": "unknown"}}],
-        "completeItemIds": ["assistant-tool"],
+        "partialItems": [
+          {"itemId": "long-tool", "runId": "42222222-2222-4222-8222-222222222222", "kind": "tool", "completeness": "partial", "endReason": "interrupted", "ordinalSeq": 5, "finalizedSeq": 8, "data": {"toolCallId": "long-tool", "messageId": "assistant-tool", "toolName": "bash", "args": {"command": "printf 'started\\n'; sleep 30"}, "output": {"text": "started\n", "truncated": false}, "outcome": "unknown"}, "operationId": "46666666-6666-4666-8666-666666666666"}
+        ],
+        "completeItemIds": [
+          "assistant-tool"
+        ],
         "activeOperationCount": 0
-      }
+      },
+      "operationId": "46666666-6666-4666-8666-666666666666"
     },
     {
       "name": "message_aborted_with_partial_arguments",
@@ -39,7 +46,7 @@
       "runId": "52222222-2222-4222-8222-222222222222",
       "events": [
         {"seq": 1, "type": "operation.updated", "payload": {"operationId": "56666666-6666-4666-8666-666666666666", "kind": "run", "status": "running"}},
-        {"seq": 2, "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking"}},
+        {"seq": 2, "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking", "source": "extension"}},
         {"seq": 3, "type": "message.started", "payload": {"messageId": "partial-assistant", "role": "assistant"}},
         {"seq": 4, "type": "content.started", "payload": {"messageId": "partial-assistant", "blockId": "t0", "index": 0, "kind": "thinking"}},
         {"seq": 5, "type": "content.delta", "payload": {"messageId": "partial-assistant", "blockId": "t0", "delta": "先检查测试入口。"}},
@@ -50,7 +57,7 @@
         {"seq": 10, "type": "run.content_sealed", "payload": {"reason": "aborted"}},
         {"seq": 11, "type": "run.updated", "payload": {"kind": "prompt", "status": "aborted", "phase": null}},
         {"seq": 12, "type": "operation.updated", "payload": {"operationId": "56666666-6666-4666-8666-666666666666", "kind": "run", "status": "cancelled"}},
-        {"seq": 13, "runId": null, "type": "queue.updated", "payload": {"state": "ready", "version": 1, "pause": null, "items": []}}
+        {"seq": 13, "runId": null, "type": "queue.updated", "payload": {"state": "ready", "version": 1, "pause": null, "items": []}, "operationId": null}
       ],
       "expected": {
         "lastSeq": 13,
@@ -59,11 +66,14 @@
         "queueVersion": 1,
         "queuedCount": 0,
         "liveItemCount": 0,
-        "partialItems": [{"itemId": "partial-assistant", "runId": "52222222-2222-4222-8222-222222222222", "kind": "message", "completeness": "partial", "endReason": "aborted", "ordinalSeq": 3, "finalizedSeq": 10, "data": {"messageId": "partial-assistant", "role": "assistant", "blocks": [{"id": "t0", "index": 0, "kind": "thinking", "text": "先检查测试入口。"}, {"id": "t1", "index": 1, "kind": "text", "text": "正在准备命令。"}, {"id": "t2", "index": 2, "kind": "tool_call", "toolCallId": "unstarted-tool", "toolName": "bash", "argumentsText": "{\"command\":\"echo", "argumentsIncomplete": true}]}}],
+        "partialItems": [
+          {"itemId": "partial-assistant", "runId": "52222222-2222-4222-8222-222222222222", "kind": "message", "completeness": "partial", "endReason": "aborted", "ordinalSeq": 3, "finalizedSeq": 10, "data": {"messageId": "partial-assistant", "role": "assistant", "blocks": [{"id": "t0", "index": 0, "kind": "thinking", "text": "先检查测试入口。"}, {"id": "t1", "index": 1, "kind": "text", "text": "正在准备命令。"}, {"id": "t2", "index": 2, "kind": "tool_call", "toolCallId": "unstarted-tool", "toolName": "bash", "argumentsText": "{\"command\":\"echo", "argumentsIncomplete": true}]}, "operationId": "56666666-6666-4666-8666-666666666666"}
+        ],
         "completeItemIds": [],
         "activeOperationCount": 0
-      }
+      },
+      "operationId": "56666666-6666-4666-8666-666666666666"
     }
   ],
-  "expansion": "每个事件补齐 envelopeDefaults、场景 sessionId / runId 与顶层 timestamp；事件自己的 runId（包含 null）覆盖场景默认值。异常封存及终态 / 队列变更在同一数据库事务提交；只有非空旧队列暂停。"
+  "expansion": "每个事件补齐 envelopeDefaults、场景 sessionId / runId 与顶层 timestamp；事件自己的 runId（包含 null）覆盖场景默认值。异常封存及终态 / 队列变更在同一数据库事务提交；只有非空旧队列暂停。 operationId 取场景或顶层默认值，事件显式值优先。"
 }

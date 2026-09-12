@@ -1,0 +1,223 @@
+{
+  "description": "合成契约样例，不是 SDK / TUI 实测，也不替代完整 Snapshot；压缩中的真实 SDK 队列时序由 S02 / S07 单独对照。",
+  "timestamp": "2026-09-12T11:00:00.000Z",
+  "envelopeDefaults": {
+    "schemaVersion": 1,
+    "runId": null,
+    "operationId": null
+  },
+  "scenarios": [
+    {
+      "name": "independent_content",
+      "sessionId": "f890dcb8-1ff5-5391-a58b-0c8d92910298",
+      "events": [
+        {"seq": 1, "operationId": "720ac0da-130a-558a-a5f1-582e266096ae", "runId": null, "type": "operation.updated", "payload": {"operationId": "720ac0da-130a-558a-a5f1-582e266096ae", "kind": "configure", "status": "running"}},
+        {"seq": 2, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "operation.updated", "payload": {"operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "kind": "run", "status": "running"}},
+        {"seq": 3, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking", "source": "extension"}},
+        {"seq": 4, "operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "runId": null, "type": "operation.updated", "payload": {"operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "kind": "extension", "status": "running", "parentOperationId": "720ac0da-130a-558a-a5f1-582e266096ae"}},
+        {"seq": 5, "operationId": "720ac0da-130a-558a-a5f1-582e266096ae", "runId": null, "type": "operation.updated", "payload": {"operationId": "720ac0da-130a-558a-a5f1-582e266096ae", "kind": "configure", "status": "completed"}},
+        {"seq": 6, "operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "runId": null, "type": "message.started", "payload": {"messageId": "custom-delayed", "role": "custom", "custom": {"type": "example.status", "display": true, "details": {"count": 1}}}},
+        {"seq": 7, "operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "runId": null, "type": "content.started", "payload": {"messageId": "custom-delayed", "blockId": "custom-delayed/text", "index": 0, "kind": "text"}},
+        {"seq": 8, "operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "runId": null, "type": "content.delta", "payload": {"messageId": "custom-delayed", "blockId": "custom-delayed/text", "delta": "扩展状态已更新。"}},
+        {"seq": 9, "operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "runId": null, "type": "message.completed", "payload": {"messageId": "custom-delayed", "role": "custom", "blocks": [{"id": "custom-delayed/text", "index": 0, "kind": "text", "text": "扩展状态已更新。"}], "custom": {"type": "example.status", "display": true, "details": {"count": 1}}}},
+        {"seq": 10, "operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "runId": null, "type": "operation.updated", "payload": {"operationId": "9d30ef3e-5f88-512f-8328-7698525a1365", "kind": "extension", "status": "completed", "parentOperationId": "720ac0da-130a-558a-a5f1-582e266096ae"}},
+        {"seq": 11, "operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "runId": null, "type": "operation.updated", "payload": {"operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "kind": "bash", "status": "running"}},
+        {"seq": 12, "operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "runId": null, "type": "message.started", "payload": {"messageId": "bash-complete", "role": "bash", "bash": {"command": "echo hello", "excludeFromContext": true, "outcome": "running"}}},
+        {"seq": 13, "operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "runId": null, "type": "content.started", "payload": {"messageId": "bash-complete", "blockId": "bash-complete/text", "index": 0, "kind": "text"}},
+        {"seq": 14, "operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "runId": null, "type": "content.delta", "payload": {"messageId": "bash-complete", "blockId": "bash-complete/text", "delta": "hello\n"}},
+        {"seq": 15, "operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "runId": null, "type": "message.completed", "payload": {"messageId": "bash-complete", "role": "bash", "blocks": [{"id": "bash-complete/text", "index": 0, "kind": "text", "text": "hello\n"}], "bash": {"command": "echo hello", "excludeFromContext": true, "outcome": "succeeded", "exitCode": 0, "cancelled": false, "truncated": false}}},
+        {"seq": 16, "operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "runId": null, "type": "operation.updated", "payload": {"operationId": "7d360976-b858-5f94-a5ce-df9eec22562b", "kind": "bash", "status": "completed"}},
+        {"seq": 17, "operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "runId": null, "type": "operation.updated", "payload": {"operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "kind": "bash", "status": "running"}},
+        {"seq": 18, "operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "runId": null, "type": "message.started", "payload": {"messageId": "bash-partial", "role": "bash", "bash": {"command": "echo started && sleep 30", "excludeFromContext": false, "outcome": "running"}}},
+        {"seq": 19, "operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "runId": null, "type": "content.started", "payload": {"messageId": "bash-partial", "blockId": "bash-partial/text", "index": 0, "kind": "text"}},
+        {"seq": 20, "operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "runId": null, "type": "content.delta", "payload": {"messageId": "bash-partial", "blockId": "bash-partial/text", "delta": "started\n"}},
+        {"seq": 21, "operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "runId": null, "type": "operation.content_sealed", "payload": {"reason": "interrupted"}},
+        {"seq": 22, "operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "runId": null, "type": "operation.updated", "payload": {"operationId": "006b30a6-b344-5d89-aff7-b16064f902a7", "kind": "bash", "status": "interrupted"}},
+        {"seq": 23, "operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "runId": null, "type": "operation.updated", "payload": {"operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "kind": "extension", "status": "running"}},
+        {"seq": 24, "operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "runId": null, "type": "message.started", "payload": {"messageId": "custom-partial", "role": "custom", "custom": {"type": "example.partial", "display": true}}},
+        {"seq": 25, "operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "runId": null, "type": "content.started", "payload": {"messageId": "custom-partial", "blockId": "custom-partial/text", "index": 0, "kind": "text"}},
+        {"seq": 26, "operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "runId": null, "type": "content.delta", "payload": {"messageId": "custom-partial", "blockId": "custom-partial/text", "delta": "一部分扩展输出"}},
+        {"seq": 27, "operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "runId": null, "type": "operation.content_sealed", "payload": {"reason": "interrupted"}},
+        {"seq": 28, "operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "runId": null, "type": "operation.updated", "payload": {"operationId": "98641162-b2c7-5156-b31c-5fd732510f20", "kind": "extension", "status": "interrupted"}},
+        {"seq": 29, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "message.started", "payload": {"messageId": "parallel-assistant", "role": "assistant"}},
+        {"seq": 30, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "content.started", "payload": {"messageId": "parallel-assistant", "blockId": "parallel-assistant/text", "index": 0, "kind": "text"}},
+        {"seq": 31, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "content.delta", "payload": {"messageId": "parallel-assistant", "blockId": "parallel-assistant/text", "delta": "模型回复仍归属自己的 Run。"}},
+        {"seq": 32, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "message.completed", "payload": {"messageId": "parallel-assistant", "role": "assistant", "blocks": [{"id": "parallel-assistant/text", "index": 0, "kind": "text", "text": "模型回复仍归属自己的 Run。"}]}},
+        {"seq": 33, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "run.updated", "payload": {"kind": "prompt", "status": "completed", "phase": null}},
+        {"seq": 34, "operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "runId": "3a64b14c-0762-5f93-820c-e5a0fcc57577", "type": "operation.updated", "payload": {"operationId": "3bdd8633-c350-5041-b7dd-d10bf7bc47fb", "kind": "run", "status": "completed"}}
+      ],
+      "expected": {
+        "runCount": 1,
+        "activeOperationCount": 0,
+        "liveItemCount": 0,
+        "completeItemIds": [
+          "custom-delayed",
+          "bash-complete",
+          "parallel-assistant"
+        ],
+        "partialItems": {
+          "bash-partial": {
+            "operationId": "006b30a6-b344-5d89-aff7-b16064f902a7",
+            "runId": null,
+            "endReason": "interrupted",
+            "text": "started\n",
+            "outcome": "unknown"
+          },
+          "custom-partial": {
+            "operationId": "98641162-b2c7-5156-b31c-5fd732510f20",
+            "runId": null,
+            "endReason": "interrupted",
+            "text": "一部分扩展输出"
+          }
+        },
+        "runlessItemIds": [
+          "custom-delayed",
+          "bash-complete",
+          "bash-partial",
+          "custom-partial"
+        ],
+        "deliveredAfterParentCompleted": "9d30ef3e-5f88-512f-8328-7698525a1365"
+      }
+    },
+    {
+      "name": "autonomous_and_multiple_runs",
+      "sessionId": "761c1d3c-6150-5ae0-9513-8eff18c2d92f",
+      "events": [
+        {"seq": 1, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "operation.updated", "payload": {"operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "kind": "run", "status": "running"}},
+        {"seq": 2, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking", "source": "extension"}},
+        {"seq": 3, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "message.started", "payload": {"messageId": "autonomous-assistant", "role": "assistant"}},
+        {"seq": 4, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "content.started", "payload": {"messageId": "autonomous-assistant", "blockId": "autonomous-assistant/text", "index": 0, "kind": "text"}},
+        {"seq": 5, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "content.delta", "payload": {"messageId": "autonomous-assistant", "blockId": "autonomous-assistant/text", "delta": "没有手机命令的扩展调用。"}},
+        {"seq": 6, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "message.completed", "payload": {"messageId": "autonomous-assistant", "role": "assistant", "blocks": [{"id": "autonomous-assistant/text", "index": 0, "kind": "text", "text": "没有手机命令的扩展调用。"}]}},
+        {"seq": 7, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "run.updated", "payload": {"kind": "prompt", "status": "completed", "phase": null}},
+        {"seq": 8, "operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "runId": "84459d01-726d-52e4-b152-1d2f842d9047", "type": "operation.updated", "payload": {"operationId": "e24d8208-a7ae-5a0b-ad3c-b937370d3faa", "kind": "run", "status": "completed"}},
+        {"seq": 9, "operationId": null, "runId": null, "type": "command.updated", "payload": {"commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3", "kind": "extension_command", "state": "accepted", "runs": []}},
+        {"seq": 10, "operationId": "8e9cff81-2c10-574e-9bdb-de1247529941", "runId": null, "type": "operation.updated", "payload": {"operationId": "8e9cff81-2c10-574e-9bdb-de1247529941", "kind": "extension", "status": "running", "commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3"}},
+        {"seq": 11, "operationId": "f125bd86-7d21-5b27-8373-8ad82e719d71", "runId": "73162454-78c5-52d8-9d3e-2c0a4be058a5", "type": "operation.updated", "payload": {"operationId": "f125bd86-7d21-5b27-8373-8ad82e719d71", "kind": "run", "status": "running", "commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3"}},
+        {"seq": 12, "operationId": "f125bd86-7d21-5b27-8373-8ad82e719d71", "runId": "73162454-78c5-52d8-9d3e-2c0a4be058a5", "type": "run.updated", "payload": {"kind": "compact", "status": "running", "phase": "compacting", "source": "extension", "commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3"}},
+        {"seq": 13, "operationId": "f125bd86-7d21-5b27-8373-8ad82e719d71", "runId": "73162454-78c5-52d8-9d3e-2c0a4be058a5", "type": "run.updated", "payload": {"kind": "compact", "status": "completed", "phase": null}},
+        {"seq": 14, "operationId": "f125bd86-7d21-5b27-8373-8ad82e719d71", "runId": "73162454-78c5-52d8-9d3e-2c0a4be058a5", "type": "operation.updated", "payload": {"operationId": "f125bd86-7d21-5b27-8373-8ad82e719d71", "kind": "run", "status": "completed"}},
+        {"seq": 1, "operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "runId": "ab5c2541-b817-569e-a879-e2c99fb85c04", "type": "operation.updated", "payload": {"operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "kind": "run", "status": "running", "commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3"}, "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"},
+        {"seq": 2, "operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "runId": "ab5c2541-b817-569e-a879-e2c99fb85c04", "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking", "source": "extension", "commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3"}, "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"},
+        {"seq": 3, "operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "runId": "ab5c2541-b817-569e-a879-e2c99fb85c04", "type": "message.started", "payload": {"messageId": "destination-assistant", "role": "assistant"}, "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"},
+        {"seq": 4, "operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "runId": "ab5c2541-b817-569e-a879-e2c99fb85c04", "type": "message.completed", "payload": {"messageId": "destination-assistant", "role": "assistant", "blocks": [{"id": "d0", "index": 0, "kind": "text", "text": "新会话中的后续执行。"}]}, "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"},
+        {"seq": 5, "operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "runId": "ab5c2541-b817-569e-a879-e2c99fb85c04", "type": "run.updated", "payload": {"kind": "prompt", "status": "completed", "phase": null}, "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"},
+        {"seq": 6, "operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "runId": "ab5c2541-b817-569e-a879-e2c99fb85c04", "type": "operation.updated", "payload": {"operationId": "d965edf7-73ca-5b20-8083-30d2da6aef0f", "kind": "run", "status": "completed"}, "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"},
+        {"seq": 15, "operationId": "8e9cff81-2c10-574e-9bdb-de1247529941", "runId": null, "type": "operation.updated", "payload": {"operationId": "8e9cff81-2c10-574e-9bdb-de1247529941", "kind": "extension", "status": "completed", "commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3"}},
+        {"seq": 16, "operationId": null, "runId": null, "type": "command.updated", "payload": {"commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3", "kind": "extension_command", "state": "completed", "runs": [{"runId": "73162454-78c5-52d8-9d3e-2c0a4be058a5", "sessionId": "761c1d3c-6150-5ae0-9513-8eff18c2d92f"}, {"runId": "ab5c2541-b817-569e-a879-e2c99fb85c04", "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"}]}}
+      ],
+      "commands": [
+        {
+          "commandId": "19ea1055-13ff-5f5d-8007-1e1e3201f3e3",
+          "sessionId": "761c1d3c-6150-5ae0-9513-8eff18c2d92f"
+        }
+      ],
+      "expected": {
+        "runCount": 3,
+        "activeOperationCount": 0,
+        "liveItemCount": 0,
+        "completeItemIds": [
+          "autonomous-assistant",
+          "destination-assistant"
+        ],
+        "partialItems": {},
+        "autonomousRunIds": [
+          "84459d01-726d-52e4-b152-1d2f842d9047"
+        ],
+        "commandRuns": {
+          "19ea1055-13ff-5f5d-8007-1e1e3201f3e3": [
+            {
+              "runId": "73162454-78c5-52d8-9d3e-2c0a4be058a5",
+              "sessionId": "761c1d3c-6150-5ae0-9513-8eff18c2d92f"
+            },
+            {
+              "runId": "ab5c2541-b817-569e-a879-e2c99fb85c04",
+              "sessionId": "74e51a0c-3912-5737-a8b5-56d7b5e24026"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "stop_returns_unconsumed_inputs",
+      "sessionId": "56c8692c-9a95-59bf-bcd7-44762bbc248c",
+      "events": [
+        {"seq": 1, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "operation.updated", "payload": {"operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "kind": "run", "status": "running"}},
+        {"seq": 2, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking", "source": "extension"}},
+        {"seq": 3, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "input.updated", "payload": {"inputId": "3e206eb0-c46e-59e3-86b5-135b8923fd92", "delivery": "followUp", "state": "queued", "content": {"text": "检查同一个文件。", "attachments": [{"artifactId": "55b3b5f9-c573-5f83-bad9-fea2707025a4", "mimeType": "image/png"}]}}},
+        {"seq": 4, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "input.updated", "payload": {"inputId": "96e42a3f-bc50-51a5-a021-316a19e11556", "delivery": "followUp", "state": "queued", "content": {"text": "检查同一个文件。", "attachments": [{"artifactId": "55b3b5f9-c573-5f83-bad9-fea2707025a4", "mimeType": "image/png"}]}}},
+        {"seq": 5, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "input.updated", "payload": {"inputId": "f1ebc6a6-7116-57b9-9f24-f4cf3e7b39bf", "delivery": "followUp", "state": "queued", "content": {"text": "检查同一个文件。", "attachments": [{"artifactId": "55b3b5f9-c573-5f83-bad9-fea2707025a4", "mimeType": "image/png"}]}}},
+        {"seq": 6, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "input.updated", "payload": {"inputId": "3e206eb0-c46e-59e3-86b5-135b8923fd92", "delivery": "followUp", "state": "consumed"}},
+        {"seq": 7, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "input.updated", "payload": {"inputId": "96e42a3f-bc50-51a5-a021-316a19e11556", "delivery": "followUp", "state": "returned"}},
+        {"seq": 8, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "input.updated", "payload": {"inputId": "f1ebc6a6-7116-57b9-9f24-f4cf3e7b39bf", "delivery": "followUp", "state": "returned"}},
+        {"seq": 9, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "run.content_sealed", "payload": {"reason": "aborted"}},
+        {"seq": 10, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "run.updated", "payload": {"kind": "prompt", "status": "aborted", "phase": null}},
+        {"seq": 11, "operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "runId": "793b2f8c-ca18-524d-a31c-eb91f63be7d3", "type": "operation.updated", "payload": {"operationId": "261e0343-127e-50b2-9fb7-6e17e9d5f24e", "kind": "run", "status": "cancelled"}},
+        {"seq": 12, "operationId": null, "runId": null, "type": "queue.updated", "payload": {"state": "ready", "version": 1, "pause": null, "items": []}}
+      ],
+      "expected": {
+        "runCount": 1,
+        "activeOperationCount": 0,
+        "liveItemCount": 0,
+        "completeItemIds": [],
+        "partialItems": {},
+        "recoveredInputIds": [
+          "96e42a3f-bc50-51a5-a021-316a19e11556",
+          "f1ebc6a6-7116-57b9-9f24-f4cf3e7b39bf"
+        ],
+        "recoveredContent": {
+          "text": "检查同一个文件。",
+          "attachments": [
+            {
+              "artifactId": "55b3b5f9-c573-5f83-bad9-fea2707025a4",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        "consumedInputIds": [
+          "3e206eb0-c46e-59e3-86b5-135b8923fd92"
+        ],
+        "pendingInputCount": 0,
+        "queuedRunCount": 0,
+        "queueState": "ready",
+        "queueItemCount": 0
+      }
+    },
+    {
+      "name": "targeted_prompt_restart_before_ipc",
+      "sessionId": "22598856-f95a-59e4-bf86-07c0e0cb4e24",
+      "events": [
+        {"seq": 1, "operationId": "5e140ffa-7e81-578f-bb7c-e25b70349966", "runId": "a491beec-005b-5cf3-a43a-660476cab62d", "type": "operation.updated", "payload": {"operationId": "5e140ffa-7e81-578f-bb7c-e25b70349966", "kind": "run", "status": "running"}},
+        {"seq": 2, "operationId": "5e140ffa-7e81-578f-bb7c-e25b70349966", "runId": "a491beec-005b-5cf3-a43a-660476cab62d", "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking", "source": "extension"}},
+        {"seq": 3, "operationId": null, "runId": null, "type": "command.updated", "payload": {"commandId": "ef465d27-4d8a-5f8f-b3b2-63b5616f33ce", "kind": "prompt", "state": "queued", "targetRunId": "a491beec-005b-5cf3-a43a-660476cab62d", "runs": []}},
+        {"seq": 4, "operationId": null, "runId": null, "type": "command.updated", "payload": {"commandId": "ef465d27-4d8a-5f8f-b3b2-63b5616f33ce", "kind": "prompt", "state": "cancelled", "targetRunId": "a491beec-005b-5cf3-a43a-660476cab62d", "runs": [], "result": {"reason": "stale_runtime"}}},
+        {"seq": 5, "operationId": "5e140ffa-7e81-578f-bb7c-e25b70349966", "runId": "a491beec-005b-5cf3-a43a-660476cab62d", "type": "run.content_sealed", "payload": {"reason": "interrupted"}},
+        {"seq": 6, "operationId": "5e140ffa-7e81-578f-bb7c-e25b70349966", "runId": "a491beec-005b-5cf3-a43a-660476cab62d", "type": "run.updated", "payload": {"kind": "prompt", "status": "interrupted", "phase": null}},
+        {"seq": 7, "operationId": "5e140ffa-7e81-578f-bb7c-e25b70349966", "runId": "a491beec-005b-5cf3-a43a-660476cab62d", "type": "operation.updated", "payload": {"operationId": "5e140ffa-7e81-578f-bb7c-e25b70349966", "kind": "run", "status": "interrupted"}},
+        {"seq": 8, "operationId": null, "runId": null, "type": "queue.updated", "payload": {"state": "ready", "version": 1, "pause": null, "items": []}}
+      ],
+      "commands": [
+        {
+          "commandId": "ef465d27-4d8a-5f8f-b3b2-63b5616f33ce",
+          "sessionId": "22598856-f95a-59e4-bf86-07c0e0cb4e24"
+        }
+      ],
+      "expected": {
+        "runCount": 1,
+        "activeOperationCount": 0,
+        "liveItemCount": 0,
+        "completeItemIds": [],
+        "partialItems": {},
+        "cancelledCommand": "ef465d27-4d8a-5f8f-b3b2-63b5616f33ce",
+        "cancelReason": "stale_runtime",
+        "commandRuns": {
+          "ef465d27-4d8a-5f8f-b3b2-63b5616f33ce": []
+        },
+        "queuedRunCount": 0,
+        "queueState": "ready",
+        "queueItemCount": 0
+      }
+    }
+  ],
+  "expansion": "envelopeDefaults + 场景 sessionId + 顶层 timestamp + 单条 event；单条值覆盖默认。跨 Session 的 seq 独立连续。expected 为合成断言，不是运行时证据。"
+}

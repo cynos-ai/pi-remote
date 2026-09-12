@@ -32,6 +32,8 @@ Android / iOS App 连接统一 Linux 环境中的后端，查看项目、继续�
 8. [独立评审与修订记录](docs/reviews/2026-09-12-design-review.md)：7 项发现、处置与后续验证。
 9. [Bash 与 TUI 兼容要求](docs/bash-compatibility.md)：原生 Bash 能力、后台服务和逐项对照验收。
 10. [整体 TUI 体验原则](docs/tui-experience.md)：全产品兼容基线、撤回的预先限制和对照验收。
+11. [原生运行补充契约](docs/native-runtime-contract.md)：自主运行、无 Run 内容、输入恢复、双向标题及原生会话替换。
+12. [按新宗旨的独立审核](docs/reviews/2026-09-12-tui-principle-review.md)：6 项发现、修订与复核证据。
 
 交给其他 AI 开发时，让它先读取 [AGENTS.md](AGENTS.md)，然后从进度表中第一个未完成且前置条件满足的阶段开始。不要将文档、模拟事件或成功构建当作真实 agent 与手机链路已经验收。
 
@@ -41,7 +43,7 @@ Android / iOS App 连接统一 Linux 环境中的后端，查看项目、继续�
 python3 scripts/check_docs.py
 ```
 
-这会检查文档链接与表格、阶段与验收的双向映射、两套兼容矩阵、参考 SQL，以及正常、异常封存和无 Run 表单的示例事件；不调用模型，也不代表应用实现通过测试。
+这会检查文档链接与表格、阶段与验收的双向映射、两套兼容矩阵、参考 SQL，以及正常 / 异常、无 Run 内容与表单、自主运行和输入恢复的合成契约；不调用模型，也不代表应用实现通过测试。
 
 ## 第一版能力
 

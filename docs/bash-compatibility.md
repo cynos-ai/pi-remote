@@ -19,7 +19,7 @@
 - `&`、nohup、setsid、开发服务器和 watch 进程可按原生 shell 用法启动。命令是否返回由 SDK 判断；未正确重定向的后台进程可能继续占用输出流，也沿用原生行为，应用不通过猜测语法改成另一种运行方式。
 - 当 SDK 已返回该命令的最终结果，留下的正常后台服务不再占用活动工具槽；agent settle 后 Run 可完成，下一次 prompt 可访问服务。不能因为还有后台 PID、端口或文件写入就把项目标为 blocked，或等待所有后代进程退出才结束 Run。
 - 正常结束、切换页面 / Session、断网、归档及空闲 worker 回收不额外扫杀已启动的后台服务。它们继续属于当前 Linux / app 容器的运行环境；在后续 Bash 中查看日志、检查端口或停止进程。V1 无需另建后台服务管理器，也不承诺恢复尚未重定向并已关闭的 stdout。
-- `/stop` 调用 SDK abort，作用于当前 Run 的未完成调用。应用不能因此扫杀同项目其他命令已正常启动的服务。显式停止整个 app 容器会终止容器内服务，与关闭该开发环境的效果一致。
+- 模型 `/stop` 按 TUI 先 clearQueue 并保存未消费输入为草稿，再调用 SDK abort，作用于当前 Run 的未完成调用。用户直接 `!` / `!!` 使用独立 Bash Operation，停止入口调用 Session 级 abortBash，范围是当前用户 Bash 调用集合。两者都不扩大到已正常返回的后台服务，详见[原生运行契约](native-runtime-contract.md)。显式停止整个 app 容器会终止其中服务。
 
 不同 Session 默认允许在同一工作区并行；同 Session 输入遵循原生 steer / follow-up。运营者按实际需要开启 workspaceKey 串行时也只串行 agent Run，不承诺“整个目录最多一个 OS writer”。正常后台服务可与后续 Run 并存，其文件 / Git 协调与本地开发相同。
 

@@ -58,6 +58,16 @@ Windows 本地 `python scripts/check_docs.py` 与 `git diff --check` 通过：11
 
 Windows 本地使用 Python 3.12.8 / SQLite 3.45.3 执行 `python scripts/check_docs.py` 与 `git diff --check`，均通过：12 份 Markdown，13 个阶段，14 条需求，32 个验收场景及双向阶段映射，8 项 Bash + 8 项整体 TUI 对照，59 个合成事件及 12 张 SQLite 参考表。检查包含 Run / Operation 生命周期、无 Run 初始化表单、非空 / 空队列差异、同项目 Session 并行及交互的同 Session 外键；这些结果不代表应用运行时验收通过。本轮提交的 Linux 结果以对应 GitHub Actions 为准。
 
+## 按新宗旨的独立审核与修订
+
+2026-09-12，按用户要求重新独立审核，基线为 [cf02e91](https://github.com/cynos-ai/pi-remote/commit/cf02e916a148b8125144f6408ccbd81d58b71a8d)，其 [Linux 文档 CI 已通过](https://github.com/cynos-ai/pi-remote/actions/runs/34692163097)。本次新代理不继承旧审核上下文，发现 3 项 P1 和 3 项 P2；详见[独立审核记录](reviews/2026-09-12-tui-principle-review.md)。
+
+修订支持 Operation 归属的无 Run 内容、custom / 用户 Bash、自主 Run 及一命令多 Run、stop 清取完整未消费草稿、旧 target_run_id 优先恢复分类、双向标题和合法 header-only / 非 assistant 历史。补上同 owner 跨 Session 因果、原生 fork / import 先写文件窗口、延迟消息及异步 hook 的独立生命周期，没有增加工具过滤或默认禁用。
+
+Windows 本地 Python 3.12.8 / SQLite 3.45.3 的 `python scripts/check_docs.py` 与 `git diff --check` 已通过：14 份 Markdown、13 个阶段、14 条需求、32 个验收项、8 项 Bash + 8 项整体 TUI 对照、135 条合成事件及 12 张参考表。检查覆盖允许的 Run 因果形状、无 Run 时间线、唯一 Operation、保留的定向 FK 以及合成内容 / 输入恢复；不等于真实 SDK 队列、标题算法或跨 owner 业务校验已实现。
+
+独立代理已复查实际工作树，确认 N1–N6 均已在契约层面修订，未发现剩余阻断项；包括三处衔接问题及异步 hook。最终结论见本轮审核记录，本轮提交的 Linux 检查以对应 Documentation checks 为准。未运行应用、live SDK、Linux 进程、Docker 或手机验证；所有 S01–S13 仍为 not_started。后续 AI 必须按开发计划的真实验证要求实施。
+
 ## 后续阶段证据模板
 
 ```text

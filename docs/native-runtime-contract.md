@@ -1,0 +1,80 @@
+# 原生运行、内容归属与同步补充契约
+
+状态：V1 待实现契约，按新宗旨独立审核后补齐。与[协议](protocol-v1.md)、[数据模型](data-model.md)和[参考 SQL](schema-v1.sql)共同约束实现；下面是确定的适配工作，不能以禁用扩展代替。源码核对不等于真实 SDK 验收。
+
+## 1. Operation、Run 和外部 Command
+
+Operation 标识一次初始化、配置、模型执行、用户 Bash 或扩展回调，kind 为 initialize / configure / run / bash / extension。由持久事件维护活动投影；无须增加操作调度表。异步后续操作可用 parentOperationId 标明来源，父操作完成不自动结束子操作。
+
+Run 只记录实际 prompt / compact 生命周期。每个 Run 有唯一 operationId、source（command / extension / runtime）及可空 commandId。commandId 是外部请求的因果来源：一次扩展命令可产生多个顺序 Run，后台扩展也可没有手机请求。不得伪造设备、HTTP 命令或模型 Run 来凑表约束。同 Session 最多一个活动模型 Run，独立 Bash / 扩展内容不占此槽。
+
+外部 Command 的初始收据不变；接收时已分配的直接 prompt / compact 可返回 runId。GET command 及后续 command.updated 用 `runs:[{runId,sessionId}]` 表达全部关联，不能用单个 runId 覆盖前一次结果。扩展命令的 completed 表示其调用本身结束，关联模型 Run 的状态单独显示；不会因为父命令返回就把其后续执行报成完成。
+
+原生会话替换可能让来源 Command 与目标 Run 不同 Session：只允许同 owner 的因果关联。Run / Interaction 的来源 commandId 由存储事务校验 owner；回答表单的 responseCommandId 和定向 targetRunId 仍必须与请求 Session 一致。跨 Session 因果关联不改变时间线、事件、文件和回答的执行归属。
+
+## 2. 无 Run 的内容
+
+所有事件 envelope 增加 `operationId:string|null`。message / content / tool 及内容封存事件必须有 operationId；只有确实属于模型生命周期时才有 runId。普通列表 / 队列变更等可同时为 null。operation.updated 的 payload.operationId 必须与 envelope 相同。
+
+TimelineItem 保存 operationId 和可空 runId；同 Session 的操作存在性、操作与 Run 的对应关系由事件事务和 reducer 校验。引用不可复用，也不能用最近活动 Run 代替真实归属。SDK 的无 Run 内容与同时进行中的模型回复可并存。
+
+触发来源与内容存活期分开：streaming 中的扩展 custom 消息可能在配置方法返回后，才由 SDK 在 turn_end 交付。适配器为这类内容建立独立 delivery Operation（kind=extension），保留 parentOperationId / 来源 Command，即使父操作已结束也可完成交付。不能向已终态的父操作追加内容，也不能通过全局 currentOperationId 猜测并行回调归属；已确认入队但尚未交付的内容在重启后保留实际未知状态。
+
+消息 role 支持 user / assistant / custom / bash。message.started 携带已知的角色元数据，message.completed 使用规范化 blocks 并校准最终字段；额外字段按角色定义：
+
+| role | 补充字段与含义 |
+| --- | --- |
+| custom | `custom:{type,display,details?}`；保留扩展消息类型、显示语义和经过 DTO 校验的数据，文本使用 TextBlock，媒体用资源引用 |
+| bash | `bash:{command,excludeFromContext,outcome,exitCode?,cancelled?,truncated?,artifactId?}`；outcome 为 running / succeeded / failed / aborted / unknown，开始为 running，完整完成不可为 running / unknown；不冒充模型 tool_call |
+
+custom 的 display=false 内容可记录为不可见的历史项，手机遵循此原生显示标志；模型上下文仍以 pi 为准。自定义渲染器未完成时，display=true 使用明确的文本 / 结构化内容回退，不能吞掉消息或执行未经适配的终端代码。普通工具卡的 messageId 在有所属模型消息时提供，独立扩展工具内容可以只关联 Operation。
+
+用户 Bash 的 `!` / `!!` 分别映射 `bash {command,excludeFromContext:false|true}`，遵循 TUI 的 user_bash 扩展路径和 executeBash / recordBashResult；不将 shell 文本发给模型。输出使用 role=bash 的消息与内容事件，最终结果以 SDK 返回为准。`abort_bash {}` 使用原生 abortBash，作用范围是该 Session 当前的用户 Bash 调用集合；不假称 SDK 提供了单次调用的定向取消，也不扫杀已经返回的后台服务。模型 `/stop` 与用户 Bash 停止入口分别显示实际作用对象。
+
+Run 内容异常仍用 run.content_sealed；无 Run 的打开内容用 `operation.content_sealed {reason}`，reason 为 failed / aborted / interrupted。两者只封存各自归属的打开项，并与对应终态同事务提交，不重复封存。partial Bash 的 outcome=unknown，未收到最终结果时不填 exitCode / cancelled；已完成的消息或工具不改写。无 Run 操作终止不能结束并行模型 Run。
+
+## 3. SDK 内输入队列与停止
+
+应用后续 Run 队列与 SDK 当前 Run 的 steer / followUp 队列分别记录。SDK 内每条输入分配 inputId，保存完整规范化内容（包括附件引用）、来源 commandId（可空）、targetRunId、delivery 及状态。相同文本的两条输入也有不同 ID，不能用文本作为幂等标识。
+
+规范事件 `input.updated` 包含 `{inputId,delivery,state,commandId?,content?}`，其 envelope 固定所属 Run / Operation。delivery 为 steer / followUp，state 为 queued / consumed / returned / unknown；content 形状为 `{text,attachments?:[{artifactId,mimeType}]}`。首次事件携带内容，之后可省略未变化字段。Snapshot 返回 pendingInputs 及 recoveredInputs；returned 输入可作为草稿取回，不自动执行，重新发送必须是用户的新命令。
+
+明确的 `/stop` 与扩展 ctx.abort 入口按原生 TUI 停止路径实现：
+
+1. 在 worker 控制通道核实目标及停止边界，捕获当前仍未消费的输入；停止窗口中迟到的旧目标输入返回明确结果，不迁移到新任务。
+2. 调用 SDK clearQueue，保存对应 input.updated(returned)，随后调用 abort；不等待手机来读草稿。保留原始内容，不能只依赖 clearQueue 返回的字符串而丢掉附件。捕获、清取和停止之间不再把已返回草稿送回 SDK。
+3. 返回草稿及输入状态先持久化再展示。故障窗口不能确认某项是否被消费时标为 unknown 并保留原内容，不虚构 returned，也不自动重投。后台扩展在停止期间再次入队的行为需在 S02 与 TUI 对照，不提供未经验证的“清一次队列就能禁止全部未来入队”保证。
+4. 依据实际 settle / 最终消息写 Run 终态；正常后台服务不受扩大清理影响。stop 收据不表示当前调用已经停止。
+
+compact **不套用上述清队列步骤**。固定 TUI 直接调用 session.compact；SDK 内部先 abort，未消费队列可能影响其等待及后续执行时序。S02 / S07 必须独立对照有待消费输入时的压缩，显示旧 Run 的实际过程和终态，再启动压缩生命周期；不能假称所有旧输入已经取消，也不能为方便实现额外禁用这些输入。
+
+重启分类先检查 target_run_id：非空的旧 prompt / steer / abort 等运行控制，及旧 respond，均取消为 stale_runtime；已经分派且无法确认结果的仍是 unknown。只有没有旧目标、从未分派的独立 prompt / follow_up / compact 才适用后续队列保留规则。旧目标 prompt 不生成新的 queued Run 或暂停队列成员。
+
+## 4. 标题、配置与异步 hook
+
+SQLite 保存已确认标题及 version，但变更可来自手机或 pi。手机 rename 先预留版本并持久化所需标题，再同步 SDK；适配器标记该次同步，匹配的 session_info_changed 回声不重复递增版本。扩展主动 setSessionName 产生新的原生变更：按 worker 的事件顺序确认到 SQLite、递增版本、广播 session.updated。不要用“应用标题永远优先”覆盖后来的原生改名。
+
+手机改名与原生事件交错时，适配器必须保存每次写入的来源 / 顺序，并识别已被后续变更取代的延迟回声；只比较标题字符串不足以解决 A→B→A。持久历史恢复时：若还有明确未同步的手机 rename，重放该已确认意图；否则读取有效 pi session info 校准标题，包括 SDK 已落盘但事件未提交的窗口。归档仍完全由应用维护。S04 / S07 将最小同步水位和待同步意图保存在 live_state 的 metadataSync 投影，并验证重启、并发和回声，不新增远程标题轮询服务。
+
+SDK 方法返回不总等于扩展回调结束。setThinkingLevel 触发的 thinking_level_select 使用异步 emit；待答表单应归属于仍有效的扩展子 Operation，不能随外层配置 Command 返回而取消。setModel 的 hook 错误可能由 ExtensionRunner 错误监听上报而不 reject 方法 Promise；同时订阅真实错误通道、读取有效配置并显示关联操作错误，不能只靠 catch。正常 API 返回可确认配置本身，不能据此声称所有扩展处理成功。
+
+## 5. 合法历史与原生会话替换
+
+“首次 assistant 通常触发自动落盘”是新建 Session 的 SDK 行为，不是所有合法 JSONL 的完整性条件。已有文件只要具有有效 header、正确身份 / cwd 归属、可解析且符合原生格式的 entry 关系，即可成为 persisted；合法 header-only 或仅有非 assistant entry 的导入 / fork 不因缺少 assistant 被拒绝。零字节、身份不符、不可解析及已确认的写入残片仍保护原文件，不自动重建；不能仅凭“没有 assistant”判断残片。
+
+应用项目 / Session ID 与原生文件映射必须覆盖 AgentSessionRuntime 的 new / switch / fork / import：新原生 Session 对应新的或已注册的应用 Session，旧时间线不改绑；切到已有 ID 时认领已有映射。通过运行时 factory 及 setRebindSession 完成目标映射、cwd 资源与 UI 重绑定，再执行 withSession 后续回调。各操作携带原来的来源和目标绑定，不能把回调全部归到 worker 当前选中的 Session。
+
+fork / import 可能在 runtime factory 返回前已写出目标文件：操作意图先持久化；目标 manager 已可得时，先确认映射再绑定会产生新执行的 session_start / withSession。中间失败保留源历史和可识别的未认领文件，标记实际中断；不能为了满足“所有文件必须先 ACK 才创建”的过强断言禁止原生替换，也不能把未确认结果报成新 Session 创建成功。S02 核实具体调用顺序，S06 / S07 实现身份交接及异常测试。
+
+## 6. 修订验收归属
+
+| 问题 | 必须验证的场景 | 阶段 / 验收 |
+| --- | --- | --- |
+| 无 Run 内容 | 空闲 / 初始化 custom 消息、无 Run 用户 Bash、运行中独立内容、中断封存、重连 / snapshot 一致；模型 Run 数不因这些内容增加 | S02、S03、S04、S07、S10 / AT06、AT07、AT32 |
+| 自主与多 Run | 无手机命令的扩展 Run；同一命令顺序产生 compact 和 prompt；跨同 owner Session 的因果关联可追踪，跨 owner 被拒绝 | S02、S04、S06、S07 / AT07、AT12、AT32 |
+| 停止与输入 | 确定性阻塞流式，加入重复文本 / 附件输入后 stop，未消费项可取回且不自动执行；compact 单独对照实际时序 | S02、S07、S10 / AT05、AT14、AT15、AT32 |
+| 恢复分类 | 活动 prompt 入库后、IPC 前崩溃；旧控制 cancelled，无新的 queued Run / 队列成员 | S06 / AT19 |
+| 原生标题 / hook | 扩展改名、A→B→A、手机并发 rename、落盘后事件提交前崩溃；thinking hook 方法返回后仍可回答、runner 错误可见 | S02、S04、S07 / AT04、AT11、AT16、AT32 |
+| 合法导入 | header-only / 非 assistant 历史恢复成功，损坏样例保留；原生 new / switch / fork / import 的映射与后续事件不串 Session | S02、S06、S07 / AT02、AT19、AT32 |
+
+固定 SDK 依据：[AgentSession](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)、[TUI](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/modes/interactive/interactive-mode.ts)、[SessionManager](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/session-manager.ts)、[AgentSessionRuntime](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session-runtime.ts)。

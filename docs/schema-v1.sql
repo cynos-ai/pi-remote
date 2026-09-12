@@ -105,7 +105,9 @@ CREATE INDEX commands_session_idx ON commands(session_id, state, created_at);
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
-  command_id TEXT NOT NULL UNIQUE,
+  operation_id TEXT NOT NULL UNIQUE,
+  source TEXT NOT NULL CHECK(source IN ('command','extension','runtime')),
+  command_id TEXT REFERENCES commands(id),
   kind TEXT NOT NULL CHECK(kind IN ('prompt','compact')),
   status TEXT NOT NULL CHECK(status IN ('queued','running','waiting_input','completed','failed','aborted','interrupted','cancelled')),
   phase TEXT,
@@ -118,10 +120,12 @@ CREATE TABLE runs (
   created_at INTEGER NOT NULL,
   started_at INTEGER,
   finished_at INTEGER,
+  CHECK(source <> 'command' OR command_id IS NOT NULL),
   CHECK (status NOT IN ('running','waiting_input') OR (worker_epoch IS NOT NULL AND execution_scope_key IS NOT NULL)),
-  UNIQUE(id, session_id),
-  FOREIGN KEY(command_id, session_id) REFERENCES commands(id, session_id)
+  UNIQUE(id, session_id)
 ) STRICT;
+-- command_id is a causal link; same-owner validation is performed in storage transactions.
+CREATE INDEX runs_command_idx ON runs(command_id, created_at, id);
 CREATE UNIQUE INDEX one_active_run_per_session ON runs(session_id)
   WHERE status IN ('running','waiting_input');
 CREATE INDEX runs_queue_idx ON runs(status, created_at, id);
@@ -130,6 +134,7 @@ CREATE TABLE events (
   session_id TEXT NOT NULL REFERENCES sessions(id),
   seq INTEGER NOT NULL CHECK(seq > 0 AND seq <= 9007199254740991),
   run_id TEXT,
+  operation_id TEXT,
   schema_version INTEGER NOT NULL CHECK(schema_version = 1),
   type TEXT NOT NULL,
   timestamp INTEGER NOT NULL,
@@ -155,7 +160,8 @@ CREATE TABLE ipc_batches (
 CREATE TABLE timeline_items (
   session_id TEXT NOT NULL REFERENCES sessions(id),
   item_id TEXT NOT NULL,
-  run_id TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  run_id TEXT,
   kind TEXT NOT NULL CHECK(kind IN ('message','tool')),
   completeness TEXT NOT NULL CHECK(completeness IN ('complete','partial')),
   end_reason TEXT CHECK(end_reason IN ('failed','aborted','interrupted')),
@@ -175,9 +181,9 @@ CREATE TABLE interactions (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
   operation_id TEXT NOT NULL,
-  origin TEXT NOT NULL CHECK(origin IN ('initialize','configure','run','extension')),
+  origin TEXT NOT NULL CHECK(origin IN ('initialize','configure','run','bash','extension')),
   run_id TEXT,
-  command_id TEXT,
+  command_id TEXT REFERENCES commands(id),
   worker_epoch TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('select','confirm','input','editor')),
   payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
@@ -189,7 +195,6 @@ CREATE TABLE interactions (
   resolved_at INTEGER,
   CHECK(origin <> 'run' OR run_id IS NOT NULL),
   FOREIGN KEY(run_id, session_id) REFERENCES runs(id, session_id),
-  FOREIGN KEY(command_id, session_id) REFERENCES commands(id, session_id),
   FOREIGN KEY(response_command_id, session_id) REFERENCES commands(id, session_id)
 ) STRICT;
 CREATE INDEX interactions_pending_idx ON interactions(session_id, status, created_at);

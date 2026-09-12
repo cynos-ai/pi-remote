@@ -1,6 +1,6 @@
 # 数据模型与事务约定
 
-状态：待实现规范。可执行的设计附件为 [schema-v1.sql](schema-v1.sql)，S04 将其纳入迁移，不能仅在启动时无条件执行整份 SQL。首次迁移、重复启动、备份恢复和升级都需要测试。
+状态：待实现规范。可执行的设计附件为 [schema-v1.sql](schema-v1.sql)，S04 将其纳入迁移，不能仅在启动时无条件执行整份 SQL。首次迁移、重复启动、备份恢复和升级都需要测试。[原生运行补充契约](native-runtime-contract.md)规定无 Run 内容、原生输入、标题及会话替换的同步边界。
 
 ## 1. 存储所有权
 
@@ -13,7 +13,9 @@
 | 源代码与工具创建的项目文件 | `/workspaces` 挂载 |
 | 已保留的大输出 | `/state/outputs` 文件 + artifacts 元数据 |
 
-title 从应用同步到 pi 的显示名，携带 Session version，旧版本回调不能覆盖新标题。模型与等级在首次 JSONL 落盘前必须保存在 SQLite；每次重建空 worker 都重放这些已确认配置。恢复持久会话时读 pi 文件校准，但不覆盖应用标题 / 归档。配置调用抛错也要读取 SDK 的实际值：例如 setModel 先修改模型再等待扩展 hook，不能假称失败已回滚；仍存活时写 session.updated 及 command.result.actualConfig，崩溃时按下述持久状态恢复。
+标题变更可来自手机 rename 或 pi 的 session_info_changed，SQLite 保存确认值与 version；应用写入回声去重，扩展主动改名按顺序提交并广播。live_state.metadataSync 保存待同步意图、水位和来源，不只比较字符串，覆盖 A→B→A、并发及重启。恢复时有明确未同步手机意图才重放，否则从有效 pi session info 校准；归档始终由应用维护。具体规则见补充契约第 4 节。
+
+模型与等级在首次 JSONL 落盘前保存在 SQLite，每次重建空 worker 重放确认配置；持久恢复时读取 pi 的实际值。配置 API 失败或扩展错误监听上报时都读取实际配置，写 session.updated 及可关联的 command.result.actualConfig，不假称回滚。setModel 的 hook 错误不保证 reject；setThinkingLevel 返回也不表示其异步 hook 完成，子 Operation 和表单可继续有效。
 
 pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目录；恢复按应用 sessionId 找指定文件，不使用 continueRecent，也不接收手机传入的 JSONL 路径。
 
@@ -25,9 +27,11 @@ pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目�
 | --- | --- |
 | uninitialized | 尚无 SDK 映射。创建 manager 后先把 ID / 路径及 unflushed 标记提交 SQLite，收到持久化 ACK 后 worker 才可执行 prompt 或修改 SDK 配置 |
 | unflushed | 已分配 SDK 映射，但尚未确认首次落盘。文件不存在是合法状态；确认旧 worker 已停止后可创建新的 manager / 映射，再应用 SQLite 的模型、等级与标题；不调用 open(缺失路径) |
-| persisted | 已确认指定 JSONL 含有效 header、匹配 ID / cwd、可解析的 entry 关系及至少一条 assistant 消息。只能从该文件恢复；不自动降级为 unflushed 或换 ID |
+| persisted | 已确认指定 JSONL 含有效 header、匹配 ID / cwd、可解析且符合原生格式的 entry 关系；合法 header-only / 非 assistant 历史也成立。只能从该文件恢复；不自动降级为 unflushed 或换 ID |
 
-首次落盘通知通过 IPC 由主进程确认并持久化标记。worker 的 ID / 文件映射必须在任何可能落盘的 SDK 操作之前已获 ACK，避免产生无法归属的历史。启动或重新加载时，即使标记仍是 unflushed，也必须先检查原路径：有效且匹配的已落盘文件要认领为 persisted，覆盖“文件已写、标记未提交”的崩溃窗口，然后从中恢复真实配置。
+首次落盘通知通过 IPC 由主进程确认并持久化标记。应用初次创建 manager 时先确认映射再执行；原生 fork / import 可能先写文件再返回 manager，因此先持久化替换意图，取得目标后校验并认领映射，再绑定会产生新执行的回调。失败时保留可识别的未认领文件，不盲目重做 fork。new / switch / fork / import 的旧、新 Session 时间线不混用；runtime factory / setRebindSession 交接见补充契约第 5 节。
+
+启动或重新加载时，即使标记仍是 unflushed，也先检查原路径：有效且匹配的文件认领为 persisted，覆盖“文件已写、标记未提交”的窗口，然后恢复真实配置。首次 assistant 触发自动落盘的观察不能用作所有合法文件的必要条件。
 
 任何状态下已有文件为空、损坏、身份不符或仅有首次写入残片，都设置 `history_error_code=HISTORY_UNAVAILABLE` 并阻止 SDK open 与执行，保留原文件等待运维恢复。persisted 文件缺失同样阻断；只有 uninitialized / unflushed 且文件确实不存在才允许空初始化。数据库标记不是授权覆盖损坏文件的理由。S02 / S06 分别验证 SDK 行为与应用恢复策略。
 
@@ -45,10 +49,10 @@ pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目�
 | projects | Linux root_path / root_identity 归一重复目录；workspace_key 表达路径关系，默认不强制串行；blocked_reason 仅报告真实路径不可用等错误 |
 | sessions | 项目 FK、标题 version、pi 映射及持久状态、历史错误、queue_state / queue_version / 暂停原因、last_event_seq、当前未完成内容投影 |
 | commands | 所有持久变更的初始收据 response_json 与独立最终结果 result_json；非空 scope 防止创建资源时空 sessionId 导致幂等失效 |
-| runs | 每次 prompt / compact；一个 Session 最多一个 active Run，queued 可有多个；分派前保存 execution_scope_key；正常返回的后台服务不占 Run 槽 |
-| events | PK(session_id,seq)，属于 Run 的事件通过复合 FK 保证同 Session |
+| runs | 每次 prompt / compact，唯一 operation_id；source 为 command / extension / runtime，command_id 可空且非唯一；一个 Session 最多一个 active Run，queued 可有多个；分派前保存 execution_scope_key |
+| events | PK(session_id,seq)，operation_id 与可空 run_id 记录执行归属；Run 复合 FK 保证同 Session，Operation 关系由事件事务校验 |
 | ipc_batches | workerEpoch + batchNo 去重，提交后返回相同 ACK |
-| timeline_items | 封存消息 / 工具结果不可变，包括中断的 partial；必带同 Session 的 run_id、completeness / end_reason，保留开始及封存 seq |
+| timeline_items | 封存消息 / 工具结果不可变，包括中断 partial；必带 operation_id、可空同 Session run_id、completeness / end_reason，保留开始及封存 seq |
 | interactions | operation_id、origin、可空 run_id / command_id、workerEpoch、pending / 到期及一次性回答 CAS |
 | artifacts | 服务端生成的相对路径、大小、摘要，下载时检查会话归属 |
 
@@ -62,7 +66,11 @@ queue_version 独立于 Session version：队列增删、暂停、恢复均递�
 
 撤回 PROCESS_CLEANUP_UNCONFIRMED / blocked_scope_key 的默认封锁及容器清理证明协议。Run 的 scope / PID 仅作诊断，unknown 只表示旧命令结果未知，不成为整个项目的新操作禁令。已提交的 tool.finished 不因后续 worker 退出被改写；不同 Session 和正常后台服务默认可并行。
 
-Operation 是单次 SDK 初始化、配置、执行或扩展调用的关联 ID；由 operation.updated 持久事件维护 sessions.live_state_json 中的 activeOperations 投影，不另设操作调度表。它不等同于 Run；无模型生成的操作也可等待 UI。interactions.operation_id 非空且 origin 明确，run_id 允许 null；origin=run 时必须关联同 Session Run，command_id / response_command_id 存在时也须同 Session。应用层校验操作属于当前 epoch 且仍有效。
+Operation 覆盖 initialize / configure / run / bash / extension；持久事件维护 activeOperations，不另设操作调度表。无模型内容和表单可以独立存在；延迟 custom 交付由独立子 Operation 承载，父操作结束不取消子操作。interactions.operation_id 非空、origin 明确；origin=run 必须关联同 Session Run，应用层校验操作、epoch 和 Run 对应关系。
+
+Run / Interaction 的 command_id 是因果来源，允许多个 Run 共用一条 Command，也允许没有外部 Command。原生替换后 S1 的 Command 可产生 S2 的执行；存储事务必须沿 projects.user_id 验证同 owner，不要求来源同 Session。target_run_id 与 response_command_id 是定向控制，仍由复合 FK 要求同执行 Session。参考 SQL 不独立保证跨表 owner 校验，S04 必须测试允许的同 owner 路径和被拒绝的跨 owner 路径。
+
+SDK 内输入按 inputId 保存到 live_state 的 pendingInputs / recoveredInputs，完整内容含附件引用。input.updated 区分 queued / consumed / returned / unknown；stop 返回未消费草稿，不自动重发。该投影与应用 queue.updated 后续 Run 队列分开；clearQueue 仅返回文本，不能据此丢掉附件。compact 的原生队列行为单独验证。
 
 ## 3. 命令接收事务
 
@@ -75,7 +83,7 @@ Operation 是单次 SDK 初始化、配置、执行或扩展调用的关联 ID�
 - 资源创建 / PATCH 在同一个事务写资源、完成的 command 及相应 session 事件，返回 201 / 200。
 - 空闲 prompt / 后续独立执行 / compact 在同一事务写 queued command、queued Run、事件及 live_state，返回 202。活动 Run 的 steer / followUp 型输入固定 commands.target_run_id，不创建第二个生成 Run；分派前重新核实原目标，终止后不误投新 Run。
 - steer / abort / respond / 配置命令不创建新 Run，写 command 及事件，提交后通过控制通道分派。
-- extension_command 先建立 Command / Operation，按实际 SDK 生命周期关联或创建 Run；不能为了凑模型 Run 而误把命令发给模型。资源配置遵循 pi 默认发现与显式覆盖，persist=true 的全局默认写入以 SettingsManager.flush 为持久边界。
+- extension_command 先建立 Command / Operation，按实际生命周期关联零到多个 Run；自主扩展执行允许没有 Command。用户 bash 建独立 Operation，不创建模型 Run。资源配置遵循 pi 默认发现与显式覆盖，persist=true 的默认写入以 SettingsManager.flush 为持久边界。
 - cancel_queued / resume_queue 在接收短事务内完成应用队列变更和 completed command，返回 200；不排入 worker 控制队列。
 - 保存 schema 校验后的标准化 payload，并对稳定的规范 JSON 求 SHA256；对象字段顺序不同不视为内容不同。
 - 重试保留初次接收的 response_status / response_json，后续不可覆盖。最终结果（包括 result.actualConfig）在 command.updated 的同一事务写入独立 result_json，GET command 读取当前 state / error_code / result_json；旧收据不伪装成新一轮接收。
@@ -90,7 +98,7 @@ Operation 是单次 SDK 初始化、配置、执行或扩展调用的关联 ID�
 
 1. 核对 sessionId / workerEpoch，查 ipc_batches。已提交的同批次返回原 seq 范围；同号异内容报错。
 2. 读取 last_event_seq，给本批规范事件分配连续 seq。
-3. 插入 events，同时更新 runs / commands / interactions，使用同一 reducer 更新 live_state（包括 activeOperations）；封存项写入 timeline_items。Run 异常封存及对应交互关闭 / 终态 / 队列变化同事务；操作终态关闭其 pending 表单并从活动投影移除，不误关另一个操作。
+3. 插入 events，同时更新 runs / commands / interactions，使用同一 reducer 更新 live_state（包括 activeOperations、输入和 metadataSync）；封存项写入 timeline_items。Run 异常封存及对应交互关闭 / 终态 / 队列变化同事务；无 Run 内容用 operation.content_sealed 与操作终态原子封存。操作结束只关闭直属 pending 表单，不误关独立子操作或另一 Run。
 4. 更新 Session / Project 活动摘要和 last_event_seq，插入 ipc_batches，提交。
 5. 提交后 ACK worker，并唤醒 WSS 订阅者读取已提交记录。
 
@@ -100,7 +108,7 @@ Operation 是单次 SDK 初始化、配置、执行或扩展调用的关联 ID�
 
 ## 5. 快照、历史及无缝回放
 
-`GET snapshot` 在一个 SQLite 读事务里读取 Session、当前 Run / activeOperations / 队列 / pending interactions、live_state 和最后 50 个已封存 timeline_items，捕获 `S=last_event_seq`。返回状态代表 exactly-through-S，手机从 S+1 接续；初始化尚未 ready 的表单也可读取。
+`GET snapshot` 在一个 SQLite 读事务里读取 Session、当前 Run / activeOperations / 两类队列 / recoveredInputs / pending interactions、live_state 和最后 50 个封存 timeline_items，捕获 `S=last_event_seq`。返回状态代表 exactly-through-S，手机从 S+1 接续；无 Run 内容及初始化表单也可读取。
 
 快照包含所有仍打开的内容项，封存历史项不可变。历史分页 cursor 包含 `sessionId, atSeq=S, beforeOrdinalSeq, beforeItemId` 并防篡改；查询使用 `finalized_seq <= S` 和 `(ordinal_seq,item_id)` 的确定排序。消息或工具在 S 之后正常完成或被 run.content_sealed 封存时，通过后续事件从 live 状态转入历史；不会混入旧快照的历史页。异常封存保留已经接收的内容，不能捏造完整参数、工具结果或退出码。
 
@@ -118,24 +126,24 @@ live_state 仅保存未完成内容及必要状态，已完成大历史由 timel
 
 - 识别旧 epoch / 作用域并记录诊断，不要求宿主清理凭据作为启动条件。
 - dispatching / accepted 的不明命令 → unknown；其原始执行 Run 或 target_run_id 指向的非终态 Run → interrupted。关联已终态 Run 不改写历史结果。
-- 旧 activeOperations → interrupted；失去内存回调的 pending interaction → cancelled，保存原因 restart，不把旧回答送给新初始化。
+- 旧 activeOperations → interrupted；先封存其无 Run partial，未确认交付的输入 / custom 保留 unknown。失去内存回调的 pending interaction → cancelled，保存原因 restart，不把旧回答送给新初始化。
 - 异常 Run 封存打开内容并写终态；仅有旧后续项时暂停这些项，空队列 ready。
 - 按下表分类尚未分派命令，写状态事件；按持久状态校验 JSONL 并恢复，不补造未保存事件。
 - 不自动重放未知命令，允许用户主动新操作。历史文件实际损坏只影响依赖该上下文的操作；读取历史、组织列表和其他 Session 仍可用。若需清理已定位进程，校验 PID 启动标识，不误杀复用 PID。
 
 | queued 命令种类 | 重启行为 |
 | --- | --- |
-| prompt / follow_up / compact，且 dispatched_at 为空 | 保留；被中断执行影响的旧后续项暂停等待用户处理，未受影响的 ready 队列按 SDK 状态运行。新 prompt 不被旧暂停队列拒绝 |
-| steer / abort / respond | cancelled，reason=stale_runtime；不把旧目标控制或旧回调送入新 worker / Run |
+| 首先检查 target_run_id 非空的旧控制，包括 kind=prompt；其次旧 steer / abort / abort_bash / respond | cancelled，reason=stale_runtime；旧目标 prompt 不创建新的 queued Run 或后续队列成员。abort_bash 是 Session 级旧运行控制，不要求 target_run_id |
+| 无旧目标的独立 prompt / follow_up / compact，且 dispatched_at 为空 | 保留；被中断执行影响的旧后续项暂停等待处理，未受影响的 ready 队列按 SDK 状态运行。新 prompt 不被旧暂停队列拒绝 |
 | set_model / set_thinking | cancelled，reason=restart_before_dispatch；重新读取有效配置后由用户发新请求，不重放旧 version |
-| extension_command | 已分派且结果不明仍 unknown；未分派的旧上下文命令 cancelled 并提示可重新提交，不静默套入新 worker |
+| bash / extension_command | 已分派且结果不明仍 unknown；未分派的旧上下文命令 cancelled 并提示可重新提交，不静默套入新 worker |
 | cancel_queued / resume_queue、资源创建与元数据 PATCH | 应已在接收事务内 completed；若持久数据出现 queued 属于不变量损坏，报告恢复错误，不猜测重放 |
 
 正常 completed Run 继续 ready 队列；paused 旧项不因新的主动任务完成而恢复。用户可取消旧项或以 queueVersion / 暂停 runId 明确恢复；最后一项取消后原子 ready。归档不停止执行、不改变队列；SDK / 历史错误按具体操作呈现，不增加全局空闲门槛。
 
 回答交互时，事务 CAS `status=pending`、未过期且匹配 operationId / epoch，保存响应 commandId。第二个不同请求再回答返回 INTERACTION_CLOSED。保存后投递回调存在不明窗口；worker 退出后标记中断，不把旧回答应用到新 worker。操作等待不持有 respond 所需的 mutex。
 
-initialize / configure / run / extension 的标准表单都可持久化、等待和重连回答。先保存 operation.updated，再保存表单；无 Run 时 run_id=null。仅在用户取消、原生到期或操作 / worker 确实结束时返回取消值，不因初始化阶段主动禁用 UI。
+initialize / configure / run / bash / extension 的标准表单都可持久化、等待和重连回答。先保存 operation.updated，再保存表单；无 Run 时 run_id=null。异步 hook 有自己的子 Operation；父配置返回不等于 hook 结束。仅在用户取消、原生到期或所属操作 / worker 确实结束时返回取消值，不因初始化阶段主动禁用 UI。
 
 ## 7. 大输出与备份
 

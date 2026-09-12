@@ -148,9 +148,13 @@ def check_fixture() -> int:
     check_run_operation(events, fixture["runId"], fixture["expected"])
     for event in events:
         envelope = {**fixture["envelopeDefaults"], "sessionId": fixture["sessionId"],
-                    "runId": fixture["runId"], "timestamp": fixture["timestamp"], **event}
-        require(set(envelope) == {"schemaVersion", "sessionId", "runId", "timestamp", "seq", "type", "payload"},
+                    "runId": fixture["runId"], "operationId": fixture["operationId"],
+                    "timestamp": fixture["timestamp"], **event}
+        require(set(envelope) == {"schemaVersion", "sessionId", "runId", "operationId", "timestamp", "seq", "type", "payload"},
                 "Fixture envelope expansion differs")
+        require(envelope["operationId"] == fixture["operationId"], "Stream Operation binding differs")
+        if event["type"] == "operation.updated":
+            require(event["payload"]["operationId"] == envelope["operationId"], "Stream Operation envelope differs")
     return len(events)
 
 
@@ -170,12 +174,14 @@ def check_interruption_fixture() -> int:
         final_run, queue, seal_reason = None, None, None
         for event in events:
             envelope = {**fixture["envelopeDefaults"], "sessionId": scenario["sessionId"],
-                        "runId": scenario["runId"], "timestamp": fixture["timestamp"], **event}
-            require(set(envelope) == {"schemaVersion", "sessionId", "runId", "timestamp", "seq", "type", "payload"},
+                        "runId": scenario["runId"], "operationId": scenario["operationId"],
+                        "timestamp": fixture["timestamp"], **event}
+            require(set(envelope) == {"schemaVersion", "sessionId", "runId", "operationId", "timestamp", "seq", "type", "payload"},
                     "Interruption envelope expansion differs")
             kind, payload, seq = event["type"], event["payload"], event["seq"]
             if kind.startswith(("message.", "content.", "tool.")) or kind == "run.content_sealed":
                 require(envelope["runId"] == scenario["runId"], "Content must belong to its Run")
+                require(envelope["operationId"] == scenario["operationId"], "Content operation differs")
                 require(final_run not in {"failed", "aborted", "interrupted"}, "Content after terminal Run")
             if kind in {"message.started", "tool.started"}:
                 item_kind = kind.split(".")[0]
@@ -184,6 +190,7 @@ def check_interruption_fixture() -> int:
                 data = {**payload, "blocks": []} if item_kind == "message" else {
                     **payload, "output": {"text": "", "truncated": False}}
                 opened[item_id] = {"itemId": item_id, "runId": envelope["runId"],
+                                   "operationId": envelope["operationId"],
                                    "kind": item_kind, "ordinalSeq": seq, "data": data}
             elif kind == "content.started":
                 block = {"id": payload["blockId"], "index": payload["index"], "kind": payload["kind"]}
@@ -255,13 +262,15 @@ def check_initialization_fixture() -> int:
     waiting_operations = waiting_interactions = run_count = 0
     for event in events:
         envelope = {**fixture["envelopeDefaults"], "sessionId": fixture["sessionId"],
-                    "runId": fixture["runId"], "timestamp": fixture["timestamp"], **event}
-        require(set(envelope) == {"schemaVersion", "sessionId", "runId", "timestamp", "seq", "type", "payload"},
+                    "runId": fixture["runId"], "operationId": fixture["operationId"],
+                    "timestamp": fixture["timestamp"], **event}
+        require(set(envelope) == {"schemaVersion", "sessionId", "runId", "operationId", "timestamp", "seq", "type", "payload"},
                 "Initialization envelope expansion differs")
         require(envelope["runId"] is None, "Initialization must not invent a Run")
         kind, payload = event["type"], event["payload"]
         if kind == "operation.updated":
             oid, status = payload["operationId"], payload["status"]
+            require(envelope["operationId"] == oid, "Envelope operation differs")
             require(oid == reply["operationId"] and payload["kind"] == "initialize",
                     "Initialization operation association differs")
             if oid not in operations:
@@ -314,6 +323,147 @@ def check_initialization_fixture() -> int:
     return len(events)
 
 
+def check_native_fixture() -> int:
+    """Check published ownership/terminal assertions, not the future SDK adapter or reducer."""
+    fixture = json.loads((ROOT / "docs/examples/native-runtime.json").read_text(encoding="utf-8"))
+    protocol = (ROOT / "docs/protocol-v1.md").read_text(encoding="utf-8")
+    event_types = set(re.findall(r"^\| ([a-z_]+\.[a-z_]+) \|", protocol, re.M))
+    total = 0
+    for scenario in fixture["scenarios"]:
+        seqs, operations, runs, opened, sealed, inputs, commands = {}, {}, {}, {}, {}, {}, {}
+        complete_ids, partials, queue = [], {}, None
+        expected = scenario["expected"]
+        command_sessions = {c["commandId"]: c["sessionId"] for c in scenario.get("commands", [])}
+        delivered_after_parent = set()
+        queued_runs = set()
+        for raw in scenario["events"]:
+            e = {**fixture["envelopeDefaults"], "sessionId": scenario["sessionId"],
+                 "timestamp": fixture["timestamp"], **raw}
+            require(set(e) == {"schemaVersion", "sessionId", "runId", "operationId", "timestamp", "seq", "type", "payload"},
+                    "Native envelope expansion differs")
+            sid, oid, rid, kind, p = e["sessionId"], e["operationId"], e["runId"], e["type"], e["payload"]
+            require(e["seq"] == seqs.get(sid, 0) + 1, "Native per-Session sequence gap")
+            seqs[sid] = e["seq"]
+            require(kind in event_types, "Undocumented native event")
+            if kind == "operation.updated":
+                require(oid == p["operationId"], "Native operation envelope mismatch")
+                if oid in operations:
+                    require(operations[oid]["status"] in {"running", "waiting_input"}, "Terminal Operation reopened")
+                    require((sid, rid, p["kind"]) == (operations[oid]["sessionId"], operations[oid]["runId"], operations[oid]["kind"]),
+                            "Operation binding changed")
+                else:
+                    require(p["status"] == "running", "Operation must start before content")
+                    if "parentOperationId" in p:
+                        require(p["parentOperationId"] in operations, "Unknown parent operation")
+                if p["status"] not in {"running", "waiting_input"}:
+                    require(not any(item["operationId"] == oid for item in opened.values()), "Operation ended with unsealed content")
+                operations[oid] = {**p, "sessionId": sid, "runId": rid}
+            elif kind == "run.updated":
+                require(rid is not None and oid in operations, "Run lacks operation")
+                require((operations[oid]["sessionId"], operations[oid]["runId"], operations[oid]["kind"]) == (sid, rid, "run"),
+                        "Run operation association differs")
+                if rid not in runs:
+                    require(p.get("source") in {"command", "extension", "runtime"}, "Run lacks source")
+                    require(p["source"] != "command" or p.get("commandId"), "External Run lacks Command")
+                    require(not p.get("commandId") or p["commandId"] in command_sessions, "Unknown causal Command")
+                    runs[rid] = {"sessionId": sid, "operationId": oid, **p}
+                else:
+                    require(runs[rid]["operationId"] == oid and runs[rid]["sessionId"] == sid, "Run moved Session")
+                    runs[rid].update(p)
+                if p["status"] == "queued":
+                    queued_runs.add(rid)
+                require(sum(r["sessionId"] == sid and r["status"] in {"running", "waiting_input"}
+                            for r in runs.values()) <= 1, "Two active model Runs in a Session")
+            elif kind.startswith(("message.", "content.")) or kind.endswith(".content_sealed"):
+                require(oid in operations and operations[oid]["status"] in {"running", "waiting_input"},
+                        "Content outside a live Operation")
+                require((sid, rid) == (operations[oid]["sessionId"], operations[oid]["runId"]), "Content binding differs")
+                parent = operations[oid].get("parentOperationId")
+                if parent and operations[parent]["status"] == "completed":
+                    delivered_after_parent.add(oid)
+                if kind == "message.started":
+                    mid = p["messageId"]
+                    require(mid not in opened and mid not in sealed, "Reused native message ID")
+                    if p["role"] in {"custom", "bash"}:
+                        require(p["role"] in p, "Missing role metadata on started content")
+                    opened[mid] = {"operationId": oid, "runId": rid, "text": "", "data": p}
+                elif kind == "content.started":
+                    require(p["messageId"] in opened, "Block before message")
+                elif kind == "content.delta":
+                    item = opened[p["messageId"]]
+                    require(item["operationId"] == oid, "Delta belongs to another Operation")
+                    item["text"] += p["delta"]
+                elif kind == "message.completed":
+                    item = opened.pop(p["messageId"])
+                    require((item["operationId"], item["runId"]) == (oid, rid), "Completion ownership differs")
+                    if p["role"] in {"custom", "bash"}:
+                        require(p["role"] in p, "Missing final role metadata")
+                    if p["role"] == "bash":
+                        require(p["bash"]["outcome"] in {"succeeded", "failed", "aborted"}, "Incomplete Bash claimed complete")
+                    sealed[p["messageId"]] = {**item, "data": p}
+                    complete_ids.append(p["messageId"])
+                elif kind.endswith(".content_sealed"):
+                    require((kind == "run.content_sealed") == (rid is not None), "Wrong sealing scope")
+                    for mid, item in list(opened.items()):
+                        if item["operationId"] != oid:
+                            continue
+                        partial = {k: item[k] for k in ("operationId", "runId", "text")}
+                        partial["endReason"] = p["reason"]
+                        if item["data"]["role"] == "bash":
+                            require(not {"exitCode", "cancelled"} & item["data"]["bash"].keys(), "Partial Bash invented a result")
+                            partial["outcome"] = "unknown"
+                        partials[mid] = partial
+                        sealed[mid] = opened.pop(mid)
+            elif kind == "input.updated":
+                require(rid in runs and oid == runs[rid]["operationId"], "Input targets another execution")
+                iid = p["inputId"]
+                if iid not in inputs:
+                    require(p["state"] == "queued" and "content" in p, "Input lacks initial content")
+                    inputs[iid] = {**p, "runId": rid}
+                else:
+                    require(inputs[iid]["state"] == "queued", "Consumed/returned input was replayed")
+                    require(p["state"] in {"consumed", "returned", "unknown"}, "Invalid input transition")
+                    require(inputs[iid]["runId"] == rid, "Input moved to another Run")
+                    inputs[iid].update(p)
+            elif kind == "command.updated":
+                cid = p["commandId"]
+                require(sid == command_sessions[cid], "Causal Command moved to destination Session")
+                commands[cid] = {**commands.get(cid, {}), **p}
+            elif kind == "queue.updated":
+                require(oid is None and rid is None, "Application queue acquired execution ownership")
+                queue = p
+            else:
+                raise AssertionError(f"Unchecked native fixture event: {kind}")
+        require(len(runs) == expected["runCount"], "Invented or missing model Run")
+        require(sum(op["status"] in {"running", "waiting_input"} for op in operations.values())
+                == expected["activeOperationCount"] == 0, "Active operation leaked")
+        require(len(opened) == expected["liveItemCount"] == 0, "Native partial content leaked")
+        require(complete_ids == expected["completeItemIds"] and partials == expected["partialItems"], "Native timeline assertions differ")
+        if "runlessItemIds" in expected:
+            require({mid for mid, item in sealed.items() if item["runId"] is None} == set(expected["runlessItemIds"]), "Runless content acquired a Run")
+            require(expected["deliveredAfterParentCompleted"] in delivered_after_parent, "Missing deferred child delivery")
+        if "autonomousRunIds" in expected:
+            require({rid for rid, r in runs.items() if not r.get("commandId")} == set(expected["autonomousRunIds"]), "Autonomous execution invented Command")
+        for cid, associations in expected.get("commandRuns", {}).items():
+            actual = [{"runId": rid, "sessionId": r["sessionId"]} for rid, r in runs.items() if r.get("commandId") == cid]
+            require(actual == associations == commands[cid]["runs"], "Multi-Run command projection differs")
+        if "recoveredInputIds" in expected:
+            returned = [iid for iid, p in inputs.items() if p["state"] == "returned"]
+            require(returned == expected["recoveredInputIds"], "Unconsumed draft lost or duplicated")
+            require(all(inputs[i]["content"] == expected["recoveredContent"] for i in returned), "Draft lost attachments or text")
+            require([i for i, p in inputs.items() if p["state"] == "consumed"] == expected["consumedInputIds"], "Consumed input returned again")
+            require(sum(p["state"] == "queued" for p in inputs.values()) == expected["pendingInputCount"] == 0, "SDK input still queued")
+        if "cancelledCommand" in expected:
+            command = commands[expected["cancelledCommand"]]
+            require(command["kind"] == "prompt" and command["targetRunId"] in runs, "Missing targeted prompt recovery")
+            require(command["state"] == "cancelled" and command["result"]["reason"] == expected["cancelReason"], "Stale targeted prompt preserved")
+        if "queuedRunCount" in expected:
+            require(len(queued_runs) == expected["queuedRunCount"] == 0, "Recovered control created queued Run")
+            require(queue and queue["state"] == expected["queueState"] and len(queue["items"]) == expected["queueItemCount"], "Recovery introduced queue membership")
+        total += len(scenario["events"])
+    return total
+
+
 def expect_integrity_error(db: sqlite3.Connection, sql: str, args: tuple = ()) -> None:
     db.execute("SAVEPOINT expected_failure")
     try:
@@ -359,11 +509,24 @@ def check_schema() -> int:
             expect_integrity_error(db, "UPDATE commands SET result_json='{' WHERE id='c1'")
             require(db.execute("SELECT response_json,result_json FROM commands WHERE id='c1'").fetchone()
                     == (receipt, result), "Final result replaced the original receipt")
-            db.execute("INSERT INTO runs(id,session_id,command_id,kind,status,worker_epoch,execution_scope_key,created_at) VALUES ('r1','s1','c1','prompt','running','epoch','synthetic-scope',0)")
-            expect_integrity_error(db, "INSERT INTO runs(id,session_id,command_id,kind,status,created_at) VALUES ('no-scope','s2','c2','prompt','running',0)")
-            expect_integrity_error(db, "INSERT INTO runs(id,session_id,command_id,kind,status,created_at) VALUES ('bad','s1','c2','prompt','queued',0)")
-            db.execute("INSERT INTO runs(id,session_id,command_id,kind,status,created_at) VALUES ('r2','s2','c2','prompt','queued',0)")
-            db.execute("INSERT INTO runs(id,session_id,command_id,kind,status,created_at) VALUES ('r3','s1','c3','prompt','queued',0)")
+            run_sql = "INSERT INTO runs(id,session_id,operation_id,source,command_id,kind,status,worker_epoch,execution_scope_key,created_at) VALUES (?,?,?,?,?,'prompt',?,?,?,0)"
+            db.execute(run_sql, ("r1", "s1", "op-run", "command", "c1", "running", "epoch", "synthetic-scope"))
+            expect_integrity_error(db, run_sql, ("no-scope", "s2", "op-no-scope", "command", "c2", "running", None, None))
+            expect_integrity_error(db, run_sql, ("no-operation", "s2", None, "extension", None, "queued", None, None))
+            expect_integrity_error(db, run_sql, ("reused-operation", "s2", "op-run", "extension", None, "queued", None, None))
+            expect_integrity_error(db, run_sql, ("command-without-source", "s2", "op-missing", "command", None, "queued", None, None))
+            expect_integrity_error(db, run_sql, ("invalid-source", "s2", "op-invalid", "invalid", None, "queued", None, None))
+            db.execute(run_sql, ("r2", "s2", "op-r2", "command", "c2", "queued", None, None))
+            db.execute(run_sql, ("r3", "s1", "op-r3", "command", "c3", "queued", None, None))
+            # Legal causal shapes: autonomous, one Command -> multiple Runs, destination Session differs.
+            # Same-owner business validation is required in S04; these SQL tests do not implement it.
+            db.execute(run_sql, ("r-auto", "s1", "op-auto", "extension", None, "completed", None, None))
+            db.execute(run_sql, ("r-next", "s1", "op-next", "extension", "c1", "completed", None, None))
+            db.execute(run_sql, ("r-destination", "s2", "op-destination", "extension", "c1", "completed", None, None))
+            require(db.execute("SELECT count(*) FROM runs WHERE command_id='c1'").fetchone()[0] == 3,
+                    "Causal Command cannot reference multiple Runs")
+            expect_integrity_error(db, "UPDATE commands SET target_run_id='r2' WHERE id='c1'")
+            db.execute("UPDATE commands SET target_run_id='r1' WHERE id='c3'")
             expect_integrity_error(db, "UPDATE runs SET status='running',worker_epoch='epoch3',execution_scope_key='synthetic-scope' WHERE id='r3'")
             # Different Sessions in the same project may generate concurrently.
             db.execute("UPDATE runs SET status='running',worker_epoch='epoch2',execution_scope_key='synthetic-scope' WHERE id='r2'")
@@ -375,7 +538,7 @@ def check_schema() -> int:
             expect_integrity_error(db, interaction_sql, ("i-no-run", "op-bad", "run", None, "c1"))
             expect_integrity_error(db, interaction_sql, ("i-bad-origin", "op-bad", "invalid", None, None))
             expect_integrity_error(db, interaction_sql, ("i-other-run", "op-bad", "run", "r2", "c1"))
-            expect_integrity_error(db, interaction_sql, ("i-other-command", "op-bad", "configure", None, "c2"))
+            db.execute(interaction_sql, ("i-causal-command", "op-cross-source", "extension", None, "c2"))
             expect_integrity_error(db, "UPDATE interactions SET response_command_id='c2' WHERE id='i-init'")
             db.execute(command_sql, ("c4", "s1", "key4"))
             db.execute("UPDATE commands SET kind='respond' WHERE id='c4'")
@@ -388,21 +551,23 @@ def check_schema() -> int:
             db.execute("UPDATE sessions SET queue_state='paused',queue_pause_run_id='r1',queue_pause_reason='interrupted',queue_version=1 WHERE id='s1'")
             expect_integrity_error(db, "UPDATE sessions SET queue_state='ready' WHERE id='s1'")
             expect_integrity_error(db, "UPDATE sessions SET queue_version=-1 WHERE id='s1'")
-            event_sql = "INSERT INTO events VALUES (?,?,'r1',1,'run.updated',0,?)"
+            event_sql = "INSERT INTO events(session_id,seq,run_id,operation_id,schema_version,type,timestamp,payload_json) VALUES (?,?,'r1','op-run',1,'run.updated',0,?)"
             db.execute(event_sql, ("s1", 1, "{}"))
             expect_integrity_error(db, event_sql, ("s1", 1, "{}"))
             expect_integrity_error(db, event_sql, ("s2", 1, "{}"))
             expect_integrity_error(db, event_sql, ("s1", 2, "{"))
             expect_integrity_error(db, event_sql, ("s1", 9007199254740992, "{}"))
-            db.execute("INSERT INTO events VALUES ('s1',2,NULL,1,'operation.updated',0,'{}')")
+            db.execute("INSERT INTO events(session_id,seq,run_id,operation_id,schema_version,type,timestamp,payload_json) VALUES ('s1',2,NULL,'op-init',1,'operation.updated',0,'{}')")
             db.execute("INSERT INTO ipc_batches VALUES ('epoch',1,'s1',1,1,'hash')")
             expect_integrity_error(db, "INSERT INTO ipc_batches VALUES ('epoch',1,'s1',1,1,'hash')")
-            timeline_sql = "INSERT INTO timeline_items(session_id,item_id,run_id,kind,completeness,end_reason,ordinal_seq,finalized_seq,payload_json) VALUES ('s1',?,'r1','message',?,?,1,1,'{}')"
+            timeline_sql = "INSERT INTO timeline_items(session_id,item_id,operation_id,run_id,kind,completeness,end_reason,ordinal_seq,finalized_seq,payload_json) VALUES ('s1',?,'op-run','r1','message',?,?,1,1,'{}')"
             db.execute(timeline_sql, ("complete-item", "complete", None))
             db.execute(timeline_sql, ("partial-item", "partial", "interrupted"))
             expect_integrity_error(db, timeline_sql, ("no-reason", "partial", None))
             expect_integrity_error(db, timeline_sql, ("unexpected-reason", "complete", "interrupted"))
             expect_integrity_error(db, "UPDATE timeline_items SET run_id='r2' WHERE item_id='partial-item'")
+            db.execute("INSERT INTO timeline_items(session_id,item_id,operation_id,run_id,kind,completeness,ordinal_seq,finalized_seq,payload_json) VALUES ('s1','custom-no-run','op-init',NULL,'message','complete',2,2,'{}')")
+            expect_integrity_error(db, "UPDATE timeline_items SET operation_id=NULL WHERE item_id='custom-no-run'")
             require(not db.execute("PRAGMA foreign_key_check").fetchall(), "Reference FK violations")
             require(db.execute("PRAGMA integrity_check").fetchone()[0] == "ok", "Reference DB corruption")
             tables = db.execute("SELECT count(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
@@ -416,7 +581,7 @@ def check_schema() -> int:
 def main() -> None:
     count = check_markdown()
     check_traceability()
-    events = check_fixture() + check_interruption_fixture() + check_initialization_fixture()
+    events = check_fixture() + check_interruption_fixture() + check_initialization_fixture() + check_native_fixture()
     tables = check_schema()
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
     require("MIT License" in license_text and 'THE SOFTWARE IS PROVIDED "AS IS"' in license_text,

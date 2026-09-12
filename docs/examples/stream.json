@@ -4,11 +4,13 @@
   "runId": "22222222-2222-4222-8222-222222222222",
   "commandId": "33333333-3333-4333-8333-333333333333",
   "timestamp": "2026-09-12T08:00:00.000Z",
-  "envelopeDefaults": {"schemaVersion": 1},
+  "envelopeDefaults": {
+    "schemaVersion": 1
+  },
   "events": [
     {"seq": 1, "type": "command.updated", "payload": {"commandId": "33333333-3333-4333-8333-333333333333", "kind": "prompt", "state": "queued"}},
     {"seq": 2, "type": "operation.updated", "payload": {"operationId": "34444444-4444-4444-8444-444444444444", "kind": "run", "status": "running", "commandId": "33333333-3333-4333-8333-333333333333"}},
-    {"seq": 3, "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking"}},
+    {"seq": 3, "type": "run.updated", "payload": {"kind": "prompt", "status": "running", "phase": "thinking", "source": "command", "commandId": "33333333-3333-4333-8333-333333333333"}},
     {"seq": 4, "type": "message.started", "payload": {"messageId": "user-1", "role": "user"}},
     {"seq": 5, "type": "content.started", "payload": {"messageId": "user-1", "blockId": "u0", "index": 0, "kind": "text"}},
     {"seq": 6, "type": "content.delta", "payload": {"messageId": "user-1", "blockId": "u0", "delta": "运行两项检查。"}},
@@ -42,5 +44,6 @@
     "runStatus": "completed",
     "activeOperationCount": 0
   },
-  "expansion": "每个事件补齐 envelopeDefaults、顶层 sessionId、runId、timestamp 后才是完整网络事件；短 messageId / blockId / toolCallId 为不透明的合成引用。"
+  "expansion": "每个事件补齐 envelopeDefaults、顶层 sessionId、runId、timestamp 后才是完整网络事件；短 messageId / blockId / toolCallId 为不透明的合成引用。 operationId 取场景或顶层默认值，事件显式值优先。",
+  "operationId": "34444444-4444-4444-8444-444444444444"
 }

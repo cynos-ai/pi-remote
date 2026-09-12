@@ -6,7 +6,7 @@
 
 ## 开始工作
 
-按顺序读 README、docs/tui-experience.md、docs/v1-design.md、docs/protocol-v1.md、docs/data-model.md、docs/development-plan.md、docs/acceptance.md、docs/deployment.md、docs/progress.md。具体任务只需深入阅读相关章节，不重复做已经有证据支持的工作。
+按顺序读 README、docs/tui-experience.md、docs/v1-design.md、docs/protocol-v1.md、docs/native-runtime-contract.md、docs/data-model.md、docs/development-plan.md、docs/acceptance.md、docs/deployment.md、docs/progress.md。具体任务只需深入阅读相关章节，不重复做已经有证据支持的工作。
 
 代码开发从进度表中第一个前置阶段通过但本阶段未通过的 Sxx 开始。先核对实际文件和历史证据，再实现；不要根据勾选状态推断代码存在。步骤通过后可继续下一阶段，不需要逐阶段请求用户确认。
 
@@ -16,6 +16,8 @@
 - 保持单主服务、按需 session worker、SQLite、pi JSONL 的边界。默认不增加 PG、Redis、Matrix、云 relay 或独立 runner。
 - pi SDK 固定为 0.85.1；先通过 S02 验证再升级。只有 packages/agent-pi 可以导入 pi SDK 类型，公共协议不可泄漏其内部类型。
 - 整体以同环境本地 pi TUI 为基线，原生工具、资源、扩展、模型、会话和交互默认保留。只有真实复现问题或用户配置才增加局部限制；不能因适配困难而默认关闭或自动取消。
+- 无 Run 内容用 Operation；Run 的外部 Command 可空且可有多个因果 Run。原生会话替换、标题事件、合法 header-only 历史及异步 hook 均按 native-runtime-contract 接入，不能用原有表约束删掉这些能力。
+- stop 先取回未消费 SDK 输入再 abort，完整草稿不自动重发；compact 单独对照原生队列路径。恢复先检查旧 target_run_id，活动输入型 prompt 不变成新 Run。
 - 服务端先持久化再广播。不同 Session 默认可并行；同 Session 输入按原生 steer / follow-up 处理，控制命令不被长 prompt 或待答表单阻塞。容量、工作区串行和回收仅为按实际需求配置的选项。
 - Bash 按 docs/bash-compatibility.md 与原生 pi TUI 对齐：保留默认执行器、命令 / 模型结果语义、无默认超时、后台命令及网络 / 开发工具。不加命令过滤、审批或路径沙箱；手机显示配额不得限制模型工具能力。
 - 不把 `agent_end` 当作任务成功；不把 shell 副作用当成可以凭幂等键恰好执行一次；不在崩溃后盲目重发已分派但状态未知的命令。
