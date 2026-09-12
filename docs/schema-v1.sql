@@ -41,10 +41,8 @@ CREATE TABLE projects (
   default_thinking_level TEXT,
   version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
   blocked_reason TEXT,
-  blocked_scope_key TEXT,
   created_at INTEGER NOT NULL,
-  last_activity_at INTEGER NOT NULL,
-  CHECK ((blocked_reason IS 'PROCESS_CLEANUP_UNCONFIRMED') = (blocked_scope_key IS NOT NULL))
+  last_activity_at INTEGER NOT NULL
 ) STRICT;
 
 CREATE TABLE sessions (
@@ -176,17 +174,23 @@ CREATE INDEX timeline_page_idx ON timeline_items(session_id, ordinal_seq DESC, i
 CREATE TABLE interactions (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES sessions(id),
-  run_id TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK(origin IN ('initialize','configure','run','extension')),
+  run_id TEXT,
+  command_id TEXT,
   worker_epoch TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('select','confirm','input','editor')),
   payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
   status TEXT NOT NULL CHECK(status IN ('pending','resolved','cancelled','expired')),
   response_json TEXT CHECK(response_json IS NULL OR json_valid(response_json)),
-  response_command_id TEXT REFERENCES commands(id),
+  response_command_id TEXT,
   created_at INTEGER NOT NULL,
   expires_at INTEGER,
   resolved_at INTEGER,
-  FOREIGN KEY(run_id, session_id) REFERENCES runs(id, session_id)
+  CHECK(origin <> 'run' OR run_id IS NOT NULL),
+  FOREIGN KEY(run_id, session_id) REFERENCES runs(id, session_id),
+  FOREIGN KEY(command_id, session_id) REFERENCES commands(id, session_id),
+  FOREIGN KEY(response_command_id, session_id) REFERENCES commands(id, session_id)
 ) STRICT;
 CREATE INDEX interactions_pending_idx ON interactions(session_id, status, created_at);
 

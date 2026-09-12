@@ -1,0 +1,35 @@
+{
+  "description": "合成的无 Run 初始化表单契约，不是 SDK 实测；从空投影消费事件。初始化等待手机回答，不能因尚未 ready 自动取消。expected 是设计断言摘要，不替代完整 Snapshot DTO。",
+  "timestamp": "2026-09-12T10:00:00.000Z",
+  "envelopeDefaults": {"schemaVersion": 1},
+  "sessionId": "61111111-1111-4111-8111-111111111111",
+  "runId": null,
+  "reply": {
+    "kind": "respond",
+    "payload": {
+      "interactionId": "63333333-3333-4333-8333-333333333333",
+      "operationId": "62222222-2222-4222-8222-222222222222",
+      "response": {"confirmed": true}
+    }
+  },
+  "events": [
+    {"seq": 1, "type": "operation.updated", "payload": {"operationId": "62222222-2222-4222-8222-222222222222", "kind": "initialize", "status": "running"}},
+    {"seq": 2, "type": "interaction.requested", "payload": {"interactionId": "63333333-3333-4333-8333-333333333333", "operationId": "62222222-2222-4222-8222-222222222222", "origin": "initialize", "kind": "confirm", "title": "测试扩展初始化", "message": "启用本次测试的详细状态显示？"}},
+    {"seq": 3, "type": "operation.updated", "payload": {"operationId": "62222222-2222-4222-8222-222222222222", "kind": "initialize", "status": "waiting_input"}},
+    {"seq": 4, "type": "interaction.resolved", "payload": {"interactionId": "63333333-3333-4333-8333-333333333333", "status": "resolved", "response": {"confirmed": true}}},
+    {"seq": 5, "type": "operation.updated", "payload": {"operationId": "62222222-2222-4222-8222-222222222222", "kind": "initialize", "status": "running"}},
+    {"seq": 6, "type": "operation.updated", "payload": {"operationId": "62222222-2222-4222-8222-222222222222", "kind": "initialize", "status": "completed"}}
+  ],
+  "expected": {
+    "lastSeq": 6,
+    "runCount": 0,
+    "waitingOperationCount": 1,
+    "waitingInteractionCount": 1,
+    "activeOperationCount": 0,
+    "pendingInteractionCount": 0,
+    "operationStatus": "completed",
+    "interactionStatus": "resolved",
+    "response": {"confirmed": true}
+  },
+  "expansion": "每个事件补齐 envelopeDefaults、顶层 sessionId / runId / timestamp。reply 是一次真实用户答复的合成请求形状；请求幂等与 IPC epoch 校验由 S07 实现，不从本示例推断已验证。"
+}

@@ -4,9 +4,11 @@
 
 范围包括架构、HTTP / WSS / IPC、SQLite / pi JSONL、开发依赖、验收矩阵与 Docker 运维。保留 Linux、Docker Compose、直接加载 pi SDK 的 Node worker、SQLite、React Native / Expo 及单 owner 的既定选择。本轮没有实现应用代码。
 
-后续用户明确要求保留 Bash 与本地 TUI 的体验，现已补入 [Bash 兼容要求](../bash-compatibility.md)。本记录保留当时的评审结论；其中“无第二 writer”“工具清理”现精确定义为未完成调用未知时不自动分派下一前台 Run，不限制已正常返回的后台服务，也不要求每次 Run 后清扫进程或重启容器。此后的兼容修订未冒用本次独立复核结论。
+**这是历史评审记录，不能直接作为当前实现约束。** 后续用户明确要求整体保留本地 pi TUI 体验，现行决策见[整体 TUI 体验原则](../tui-experience.md)及 [Bash 兼容要求](../bash-compatibility.md)。以下 R4 的全 Session 队列门槛、R5 的无 Run 自动取消、R7 的强制清理证明已被撤回：仅暂停非空旧后续队列；全阶段表单等待并可回答；不同 Session 默认并行，未知命令不重投但用户可发新操作。普通启动不需宿主 helper，也不要求整容器恢复才能继续。
 
-## 评审发现与处置
+本文件保留当时的问题、处置与复核结论，便于追溯。当前版本还撤回了默认关闭项目扩展、统一 idle 校验、活动归档拒绝及固定容量 / 回收限制；这些后续修订未经过本轮独立代理复核，不能引用旧结论声称新方案已获审核。R1 的持久历史保护、R2 的幂等竞态处理、R3 的 partial 封存及 R6 的阶段依赖修复继续适用。
+
+## 当时的评审发现与处置
 
 P1 表示可能静默丢失上下文；P2 表示会导致错误状态、阻塞、重复执行风险或开发阶段无法按顺序完成。以下“已修订”表示文档契约已修改，不代表相应运行时行为已通过测试。
 
@@ -20,9 +22,9 @@ P1 表示可能静默丢失上下文；P2 表示会导致错误状态、阻塞�
 | R6 | P2 | S11 验容器退出，却依赖尚未实现的 S12；手机测试 TLS 入口也不明确 | 已修订：S08 提供独立 Node 测试 HTTPS / WSS 入口；S11 验 Linux 进程与双端，S12 验 Docker，S13 汇总组合闭环 | AT17、AT19、AT25、AT30；阶段与验收归属双向检查 |
 | R7 | P2 | SDK 默认 Bash 已在独立进程组；杀 worker PGID 不能证明工具退出 | 已修订：未知清理持久阻塞工作区；宿主 helper 核验容器与 scope 的预先绑定、实际 stop / wait / inspect、原子清理证据及新 scope；整容器恢复影响其他活动 Run，队列仍暂停 | S02 / AT26；S06、S12 / AT25；S12 / AT19 |
 
-对应契约：[架构](../v1-design.md)、[协议](../protocol-v1.md)、[数据与事务](../data-model.md)、[参考 SQL](../schema-v1.sql)、[开发步骤](../development-plan.md)、[验收矩阵](../acceptance.md)、[部署与清理证明](../deployment.md)。
+对应文档的当前版本：[架构](../v1-design.md)、[协议](../protocol-v1.md)、[数据与事务](../data-model.md)、[参考 SQL](../schema-v1.sql)、[开发步骤](../development-plan.md)、[验收矩阵](../acceptance.md)、[部署与故障处理](../deployment.md)。历史实现决策以初稿 / 修订提交为准，当前实现遵循以上现行文档。
 
-## R7 的补充独立核对
+## R7 的补充独立核对（历史方案，已撤回）
 
 主代理将清理证明的候选方案单独交给同一评审代理核对。补充意见指出：作用域变化只识别新的执行边界，不能证明旧容器已经停止；尤其第二个容器共用状态卷时，不能凭新的 PID namespace 解锁。
 
@@ -38,7 +40,7 @@ P1 表示可能静默丢失上下文；P2 表示会导致错误状态、阻塞�
 - [AgentSession](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)：bindExtensions 等待 session_start；setModel 修改模型后等待 model_select hook。
 - [Bash tool](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/tools/bash.ts)：Linux detached 子进程及正常 abort 的进程树清理。
 
-## 本轮验证与剩余限制
+## 当时的验证与剩余限制
 
 新增[中断与停止的合成事件](../examples/interrupted.json)，包含未完成工具输出、部分文本 / thinking、未完成工具参数和暂停的 follow-up。文档检查增加了 Markdown 表格列数、阶段与 AT 双向归属、partial 封存断言，以及持久状态 / 队列 / 执行作用域 / timeline 外键的参考 SQL 约束检查。
 
@@ -46,4 +48,4 @@ P1 表示可能静默丢失上下文；P2 表示会导致错误状态、阻塞�
 
 独立代理已对修订后的 R1–R7 做针对性复核，结论为“此前 R1–R7 已在设计层面闭合，没有发现剩余的阻断性矛盾”。复核另外提出一个非阻断 P3：命令最终 result 的持久化路径应明确。本轮也已补齐 commands.result_json 及其 JSON 约束；最终配置 / 结果独立存储，不覆盖用于幂等重放的初始 response_json。
 
-仍需后续阶段验证：真实 SDK 的文件与 hook 时序、正常 / 强制停止的工具清理、并发命令实现、Docker 恢复 helper、TLS 接入及 Android / iOS 真机。S01–S13 仍全部 not_started。首版仍不承诺 shell 副作用恰好一次、崩溃后原地续跑、跨主机接管、任意 TUI 或公开多租户执行隔离。
+当时记录的待验证项包括真实 SDK 的文件与 hook 时序、正常 / 强制停止的工具清理、并发命令实现、Docker 恢复 helper、TLS 接入及 Android / iOS 真机；其中 helper 已从现行计划删除，TUI 组件按能力清单适配。S01–S13 仍全部 not_started，不承诺 shell 副作用恰好一次、崩溃后原地续跑或已实现全部原生渲染。

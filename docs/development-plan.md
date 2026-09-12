@@ -2,7 +2,7 @@
 
 状态：执行规格，S01–S13 尚未实施。每一步的命令由该步实现；当前仅 `python3 scripts/check_docs.py` 可运行。不要把下面的命令复制进 README 当作已有产品使用说明。
 
-先读[架构](v1-design.md)、[协议](protocol-v1.md)、[数据](data-model.md)、[Bash 与 TUI 兼容要求](bash-compatibility.md)及[验收矩阵](acceptance.md)。阶段通过后在 [progress.md](progress.md) 保存真实证据，再继续下一个前置条件满足的阶段。
+先读[整体 TUI 体验原则](tui-experience.md)、[架构](v1-design.md)、[协议](protocol-v1.md)、[数据](data-model.md)、[Bash 兼容要求](bash-compatibility.md)及[验收矩阵](acceptance.md)。阶段通过后在 [progress.md](progress.md) 保存真实证据，再继续下一个前置条件满足的阶段。
 
 ## 0. 通用完成条件
 
@@ -17,17 +17,17 @@
 | 阶段 | 前置 | 核心交付 | 验收 ID |
 | --- | --- | --- | --- |
 | S01 | 无 | 工程、依赖、基础 CI | AT01 |
-| S02 | S01 | 固定版本真实 SDK 验证和 Bash / TUI 基线 | AT02, AT03, AT26, AT31 |
+| S02 | S01 | 固定版本 SDK、原生能力清单和 TUI 基线 | AT02, AT03, AT26, AT31, AT32 |
 | S03 | S01 | DTO / schema / 纯事件 reducer | AT06 |
 | S04 | S03 | 迁移、事件日志、投影与快照 | AT07, AT08 |
 | S05 | S04 | 鉴权、项目与 Session 资源 API | AT09, AT10, AT11, AT12 |
-| S06 | S02, S04, S05 | worker、调度、崩溃恢复 | AT13, AT19, AT25, AT31 |
-| S07 | S05, S06 | 执行命令、模型、压缩与表单 | AT04, AT05, AT12, AT14, AT15, AT16 |
+| S06 | S02, S04, S05 | worker、调度、崩溃恢复 | AT13, AT19, AT25, AT31, AT32 |
+| S07 | S05, S06 | 原生命令、模型、压缩与全阶段表单 | AT04, AT05, AT12, AT14, AT15, AT16, AT32 |
 | S08 | S04, S05, S07 | WSS 与可靠回放、大输出 | AT17, AT20, AT27, AT31 |
 | S09 | S03, S05 | 手机配对、项目、列表、历史 | AT21, AT22 |
-| S10 | S07, S08, S09 | 手机流式时间线、命令和表单 | AT18, AT21, AT22, AT31 |
+| S10 | S07, S08, S09 | 手机流式时间线、原生入口和表单 | AT18, AT21, AT22, AT31, AT32 |
 | S11 | S10 | 双端弱网与 Linux 进程故障闭环 | AT18, AT19, AT29 |
-| S12 | S08 | Docker、开发环境兼容、故障恢复与备份 | AT19, AT23, AT24, AT25, AT28, AT31 |
+| S12 | S08 | Docker、开发环境兼容、故障恢复与备份 | AT19, AT23, AT24, AT25, AT28, AT31, AT32 |
 | S13 | S11, S12 | 发布候选与完整验收 | AT30 |
 
 默认按编号开发。S02 缺少真实模型条件时可继续 S03–S05；不能将 S02 标为通过，也不能宣布依赖真实 SDK 的 S06 / 发布已完成。其他外部限制同理处理。
@@ -49,21 +49,22 @@
 
 ## S02 — 验证 pi SDK 的真实行为
 
-**产物**：packages/agent-pi/src 的最小 SDK 包装、测试 CLI、tests/sdk、docs/sdk-verification.md；需要时修正已发现的 SDK 文档差异。
+**产物**：packages/agent-pi/src 的最小 SDK 包装、测试 CLI、tests/sdk、docs/sdk-verification.md、docs/native-capabilities.md；需要时修正已发现的 SDK 文档差异。
 
 **实现**：
 
 1. 创建一次性 Linux 项目目录，在指定 agentDir / sessionDir 创建 Session，绑定事件后发 prompt；分别记录 SDK ID / 路径分配及首次文件出现时间，不假定 create 已写文件。
 2. 验证文本、thinking、工具参数、累计结果、最终消息、preflight、agent_end / agent_settled 的时序。
 3. 关闭再从同一有效文件恢复；验证模型、思考等级、标题及上下文。先单独配置空 Session 并销毁 manager，验证没有文件时如何重放 SQLite 配置；把缺失 / 空文件 open 的 SDK 行为记录为应用必须拦截的边界，不把它当成自动报错。
-4. 验证 setModel、getAvailableThinkingLevels、setThinkingLevel、compact、abortCompaction、steer、abort 和 bindExtensions 的实际签名与语义。
-5. 用应用提供的 extension 在活动 Run 触发四种表单；另在 session_start / model_select hook 触发，验证无 Run 阶段立即取消并提示，不等手机。确认 setModel 的 hook 抛错后实际模型值，不能假设回滚。核实 headless 模式、项目 trust / loader 行为和禁用自动项目扩展的方法。
+4. 验证 setModel、getAvailableThinkingLevels、setThinkingLevel、compact、abortCompaction、steer、abort 和 bindExtensions 的实际签名与语义。覆盖 streaming 时切模型 / 等级、等级 clamp、原生先 abort 后 compact，以及 SettingsManager.flush 后默认值持久化。
+5. 用测试 extension 在执行、session_start、model_select 及独立扩展回调触发四种表单。用测试控制客户端回答和取消，验证无 Run 时也等待实际输入，initialize 未 ready 仍处理 respond。确认 setModel hook 抛错后实际模型值，不能假设回滚；DefaultResourceLoader 按原生配置 / trust 加载项目与全局资源。
 6. 在 Linux 运行原生 Bash 的长任务及已正常返回的后台服务，记录 worker / shell 的 PID、PGID、启动标识；验证 SDK abort 对当前调用的原生行为，区分未完成调用 SIGKILL 与正常后台进程。测试 harness 清理自己的临时服务，不把测试范围变成生产限制。
 7. 按 Bash 兼容文档 B01–B08 建立可复用对照夹具：工具 schema / 结果、复杂 shell、网络 / 依赖、无默认 timeout、后台服务、非零退出后继续修复、原生大输出。用默认 SDK 执行器作确定性基线，并记录同环境 pi TUI 的实际 smoke；不通过替换为受限 Bash 工具取得测试通过。
+8. 按 T01–T08 建立整体能力清单及 `pnpm test:tui-parity` 入口，记录原生 API、适配方式、阶段和证据。覆盖工具、扩展、skills、templates、上下文、附件、用户 Bash（`!` / `!!`）、会话树 / fork / 导入导出、扩展命令 / widget；状态为 available / needs_adapter / disabled_by_owner / upstream_unavailable。验证 streaming 期间扩展命令即时执行；needs_adapter 必须有实施步骤，不能以默认禁用代替适配。新增 DTO 在相应适配实施前同步协议、schema、示例与测试。
 
-**验证**：`pnpm verify:S02` 执行无需模型的边界验证，`pnpm test:bash-parity -- --target sdk` 执行上述 Linux 对照夹具；`pnpm test:live -- --suite sdk` 执行真实模型与工具验证。检查真实文件和 session JSONL；模拟 provider 失败，再用真实 provider 完成至少一次流程。测试使用临时项目和自己的总时限，产品 Bash 未传 timeout 时仍无默认时限。
+**验证**：`pnpm verify:S02` 执行无需模型的边界验证，`pnpm test:bash-parity -- --target sdk` 和 `pnpm test:tui-parity -- --target sdk` 执行 Linux 对照夹具；`pnpm test:live -- --suite sdk` 执行真实模型与工具验证。检查真实文件和 session JSONL；模拟 provider 失败，再用真实 provider 完成至少一次流程。测试使用临时项目和自己的总时限，产品 Bash 未传 timeout 时仍无默认时限。
 
-**通过**：AT02、AT03、AT26 和 AT31 的 SDK / TUI 基线子集均有证据；负例包括无模型凭据、不支持的等级、缺失 / 空文件静默初始化、无 Run 对话框。真实请求或 TUI 基线缺失时阶段不通过。
+**通过**：AT02、AT03、AT26 及 AT31 / AT32 的 SDK / TUI 基线子集均有证据；异常例包括无模型凭据、等级有效值校准、缺失 / 空文件静默初始化、hook 抛错。无 Run 对话框的等待 / 回答是必测正常路径。真实请求或 TUI 基线缺失时阶段不通过；待后续移动适配的条目不能提前标为 available。
 
 ## S03 — 公共协议、规范事件与 reducer
 
@@ -72,11 +73,11 @@
 **实现**：
 
 1. 将 protocol-v1 的所有请求、响应、错误、内容块、事件和 Snapshot 定义为可运行 schema，导出 DTO。
-2. 编写纯函数 reducer：事件序号、消息块、工具快照、Run / command / queue / interaction 状态；不依赖 React、数据库或 SDK。
+2. 编写纯函数 reducer：事件序号、消息块、工具快照、Run / command / queue / operation / interaction 状态；不依赖 React、数据库或 SDK。Operation 为事件投影，维护 activeOperations，不另建长期操作队列。
 3. 明确最终消息校准、工具累计替换、工具参数暂存、重复和缺口处理，以及带 runId 的 partial 封存与 queueState / queueVersion；数据版本错误必须可见。
-4. 消费正常与 interrupted 合成 fixture，扩展失败 / abort、重试、压缩、等待输入、截断及未知提示，给出预期最终状态；工具未知结果不能有 isError / exitCode。
+4. 消费正常、interrupted 与 initialization-dialog 合成 fixture，扩展失败 / abort、重试、压缩、等待输入、截断及未知提示，给出预期最终状态；工具未知结果不能有 isError / exitCode。验证无 Run 的表单按 operationId 归属及操作结束移除。
 
-**验证**：`pnpm verify:S03`；AT06。按正常、重复、断批再重放的方式应用同一事件，最终状态相同；把 seq 3 跳到 5 时停止应用而非悄悄成功。工具累计快照不重复第一行；流式文本、半截工具参数、未完成工具在异常终态后全部封存，liveItems 为空且队列 paused，旧 Run 内容不能进入下一 Run。
+**验证**：`pnpm verify:S03`；AT06。按正常、重复、断批再重放的方式应用同一事件，最终状态相同；把 seq 3 跳到 5 时停止应用而非悄悄成功。工具累计快照不重复第一行；异常终态封存该 Run 的所有 partial，清空其 liveItems；有旧项才暂停，空队列 ready。旧 Run 不能污染新 Run 或独立配置表单。
 
 **通过**：服务端与 App 可共用同一 reducer；不导出 pi 类型。超长输入、错误参数类型、未知核心事件及非法状态都有失败断言。
 
@@ -90,10 +91,11 @@
 2. 实现命令收据、seq 分配、事件 / live_state / timeline / Run 状态的单事务更新，按 epoch + batchNo 去重。
 3. 实现 snapshot 读事务、封存历史分页及固定 atSeq 边界；正常完成与异常 partial 同样分页，cursor 防篡改并绑定 Session。
 4. 实现 artifact 封存元数据、路径校验及失败后的临时文件清理。
+5. 在 live_state_json 维护 Operation 投影；interactions 保存 operation_id、origin、可空 run_id / command_id 与 epoch。验证 null Run 的初始化 / 配置交互、同 Session 复合 FK 和操作终态关闭表单；最后一项取消时清空队列暂停字段。
 
 **验证**：`pnpm verify:S04`；AT07、AT08。使用真实临时 SQLite 文件而非全内存 stub，注入事务中途异常，确认事件、seq、投影全部回滚。重开数据库重放事件得到同样状态。快照取 S 后完成一个旧 partial，再分页旧历史，验证没有漏项或重复。
 
-**通过**：复合 FK、pi 持久状态、队列暂停原因、partial 封存约束、幂等键、一个活动 Run 有实际验证；异常封存 / 终态 / 交互关闭 / 队列暂停原子提交。rollback 不产生已广播事件，正常提交可再次读取。性能测试不放真实项目数据。
+**通过**：复合 FK、pi 持久状态、条件队列暂停、partial 封存、幂等键、每 Session 一个活动 Run 及无 Run 交互有实际验证；异常封存 / 终态 / 对应交互关闭 / 队列变更原子提交。rollback 不产生已广播事件，正常提交可再次读取。性能测试不放真实项目数据。
 
 ## S05 — 设备、项目与 Session API
 
@@ -102,11 +104,11 @@
 **实现**：
 
 1. 管理 CLI 生成短期配对 token，HTTP 原子消费，设备凭据只存摘要；实现 me、devices、吊销和限流。
-2. 项目 realpath、允许根、读写能力、根 identity 和 git common dir 检测；实现注册、列表和默认配置更新。
-3. 实现 Session 新建、改名、归档 / 恢复、版本冲突，snapshot / history / events 查询；未加载的 Session 不启动模型。
+2. 项目 realpath、允许根、读写能力、根 identity 和 git common dir 检测；实现注册、列表和默认配置更新。父子目录允许分别注册；相同真实目录 / 挂载身份映射到已有项目，workspaceKey 不产生默认串行门槛。
+3. 实现 Session 新建、改名、归档 / 恢复、版本冲突，snapshot / history / events 查询；未加载的 Session 不启动模型。归档仅更新元数据，运行、排队、待答及归档后的命令保持可用。
 4. 所有持久变更采用统一幂等收据，验证归属后重放原响应；事务外仅快查，操作锁和事务内在可变状态检查前重查，唯一键竞态转为原收据 / 幂等冲突。未实现的执行能力不在 capabilities 中宣称可用。
 
-**验证**：`pnpm verify:S05`；AT09、AT10、AT11、AT12。并发复用配对 token 只能成功一次；跨用户资源必须 404。用同步屏障让同键同内容的两个 create / PATCH 请求都错过事务外快查，要求同状态码及收据、只写一次，不能返回 busy / version conflict / SQL 错误；并发同键异内容只有一个成功，另一个为 IDEMPOTENCY_CONFLICT。验证 symlink、祖先目录、重复挂载身份、版本冲突和归档后拒绝。
+**验证**：`pnpm verify:S05`；AT09、AT10、AT11、AT12。并发复用配对 token 只能成功一次；跨用户资源必须 404。用同步屏障让同键同内容的两个 create / PATCH 请求都错过事务外快查，要求同状态码及收据、只写一次，不能返回 busy / version conflict / SQL 错误；并发同键异内容只有一个成功，另一个为 IDEMPOTENCY_CONFLICT。验证允许根下父子目录注册、symlink 越界和重复挂载身份、版本冲突；用持久化状态夹具验证活动 / 排队 / 待答时归档不改执行投影，实际运行由 S07 / AT32 续验。
 
 **通过**：curl / 协议测试能完成配对→项目→Session→改名→归档→恢复；重启后状态一致；响应和日志没有秘密。
 
@@ -117,15 +119,15 @@
 **实现**：
 
 1. 实现 SDK wrapper 的独立 Node 进程入口、指定 cwd、workerEpoch、ready / fatal / stopped、心跳与 IPC ACK。
-2. 主进程持单实例锁；按 workspaceKey 和 Session 调度前台 agent Run，限制 2 个活动 Run、4 个已加载 worker；仅无活动调用的 worker 可空闲回收，不额外杀已返回的后台服务。
+2. 主进程持单实例锁；同 Session 保持一个生成 Run，其他输入走原生路径；不同 Session 默认并行，包括相同工作区。默认无额外 Run / worker 数量上限、空闲回收为 0；运营者可配置容量、回收及工作区串行。可选回收只适用于无活动调用 / 待答操作的 worker，不额外杀已返回的后台服务。
 3. 分派前持久化 dispatching；run 结束依据 SDK settle 与真正状态；工具控制不被 await prompt 阻塞。
-4. 完成启动恢复、旧 epoch 拒绝、queued 按种类分类与 unknown 区分；封存 partial、关闭交互并暂停异常 Run 的 Session 队列，停止未确认时工作区 blocked。
+4. 完成启动恢复、旧 epoch 拒绝、queued 按种类分类与 unknown 区分；封存 partial、中断旧 Operation、关闭丢失回调的表单，只暂停已有后续项。未知命令不自动重投；允许用户明确发起新操作，故障记录不变成全项目封锁。
 5. 实现 SDK 映射提交 ACK、uninitialized / unflushed / persisted 状态；已有文件先校验再认领 / open，空会话重建应用 SQLite 配置，持久历史缺失 / 损坏不可静默重建。
-6. 分派前记录 executionScopeKey，验证 [部署约定](deployment.md) 中容器绑定与清理证据的纯状态逻辑；同作用域主进程重启不解除阻塞，换作用域但无可信退出证据也不解除。Linux 测试 profile 用 harness 提供执行归属，真实 Docker 注册和恢复在 S12。
+6. 分派前记录 executionScopeKey / PID 等诊断信息，验证旧 epoch 不能写入新状态；已确认仍活着的旧 AgentSession worker 先完成退出，再加载同一 JSONL，不能把 worker PGID 消失当作所有 Bash 已退出。初始化操作事件先提交，initialize 等待表单时继续处理 respond；默认保留已加载扩展内存。故障诊断和可选进程处理按 [部署约定](deployment.md)，不增加清理证明协议。
 
-**验证**：`pnpm verify:S06`；AT13、AT19、AT25 的 Linux 子集。测试同目录串行、不同目录并行、容量、公平性和空闲回收。对真实子进程在分派前后 kill worker / 主进程，旧控制取消、未知命令不重复、后续项保持暂停。配置空 Session 后回收；第一条 assistant 前崩溃；文件落盘后 / 标记提交前崩溃；删除、清空或替换持久 JSONL；每个窗口符合持久状态策略。
+**验证**：`pnpm verify:S06`；AT13、AT19、AT25 的 Linux 子集。测试同目录多 Session 并行、历史列表不启动 worker、默认已加载状态不因空闲消失；再单独配置容量 / 回收 / 串行验证选项。对真实子进程在分派前后 kill worker / 主进程，旧控制取消、未知命令不重复、旧后续项暂停，新 prompt / 配置可显式继续。配置空 Session 后主动回收；第一条 assistant 前崩溃；文件落盘后 / 标记提交前崩溃；删除、清空或替换持久 JSONL；每个窗口符合持久状态策略。
 
-**通过**：`pnpm test:bash-parity -- --target runtime` 覆盖 AT31 的生命周期子集：后台服务已返回后可跨 Run / 空闲回收继续访问，前台长 Bash 不被回收，停止当前调用不扩大到旧服务。AT25 另对未返回的 Bash SIGKILL：不能因 worker PGID 消失就自动分派下一 Run；打开项封存且恢复门槛持久。两个主实例不能同时启动。本阶段不要求 Docker，真实容器清理证明在 S12。
+**通过**：`pnpm test:bash-parity -- --target runtime` 与 `pnpm test:tui-parity -- --target runtime` 覆盖 AT31 / AT32 的生命周期子集：后台服务跨 Run / 可选回收继续，前台长 Bash 不被回收；全阶段操作可等待输入，默认原生资源保持加载。AT25 对未返回 Bash SIGKILL 后保留真实 unknown、不重投旧意图；新明确操作可继续，残留进程由测试 harness 清理。两个主实例不能同时启动。本阶段不要求 Docker。
 
 ## S07 — 命令控制与交互表单
 
@@ -133,14 +135,15 @@
 
 **实现**：
 
-1. 接入 prompt / follow_up 持久队列；异常终态暂停，cancel_queued / resume_queue 原子完成且带队列版本校验；steer / abort / respond 独立控制通道，检查 targetRunId。
-2. 实现模型 / 等级配置的 expectedVersion、空闲校验、有效值回传和跨会话隔离；标题版本单向同步。
-3. 实现 compact Run、进度 / 结果 / 取消、历史太短与繁忙的错误处理。
-4. Run 内四种 UI 请求持久化、等待、回答 CAS、取消、到期、worker 退出及重连恢复；无 Run / 非 execute 阶段立即取消并发提示，hook 失败校准实际配置。
+1. 接入空闲 prompt、活动输入的 steer / followUp、独立 follow_up 持久队列与原生 extension_command 路径。异常只暂停旧项；cancel_queued / resume_queue 原子完成且校验队列版本；新 prompt 不恢复旧队列。steer / abort 以 targetRunId 定向，respond 按 operationId / epoch 定向，控制通道不等待长调用。
+2. 实现模型 / 等级配置的 expectedVersion、原生 streaming 行为、clamp 与有效值回传；默认只改当前 Session，persist=true 时等待 SettingsManager.flush 保存默认值，其他已加载 Session 不追溯改变；标题版本单向同步。
+3. 实现 compact 原生先 abort 后压缩：旧 Run 先封存 / 结束，再启动 compact Run，分别记录命令和结果；正确处理取消、历史太短及实际 SDK 错误，不统一拒绝忙时操作。
+4. initialize / configure / run / extension 的四种 UI 请求均持久化、等待、回答 CAS、取消、到期及重连恢复；无 Run 也以 Operation 关联。操作锁不跨 UI 等待，worker 退出关闭失效回调；Run 结束不误关独立配置表单。hook 失败校准实际配置。
+5. 按 S02 能力清单实现原生资源及非终端 UI 适配；扩展命令可能只改状态或触发模型调用，Operation 与实际 Run 分开跟踪。附件、用户 Bash、会话树 / fork / 导入导出等根据已核实 API 补齐契约和对应步骤，不用任意方法反射绕过明确协议。
 
-**验证**：`pnpm verify:S07`，以及 `pnpm test:live -- --suite commands`；AT04、AT05、AT14、AT15、AT16。任务运行时发 steer、targeted abort；旧 runId 不得停新任务。同样的 follow-up 在 completed 后自动开始，在 failed / aborted / interrupted 后都暂停；取消、旧 queueVersion、重启和明确恢复分别验证。并发重复 prompt / follow_up / respond 同收据且仅生效一次，复用 S05 的竞态 harness。压缩保留上下文；配置跨 Session 隔离。session_start / model_select 中请求表单立即取消，模型 hook 失败返回实际配置而不挂起。
+**验证**：`pnpm verify:S07`、`pnpm test:live -- --suite commands` 和 `pnpm test:tui-parity -- --target commands`；AT04、AT05、AT14、AT15、AT16 及 AT32 控制子集。运行时 steer、切模型 / 等级、扩展命令与 targeted abort；旧 runId 不得停新任务。覆盖旧队列暂停、新 prompt 可用但不恢复旧项、取消最后一项变 ready、过期版本及重启。并发重复 prompt / follow_up / respond 同收据且仅生效一次，复用 S05 竞态 harness。压缩的先停止 / 保留上下文、默认值显式持久化分别验证。session_start / model_select 的表单真正等待、回答后完成；另测 hook 抛错后实际配置校准。
 
-**通过**：SDK 真实模型切换、压缩和取消有证据；四种表单正反例及到期 / 重启有确定结果；归档与繁忙检查在同一操作锁内无竞态。
+**通过**：SDK 真实模型切换、压缩、扩展命令和取消有证据；四阶段四种表单及到期 / 重启有确定结果。运行 / 待答时归档不影响任务或答复，旧队列不锁新操作；没有因应用统一 idle 校验阻挡原生能力。
 
 ## S08 — WSS、断线回放与大输出
 
@@ -180,13 +183,13 @@
 **实现**：
 
 1. 接入共享 reducer，按块渲染文本 / thinking，工具累计输出替换，最终消息校准。
-2. 顶部模型 / 思考等级、压缩 / 新建 / 改名 / 归档菜单、`/` 面板、steer / follow-up / 停止入口。
-3. 展示 pending 表单、到期状态及一次性回答；多设备更新可覆盖本地过期操作。
+2. 顶部模型 / 思考等级、压缩 / 新建 / 改名 / 归档菜单、原生扩展 `/` 面板、steer / follow-up / 停止入口。根据 S02 清单连接附件、用户 Bash 及会话操作入口；以实际能力和 SDK 条件决定状态，不把活动 Run 当作统一禁用条件。
+3. 展示所有阶段的 pending 表单、所属操作、到期状态及一次性回答；初始化未 ready 时也可回答，多设备更新可覆盖本地过期操作。
 4. 历史阅读不强制滚动、长列表虚拟化、展开工具输出、断网及恢复提示。
-5. partial 消息 / 工具显示已中断或结果未知并停止转圈；显示队列暂停原因、逐项取消和明确恢复入口。用 queueVersion 防过期操作，展示 WORKSPACE_BLOCKED / HISTORY_UNAVAILABLE 的真实阻塞原因。
+5. partial 消息 / 工具显示已中断或结果未知并停止转圈；旧队列显示暂停原因、逐项取消和明确恢复入口，同时保留新输入及配置。用 queueVersion 防过期操作，展示实际环境 / HISTORY_UNAVAILABLE 错误，不扩展到不相关入口。
 6. 按 AT31 在两平台展示长 Bash、工具错误后的自动修复、后台服务启动结果及后续访问；服务存活不把已完成工具一直显示成 running，应用不增加每条 Bash 的批准弹窗。
 
-**验证**：`pnpm verify:S10`；AT18、AT21、AT22 的执行页面部分及 AT31 的手机子集。合成 fixture 与真实后端分别验证；模拟 HTTP 响应丢失保持原幂等键。切换模型后等级列表更新，busy 命令不可误发，表单不能因断网自动确认；复用 Bash 夹具验证两平台长运行 / 后台服务 / 输出和断线观察。真实设备缺失仍记录 not_run。
+**验证**：`pnpm verify:S10`；AT18、AT21、AT22 的执行页面部分及 AT31 / AT32 的手机子集。合成 fixture 与真实后端分别验证；模拟 HTTP 响应丢失保持原幂等键。运行中切模型后等级列表更新，压缩明确展示先停止的行为，全阶段表单不能因断网自动确认。复用整体 TUI / Bash 夹具验证两平台资源、输入、并发、归档、长运行 / 后台服务和断线观察；缺适配明确记录及落实步骤，不静默吞掉入口。真实设备缺失仍记录 not_run。
 
 **通过**：手机能从真实后端发 prompt 并展示工具、配置与交互。模拟器覆盖和真实设备覆盖分别记录。
 
@@ -198,15 +201,15 @@
 
 1. 完成开始任务→锁屏→切换网络→重新前台→补事件→steer→表单→结束→恢复旧 Session 的路径。
 2. 覆盖 HTTP 请求送达但响应丢失、WSS 回放中断、重复 frame、本地缓存丢失、凭据吊销及同时两部设备操作。
-3. 注入 Linux worker / 主进程退出，与手机展示核对 queued / unknown / interrupted、partial 封存、队列暂停与工作区阻塞。清理不明场景只验证不会自动解锁；harness 负责临时进程清理，不假造生产清理证据。容器退出及恢复 helper 属于 S12，组合发布闭环由 S13 验证。
+3. 注入 Linux worker / 主进程退出，与手机展示核对 queued / unknown / interrupted、partial 封存、旧队列暂停与失效表单关闭；验证旧命令不自动重放，用户明确发起的新操作可继续，未知结果仍诚实保留。harness 负责临时进程清理，不增加生产清理证明接口。容器退出及恢复属于 S12，组合发布闭环由 S13 验证。
 
-**验证**：`pnpm verify:S11` 加 `pnpm test:device -- --platform android` 和 `pnpm test:device -- --platform ios`；AT18、AT19 的进程故障手机展示子集、AT29。在真实 Android 与 iOS 各执行一次，记录 OS、构建号、后端 commit、模型、TLS 配置及网络切换。正常完成后重启再继续的路径独立测试，不绕过故障场景的清理阻塞。
+**验证**：`pnpm verify:S11` 加 `pnpm test:device -- --platform android` 和 `pnpm test:device -- --platform ios`；AT18、AT19 的进程故障手机展示子集、AT29。在真实 Android 与 iOS 各执行一次，记录 OS、构建号、后端 commit、模型、TLS 配置及网络切换。正常完成后重启再继续、异常后新操作和旧队列明确恢复分别测试。
 
 **通过**：两端都有真实证据；日志仅保留合成任务内容。任何设备未具备时阶段不能通过，但可继续独立的 S12 部署工作。
 
 ## S12 — Linux Docker 与可运维交付
 
-**产物**：deploy/Dockerfile、compose.yaml、TLS 示例、宿主机 host-control.sh（up / restart-clean）、初始化 / doctor / pair / backup / restore CLI、tests/deployment；更新部署文档为实际可用命令。
+**产物**：deploy/Dockerfile、compose.yaml、TLS 示例、初始化 / doctor / pair / backup / restore CLI、tests/deployment；更新部署文档为实际可用命令，普通启动使用 docker compose up。
 
 **实现**：
 
@@ -214,11 +217,11 @@
 2. 实现 doctor 检查模型配置、路径、文件权限、Git / bash / Node / Python、SQLite 与模型网络；不打印秘密。
 3. 实现 TLS / WSS 路径、配对与设备吊销；生产禁用测试注入接口。
 4. 完成停止 / 备份 / 恢复流程，验证新卷恢复；明确操作会终止哪些 Run，保留中断结果。
-5. 执行前通过宿主 Docker inspect 与 /proc 核对并登记完整 container ID ↔ instanceId / executionScopeKey。restart-clean 串行 stop / wait / inspect 原容器，原子写匹配绑定的证据，再启动和登记新作用域；失败、半写入、身份不符都不能清除阻塞，不挂 Docker socket。无此证明只重启 Node / 换容器不会解锁。
+5. 按 pi 配置加载原生工具、扩展、skills、templates、上下文和用户默认值，提供 HOME / PATH / 缓存 / 网络与项目工具链。无默认并发或回收上限。记录实际残留进程诊断及必要时定向处理 / 容器重启的步骤；不要求启动登记、清理证明或 helper 才可继续工作。
 
-**验证**：`pnpm verify:S12`；AT19 的 Docker 子集、AT23、AT24、AT25、AT28、AT31 的部署子集。干净主机执行 build→登记作用域→doctor→配对→真实任务→重建→旧会话→备份→新卷恢复。用 `pnpm test:bash-parity -- --target docker` 验证同一镜像内原生 pi TUI 与后端的 Bash 语义和开发环境；已正常返回的后台服务跨 Run / 空闲回收继续。另对未返回 Bash SIGKILL：状态未知时不能自动分派下一 Run；同容器 Node 重启、第二容器或错误证据不能解锁，正确整容器停止后核对旧进程退出及队列仍暂停。注入 helper 崩溃 / stop 超时 / 半写证据；验证非 root、授权挂载、无 privileged / 默认 Docker socket。
+**验证**：`pnpm verify:S12`；AT19 的 Docker 子集、AT23、AT24、AT25、AT28 及 AT31 / AT32 部署子集。干净主机执行 build→docker compose up -d→doctor→配对→真实任务→重建→旧会话→备份→新卷恢复。用 `pnpm test:bash-parity -- --target docker` 和 `pnpm test:tui-parity -- --target docker` 对照同一镜像内原生 pi TUI 的工具、资源、控制与开发环境；后台服务跨 Run / 可选回收继续。未返回 Bash SIGKILL 后保留 unknown、不自动重放旧命令，新明确操作无需清理证明；实际测试容器重启后的进程退出及状态恢复，停止失败如实报告。验证非 root、授权挂载、无 privileged / 默认 Docker socket。
 
-**通过**：部署命令可重现，容器重建不丢历史；TERM / 超时 / 并发主实例处理准确，整容器恢复影响的其他 Run 也变 interrupted、队列 paused。清理和备份恢复有实际验证，不能只检查证据 / 备份文件存在。本阶段不依赖 S11 手机，其 Docker 结果与手机组合在 S13 验收。
+**通过**：部署命令可重现，容器重建不丢历史；TERM / 停止超时 / 并发主实例处理准确，重启影响的其他 Run 也变 interrupted，只有非空旧队列暂停。默认原生资源可用；故障与备份恢复有实际验证，不能只检查文件存在。本阶段不依赖 S11 手机，其 Docker 结果与手机组合在 S13 验收。
 
 ## S13 — 发布候选验收
 
@@ -226,13 +229,13 @@
 
 **实现**：
 
-1. 汇总 AT01–AT31、FR01–FR13 对应证据，重新运行受变更影响的检查。AT30 是汇总验收，必须先完成 AT01–AT29 及 AT31 的全部必需子集。
+1. 汇总 AT01–AT32、FR01–FR14 对应证据，重新运行受变更影响的检查。AT30 是汇总验收，必须先完成 AT01–AT29、AT31 及 AT32 的全部必需子集。
 2. 从干净 Linux 后端和干净移动端安装验证真实闭环，不复用仅在开发环境有效的缓存或手工数据库状态。
 3. 列出支持范围、已知限制、故障排查、升级与备份恢复说明；更新 README 为实际产品状态。
 
 **验证**：`pnpm verify:S13` 检查所有必需报告存在且通过，然后运行 `pnpm test:e2e`、必要的 live 回归和双端验收；AT30。缺凭据、缺设备、skip 或只有截图但缺关键步骤证据均不能通过。
 
-**通过**：所有 FR 有实际实现与验证，未知调用不会自动重复、断线不丢已提交记录，Bash 与同环境 pi TUI 的 AT31 对照全部通过。正常后台服务并存不被当成调度错误。记录实际风险和局限，不能声称提供 V1 未实现的多租户隔离或任意 TUI 组件支持。
+**通过**：所有 FR 有实际实现与验证，未知调用不会自动重复、断线不丢已提交记录，整体 TUI 与 Bash 的 AT32 / AT31 对照全部通过。原生资源、控制、标准交互与会话入口完成适配，新增限制都有实际依据；不能用永久 needs_adapter 绕过基础能力发布要求。记录实际局限，尚未完成的自定义 TUI 渲染明确列出适配步骤，不禁用其整个扩展，也不声称已完全实现。
 
 ## 交给下一位 AI 的启动指令
 

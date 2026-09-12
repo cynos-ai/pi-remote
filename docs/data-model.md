@@ -42,23 +42,27 @@ pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目�
 | users | V1 初始化唯一 owner，保留数据归属 |
 | devices | 一个设备一个高熵凭据，数据库只存摘要，可吊销 |
 | pairing_tokens | 短期单次配对 token，原值不持久化 |
-| projects | Linux root_path 唯一，root_identity 为 device:inode；workspace_key 决定串行范围；blocked_reason / blocked_scope_key 保存清理阻塞 |
+| projects | Linux root_path / root_identity 归一重复目录；workspace_key 表达路径关系，默认不强制串行；blocked_reason 仅报告真实路径不可用等错误 |
 | sessions | 项目 FK、标题 version、pi 映射及持久状态、历史错误、queue_state / queue_version / 暂停原因、last_event_seq、当前未完成内容投影 |
 | commands | 所有持久变更的初始收据 response_json 与独立最终结果 result_json；非空 scope 防止创建资源时空 sessionId 导致幂等失效 |
 | runs | 每次 prompt / compact；一个 Session 最多一个 active Run，queued 可有多个；分派前保存 execution_scope_key；正常返回的后台服务不占 Run 槽 |
 | events | PK(session_id,seq)，属于 Run 的事件通过复合 FK 保证同 Session |
 | ipc_batches | workerEpoch + batchNo 去重，提交后返回相同 ACK |
 | timeline_items | 封存消息 / 工具结果不可变，包括中断的 partial；必带同 Session 的 run_id、completeness / end_reason，保留开始及封存 seq |
-| interactions | pending 请求、到期时间、workerEpoch、一次性回答 CAS |
+| interactions | operation_id、origin、可空 run_id / command_id、workerEpoch、pending / 到期及一次性回答 CAS |
 | artifacts | 服务端生成的相对路径、大小、摘要，下载时检查会话归属 |
 
 ID 使用服务端 UUID，客户端幂等键使用 UUID；引用对客户端是不透明字符串。数据库时间使用 UTC epoch 毫秒，网络时间使用 RFC3339 UTC。JSON 在数据库为经过 schema 验证的文本。不要依赖隐式 rowid、混合时间格式或浮点 seq。
 
 Session 的 version 仅随配置与元数据变化递增，不随每个 token 变化。客户端改名 / 归档及配置命令带 expectedVersion；并发修改失败为 VERSION_CONFLICT。事件序号与 metadata version 含义不同。
 
-queue_version 独立于 Session version：队列增删、暂停、恢复均递增。ready 时暂停字段必须为空；paused 时必须指向同 Session 的异常终态 Run 和原因。共享 workspace_key 的项目一起设置进程清理阻塞；Session 队列暂停不会代替工作区锁。
+queue_version 独立于 Session version：队列增删、暂停、恢复均递增。ready 时暂停字段为空；paused 时指向同 Session 的异常终态 Run 和原因，且必须仍有待处理后续项。空队列 / 取消最后一项时清空 pause 并变 ready；新 prompt 和配置操作不受旧队列暂停限制。
 
-PROCESS_CLEANUP_UNCONFIRMED 只用于故障时未完成调用仍可能执行的恢复门槛，不用于“发现还有后台 PID”。SDK 已返回并持久化 tool.finished 的服务启动命令保留其最终结果，不因 Run 结束、归档或空闲 worker 退出被改为 unknown；不新增限制后台进程数量的业务表。工作区锁只串行前台 agent Run，允许正常后台服务与后续 Run 并存。
+后续队列成员由 queue.updated.items 投影到 sessions.live_state_json，与 queue_state / queue_version 同事务保存；不能把所有 queued 命令都当成暂停队列成员。新主动 prompt / compact 走直接调度，控制命令不进入后续队列；崩溃恢复将受中断影响且从未分派的旧执行项归入暂停成员。SQL CHECK 约束状态字段形状；成员存在、命令仍 queued 及空队列变 ready 由事务 / reducer 校验，S04 / S07 验证。
+
+撤回 PROCESS_CLEANUP_UNCONFIRMED / blocked_scope_key 的默认封锁及容器清理证明协议。Run 的 scope / PID 仅作诊断，unknown 只表示旧命令结果未知，不成为整个项目的新操作禁令。已提交的 tool.finished 不因后续 worker 退出被改写；不同 Session 和正常后台服务默认可并行。
+
+Operation 是单次 SDK 初始化、配置、执行或扩展调用的关联 ID；由 operation.updated 持久事件维护 sessions.live_state_json 中的 activeOperations 投影，不另设操作调度表。它不等同于 Run；无模型生成的操作也可等待 UI。interactions.operation_id 非空且 origin 明确，run_id 允许 null；origin=run 时必须关联同 Session Run，command_id / response_command_id 存在时也须同 Session。应用层校验操作属于当前 epoch 且仍有效。
 
 ## 3. 命令接收事务
 
@@ -69,8 +73,9 @@ PROCESS_CLEANUP_UNCONFIRMED 只用于故障时未完成调用仍可能执行的�
 唯一键冲突作为最后保护：回滚失败事务后读取胜出的已提交收据，再比较 payload_hash，返回原收据或 IDEMPOTENCY_CONFLICT；不能泄漏 SQL 异常或改成 SESSION_BUSY / VERSION_CONFLICT。哈希对 schema 规范化后的请求求值，不能混入随时间变化的当前默认模型等状态。S05 必须用屏障让两个完全相同请求同时错过快路径，验证此竞态。
 
 - 资源创建 / PATCH 在同一个事务写资源、完成的 command 及相应 session 事件，返回 201 / 200。
-- prompt / follow_up / compact 在同一个事务写 queued command、queued Run、事件及 live_state，提交后返回 202。
+- 空闲 prompt / 后续独立执行 / compact 在同一事务写 queued command、queued Run、事件及 live_state，返回 202。活动 Run 的 steer / followUp 型输入固定 commands.target_run_id，不创建第二个生成 Run；分派前重新核实原目标，终止后不误投新 Run。
 - steer / abort / respond / 配置命令不创建新 Run，写 command 及事件，提交后通过控制通道分派。
+- extension_command 先建立 Command / Operation，按实际 SDK 生命周期关联或创建 Run；不能为了凑模型 Run 而误把命令发给模型。资源配置遵循 pi 默认发现与显式覆盖，persist=true 的全局默认写入以 SettingsManager.flush 为持久边界。
 - cancel_queued / resume_queue 在接收短事务内完成应用队列变更和 completed command，返回 200；不排入 worker 控制队列。
 - 保存 schema 校验后的标准化 payload，并对稳定的规范 JSON 求 SHA256；对象字段顺序不同不视为内容不同。
 - 重试保留初次接收的 response_status / response_json，后续不可覆盖。最终结果（包括 result.actualConfig）在 command.updated 的同一事务写入独立 result_json，GET command 读取当前 state / error_code / result_json；旧收据不伪装成新一轮接收。
@@ -85,7 +90,7 @@ PROCESS_CLEANUP_UNCONFIRMED 只用于故障时未完成调用仍可能执行的�
 
 1. 核对 sessionId / workerEpoch，查 ipc_batches。已提交的同批次返回原 seq 范围；同号异内容报错。
 2. 读取 last_event_seq，给本批规范事件分配连续 seq。
-3. 插入 events，同时更新 runs / commands / interactions，使用同一 reducer 更新 sessions.live_state_json；封存项写入 timeline_items。异常终态的 run.content_sealed、交互关闭、Run 终态及队列暂停事件在同一事务内提交。
+3. 插入 events，同时更新 runs / commands / interactions，使用同一 reducer 更新 live_state（包括 activeOperations）；封存项写入 timeline_items。Run 异常封存及对应交互关闭 / 终态 / 队列变化同事务；操作终态关闭其 pending 表单并从活动投影移除，不误关另一个操作。
 4. 更新 Session / Project 活动摘要和 last_event_seq，插入 ipc_batches，提交。
 5. 提交后 ACK worker，并唤醒 WSS 订阅者读取已提交记录。
 
@@ -95,7 +100,7 @@ PROCESS_CLEANUP_UNCONFIRMED 只用于故障时未完成调用仍可能执行的�
 
 ## 5. 快照、历史及无缝回放
 
-`GET snapshot` 在一个 SQLite 读事务里读取 Session、当前 Run / 队列及暂停状态 / pending interactions、live_state 和最后 50 个已封存 timeline_items，捕获 `S=last_event_seq`。返回状态代表 exactly-through-S，手机从 S+1 接续。
+`GET snapshot` 在一个 SQLite 读事务里读取 Session、当前 Run / activeOperations / 队列 / pending interactions、live_state 和最后 50 个已封存 timeline_items，捕获 `S=last_event_seq`。返回状态代表 exactly-through-S，手机从 S+1 接续；初始化尚未 ready 的表单也可读取。
 
 快照包含所有仍打开的内容项，封存历史项不可变。历史分页 cursor 包含 `sessionId, atSeq=S, beforeOrdinalSeq, beforeItemId` 并防篡改；查询使用 `finalized_seq <= S` 和 `(ordinal_seq,item_id)` 的确定排序。消息或工具在 S 之后正常完成或被 run.content_sealed 封存时，通过后续事件从 live 状态转入历史；不会混入旧快照的历史页。异常封存保留已经接收的内容，不能捏造完整参数、工具结果或退出码。
 
@@ -105,29 +110,32 @@ live_state 仅保存未完成内容及必要状态，已完成大历史由 timel
 
 ## 6. 运行与交互恢复
 
-分派前先把 command 标为 dispatching，记录 epoch 和 Run 的 execution_scope_key，再发送 IPC。worker 的接受事件将其变为 accepted。acceptance ACK 丢失不能自动重发 prompt；它属于未知副作用窗口。故障时的作用域与清理证明按 [部署约定](deployment.md) 执行；不能只凭 worker PID / PGID 判断一个未完成 Bash 已停止，也不能因正常后台服务仍在运行就推翻已提交的最终结果。
+分派前先把 command 标为 dispatching，记录 epoch 和 Run 的 execution_scope_key，再发送 IPC。worker 接受后变 accepted。acceptance ACK 丢失不自动重发 prompt；不能仅凭 worker PGID 退出假称工具已结束，也不因此封锁未来所有新请求。实际故障处理见[部署约定](deployment.md)。
+
+同 Session 仍由一个 AgentSession worker 管理其 JSONL；epoch 只隔离 IPC，不阻止旧 SDK 实例写文件。主进程恢复时若确认旧 worker 仍在退出流程，新请求等待该实例完成正常交接后加载原会话；不能同时打开两个 SDK 实例写同一会话文件。这里核对的是该 worker，不要求所有 Bash 后代退出或提供容器清理证明；不同 Session 可继续并行。
 
 启动恢复在允许新运行前完成：
 
-- 先识别旧执行作用域和 worker 清理状态；同一作用域重启主进程不能清除进程清理阻塞。
+- 识别旧 epoch / 作用域并记录诊断，不要求宿主清理凭据作为启动条件。
 - dispatching / accepted 的不明命令 → unknown；其原始执行 Run 或 target_run_id 指向的非终态 Run → interrupted。关联已终态 Run 不改写历史结果。
-- pending interaction 的内存回调已丢失 → cancelled，保存原因 restart。
-- 对每个新进入 failed / aborted / interrupted 的 Run，先封存仍打开的消息 / 工具，再写终态并暂停该 Session 队列，即使队列目前为空也暂停。
+- 旧 activeOperations → interrupted；失去内存回调的 pending interaction → cancelled，保存原因 restart，不把旧回答送给新初始化。
+- 异常 Run 封存打开内容并写终态；仅有旧后续项时暂停这些项，空队列 ready。
 - 按下表分类尚未分派命令，写状态事件；按持久状态校验 JSONL 并恢复，不补造未保存事件。
-- 清理证明成立才解除对应工作区的进程阻塞；历史损坏等其他阻塞不能一起清除。PID 校验包含启动标识，不能误杀复用 PID 的其他进程。
+- 不自动重放未知命令，允许用户主动新操作。历史文件实际损坏只影响依赖该上下文的操作；读取历史、组织列表和其他 Session 仍可用。若需清理已定位进程，校验 PID 启动标识，不误杀复用 PID。
 
 | queued 命令种类 | 重启行为 |
 | --- | --- |
-| prompt / follow_up / compact，且 dispatched_at 为空 | 保留；只有 queue_state=ready、历史可恢复且工作区无阻塞才调度。被异常 Run 影响的同 Session 队列保持 paused |
+| prompt / follow_up / compact，且 dispatched_at 为空 | 保留；被中断执行影响的旧后续项暂停等待用户处理，未受影响的 ready 队列按 SDK 状态运行。新 prompt 不被旧暂停队列拒绝 |
 | steer / abort / respond | cancelled，reason=stale_runtime；不把旧目标控制或旧回调送入新 worker / Run |
 | set_model / set_thinking | cancelled，reason=restart_before_dispatch；重新读取有效配置后由用户发新请求，不重放旧 version |
+| extension_command | 已分派且结果不明仍 unknown；未分派的旧上下文命令 cancelled 并提示可重新提交，不静默套入新 worker |
 | cancel_queued / resume_queue、资源创建与元数据 PATCH | 应已在接收事务内 completed；若持久数据出现 queued 属于不变量损坏，报告恢复错误，不猜测重放 |
 
-正常 completed Run 允许调度后续队列；failed / aborted / interrupted 一律暂停；取消尚未开始的 queued Run 不新增暂停，也不清除已有暂停。用户可逐条 cancel_queued，然后以当前 queueVersion 和暂停 runId 调用 resume_queue（空队列也需明确恢复）。resume_queue 与校验、事件同事务完成；进程清理或历史阻塞未解除时拒绝。App 重连、归档 / 恢复和后端重启都不隐式恢复暂停队列。
+正常 completed Run 继续 ready 队列；paused 旧项不因新的主动任务完成而恢复。用户可取消旧项或以 queueVersion / 暂停 runId 明确恢复；最后一项取消后原子 ready。归档不停止执行、不改变队列；SDK / 历史错误按具体操作呈现，不增加全局空闲门槛。
 
-回答交互时，事务 CAS `status=pending`、未过期且匹配 epoch / runId，保存响应 commandId。第二个不同请求再回答返回 INTERACTION_CLOSED。保存后向 worker 投递回调也存在不明窗口；worker 退出后标记中断，不能把回答应用到新 worker。
+回答交互时，事务 CAS `status=pending`、未过期且匹配 operationId / epoch，保存响应 commandId。第二个不同请求再回答返回 INTERACTION_CLOSED。保存后投递回调存在不明窗口；worker 退出后标记中断，不把旧回答应用到新 worker。操作等待不持有 respond 所需的 mutex。
 
-只有活动 prompt / compact Run 内的受支持对话框能进入 interactions。initialize / configure 等无 Run 阶段立即返回 SDK 取消值并记录 extension_ui_unavailable notice，不插 pending 行；run_id 的非空约束据此保留。
+initialize / configure / run / extension 的标准表单都可持久化、等待和重连回答。先保存 operation.updated，再保存表单；无 Run 时 run_id=null。仅在用户取消、原生到期或操作 / worker 确实结束时返回取消值，不因初始化阶段主动禁用 UI。
 
 ## 7. 大输出与备份
 
