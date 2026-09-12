@@ -62,8 +62,8 @@ def check_traceability() -> None:
     acceptance = (ROOT / "docs/acceptance.md").read_text(encoding="utf-8")
     progress = (ROOT / "docs/progress.md").read_text(encoding="utf-8")
     stages = [f"S{i:02d}" for i in range(1, 14)]
-    checks = {f"AT{i:02d}" for i in range(1, 31)}
-    requirements = {f"FR{i:02d}" for i in range(1, 13)}
+    checks = {f"AT{i:02d}" for i in range(1, 32)}
+    requirements = {f"FR{i:02d}" for i in range(1, 14)}
     require(re.findall(r"^## (S\d{2})\b", plan, re.M) == stages, "Stage headings differ")
     require(set(re.findall(r"^\| (FR\d{2}) \|", design, re.M)) == requirements,
             "Product requirements differ")
@@ -75,7 +75,7 @@ def check_traceability() -> None:
                 f"Invalid dependency at {stage}")
     require(set(re.findall(r"\bAT\d{2}\b", plan)) == checks, "Plan/check mapping differs")
     at_rows = re.findall(r"^\| (AT\d{2}) \| ([^|]+) \| ([^|]+) \|", acceptance, re.M)
-    require(len(at_rows) == 30 and {row[0] for row in at_rows} == checks, "Acceptance IDs differ")
+    require(len(at_rows) == len(checks) and {row[0] for row in at_rows} == checks, "Acceptance IDs differ")
     require(set(re.findall(r"\bFR\d{2}\b", acceptance)) == requirements, "Requirement coverage differs")
     for check, frs, owners in at_rows:
         require(set(re.findall(r"FR\d{2}", frs)) <= requirements, f"Unknown FR at {check}")
@@ -92,6 +92,11 @@ def check_traceability() -> None:
                 for _, status in progress_rows), "Unknown progress state")
     for stage in stages:
         require(f"pnpm verify:{stage}" in plan, f"Missing verification entry: {stage}")
+    bash_parity = (ROOT / "docs/bash-compatibility.md").read_text(encoding="utf-8")
+    require(re.findall(r"^\| (B\d{2})\b", bash_parity, re.M) == [f"B{i:02d}" for i in range(1, 9)],
+            "Bash/TUI comparison matrix differs")
+    require({stage for stage, check in plan_edges if check == "AT31"}
+            == {"S02", "S06", "S08", "S10", "S12"}, "Bash parity stage ownership differs")
 
 
 def check_fixture() -> int:
@@ -297,7 +302,7 @@ def main() -> None:
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
     require("MIT License" in license_text and 'THE SOFTWARE IS PROVIDED "AS IS"' in license_text,
             "MIT license missing")
-    print(f"PASS: {count} Markdown files and links; 13 stages; 12 requirements; 30 acceptance cases.")
+    print(f"PASS: {count} Markdown files and links; 13 stages; 13 requirements; 31 acceptance cases; 8 Bash/TUI comparison cases.")
     print(f"PASS: {events} synthetic events; {tables} SQLite reference tables and integrity constraints; MIT license.")
     print("Application, live SDK, Docker and device checks: NOT RUN (documentation-only repository).")
 

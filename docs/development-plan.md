@@ -2,7 +2,7 @@
 
 状态：执行规格，S01–S13 尚未实施。每一步的命令由该步实现；当前仅 `python3 scripts/check_docs.py` 可运行。不要把下面的命令复制进 README 当作已有产品使用说明。
 
-先读 [架构](v1-design.md)、[协议](protocol-v1.md)、[数据](data-model.md)与[验收矩阵](acceptance.md)。阶段通过后在 [progress.md](progress.md) 保存真实证据，再继续下一个前置条件满足的阶段。
+先读[架构](v1-design.md)、[协议](protocol-v1.md)、[数据](data-model.md)、[Bash 与 TUI 兼容要求](bash-compatibility.md)及[验收矩阵](acceptance.md)。阶段通过后在 [progress.md](progress.md) 保存真实证据，再继续下一个前置条件满足的阶段。
 
 ## 0. 通用完成条件
 
@@ -17,17 +17,17 @@
 | 阶段 | 前置 | 核心交付 | 验收 ID |
 | --- | --- | --- | --- |
 | S01 | 无 | 工程、依赖、基础 CI | AT01 |
-| S02 | S01 | 固定版本真实 SDK 验证和适配器边界 | AT02, AT03, AT26 |
+| S02 | S01 | 固定版本真实 SDK 验证和 Bash / TUI 基线 | AT02, AT03, AT26, AT31 |
 | S03 | S01 | DTO / schema / 纯事件 reducer | AT06 |
 | S04 | S03 | 迁移、事件日志、投影与快照 | AT07, AT08 |
 | S05 | S04 | 鉴权、项目与 Session 资源 API | AT09, AT10, AT11, AT12 |
-| S06 | S02, S04, S05 | worker、调度、崩溃恢复 | AT13, AT19, AT25 |
+| S06 | S02, S04, S05 | worker、调度、崩溃恢复 | AT13, AT19, AT25, AT31 |
 | S07 | S05, S06 | 执行命令、模型、压缩与表单 | AT04, AT05, AT12, AT14, AT15, AT16 |
-| S08 | S04, S05, S07 | WSS 与可靠回放、大输出 | AT17, AT20, AT27 |
+| S08 | S04, S05, S07 | WSS 与可靠回放、大输出 | AT17, AT20, AT27, AT31 |
 | S09 | S03, S05 | 手机配对、项目、列表、历史 | AT21, AT22 |
-| S10 | S07, S08, S09 | 手机流式时间线、命令和表单 | AT18, AT21, AT22 |
+| S10 | S07, S08, S09 | 手机流式时间线、命令和表单 | AT18, AT21, AT22, AT31 |
 | S11 | S10 | 双端弱网与 Linux 进程故障闭环 | AT18, AT19, AT29 |
-| S12 | S08 | Docker、容器恢复证明、部署、备份 | AT19, AT23, AT24, AT25, AT28 |
+| S12 | S08 | Docker、开发环境兼容、故障恢复与备份 | AT19, AT23, AT24, AT25, AT28, AT31 |
 | S13 | S11, S12 | 发布候选与完整验收 | AT30 |
 
 默认按编号开发。S02 缺少真实模型条件时可继续 S03–S05；不能将 S02 标为通过，也不能宣布依赖真实 SDK 的 S06 / 发布已完成。其他外部限制同理处理。
@@ -58,11 +58,12 @@
 3. 关闭再从同一有效文件恢复；验证模型、思考等级、标题及上下文。先单独配置空 Session 并销毁 manager，验证没有文件时如何重放 SQLite 配置；把缺失 / 空文件 open 的 SDK 行为记录为应用必须拦截的边界，不把它当成自动报错。
 4. 验证 setModel、getAvailableThinkingLevels、setThinkingLevel、compact、abortCompaction、steer、abort 和 bindExtensions 的实际签名与语义。
 5. 用应用提供的 extension 在活动 Run 触发四种表单；另在 session_start / model_select hook 触发，验证无 Run 阶段立即取消并提示，不等手机。确认 setModel 的 hook 抛错后实际模型值，不能假设回滚。核实 headless 模式、项目 trust / loader 行为和禁用自动项目扩展的方法。
-6. 在 Linux 运行默认 Bash 的受限长工具，记录 worker / shell 的 PID、PGID、启动标识；确认 detached Bash 与 worker 不同组，验证正常 abort 的实际清理与 worker SIGKILL 后的剩余进程。测试 harness 清理临时进程并记录，不能把 kill worker PGID 当作清理证据。
+6. 在 Linux 运行原生 Bash 的长任务及已正常返回的后台服务，记录 worker / shell 的 PID、PGID、启动标识；验证 SDK abort 对当前调用的原生行为，区分未完成调用 SIGKILL 与正常后台进程。测试 harness 清理自己的临时服务，不把测试范围变成生产限制。
+7. 按 Bash 兼容文档 B01–B08 建立可复用对照夹具：工具 schema / 结果、复杂 shell、网络 / 依赖、无默认 timeout、后台服务、非零退出后继续修复、原生大输出。用默认 SDK 执行器作确定性基线，并记录同环境 pi TUI 的实际 smoke；不通过替换为受限 Bash 工具取得测试通过。
 
-**验证**：`pnpm verify:S02` 执行无需网络的边界验证；`pnpm test:live -- --suite sdk` 执行真实模型与工具验证。使用受限 bash 脚本输出两行并编辑临时文件，检查真实文件和 session JSONL；模拟 provider 失败验证重试事件，再用真实 provider 完成至少一次流程。
+**验证**：`pnpm verify:S02` 执行无需模型的边界验证，`pnpm test:bash-parity -- --target sdk` 执行上述 Linux 对照夹具；`pnpm test:live -- --suite sdk` 执行真实模型与工具验证。检查真实文件和 session JSONL；模拟 provider 失败，再用真实 provider 完成至少一次流程。测试使用临时项目和自己的总时限，产品 Bash 未传 timeout 时仍无默认时限。
 
-**通过**：AT02、AT03、AT26 都有对应证据；负例包括无模型凭据、不支持的等级、缺失 / 空文件静默初始化、无 Run 对话框及工具组差异。真实请求缺失时阶段不通过，不能只保留一个 mock demo。
+**通过**：AT02、AT03、AT26 和 AT31 的 SDK / TUI 基线子集均有证据；负例包括无模型凭据、不支持的等级、缺失 / 空文件静默初始化、无 Run 对话框。真实请求或 TUI 基线缺失时阶段不通过。
 
 ## S03 — 公共协议、规范事件与 reducer
 
@@ -116,7 +117,7 @@
 **实现**：
 
 1. 实现 SDK wrapper 的独立 Node 进程入口、指定 cwd、workerEpoch、ready / fatal / stopped、心跳与 IPC ACK。
-2. 主进程持单实例锁；按 workspaceKey 和 Session 调度，限制 2 个活动 Run、4 个已加载 worker，空闲回收。
+2. 主进程持单实例锁；按 workspaceKey 和 Session 调度前台 agent Run，限制 2 个活动 Run、4 个已加载 worker；仅无活动调用的 worker 可空闲回收，不额外杀已返回的后台服务。
 3. 分派前持久化 dispatching；run 结束依据 SDK settle 与真正状态；工具控制不被 await prompt 阻塞。
 4. 完成启动恢复、旧 epoch 拒绝、queued 按种类分类与 unknown 区分；封存 partial、关闭交互并暂停异常 Run 的 Session 队列，停止未确认时工作区 blocked。
 5. 实现 SDK 映射提交 ACK、uninitialized / unflushed / persisted 状态；已有文件先校验再认领 / open，空会话重建应用 SQLite 配置，持久历史缺失 / 损坏不可静默重建。
@@ -124,7 +125,7 @@
 
 **验证**：`pnpm verify:S06`；AT13、AT19、AT25 的 Linux 子集。测试同目录串行、不同目录并行、容量、公平性和空闲回收。对真实子进程在分派前后 kill worker / 主进程，旧控制取消、未知命令不重复、后续项保持暂停。配置空 Session 后回收；第一条 assistant 前崩溃；文件落盘后 / 标记提交前崩溃；删除、清空或替换持久 JSONL；每个窗口符合持久状态策略。
 
-**通过**：正常 abort 确认长 Bash 及其子进程退出；另让 Bash 持续写临时标记时 SIGKILL worker，证明即使 worker PGID 消失也不会启动第二个 writer。打开项封存且阻塞持久；同作用域 Node 重启仍阻塞。两个主实例不能同时启动。本阶段不要求 Docker，容器退出证明的实际有效性在 S12 验证，不以模拟代替。
+**通过**：`pnpm test:bash-parity -- --target runtime` 覆盖 AT31 的生命周期子集：后台服务已返回后可跨 Run / 空闲回收继续访问，前台长 Bash 不被回收，停止当前调用不扩大到旧服务。AT25 另对未返回的 Bash SIGKILL：不能因 worker PGID 消失就自动分派下一 Run；打开项封存且恢复门槛持久。两个主实例不能同时启动。本阶段不要求 Docker，真实容器清理证明在 S12。
 
 ## S07 — 命令控制与交互表单
 
@@ -149,11 +150,11 @@
 
 1. 单次设备绑定 ticket、WSS 首帧认证、超时、吊销断连、每会话授权、心跳和订阅上限。
 2. 从数据库 tail 事件，消除历史 / 实时交接竞态；snapshot atSeq 与回放配套。
-3. 有界发送缓冲、慢消费者 resync、输出替换与 artifact 封存 / 授权，禁止无界内存增长。
+3. 有界发送缓冲、慢消费者 resync、输出替换与 artifact 封存 / 授权，禁止无界内存增长。只处理 SDK 输出的展示副本，手机配额 / 慢连接不裁剪模型结果、不删除原生输出文件、不结束 Bash。
 4. GET command 与列表刷新支持丢失 ACK 后恢复；catalog.changed 只作刷新提示。
 5. 实现 `pnpm test:serve -- --tls-cert <path> --tls-key <path>` 测试入口供 S10–S11 设备接入，可在 Linux 直接运行 Node。使用有效测试域名证书或两平台已信任的测试 CA，证书私钥留仓库外；不放宽 ATS / cleartext，不依赖 S12 的 Compose / Caddy。生产 TLS 由 S12 交付。
 
-**验证**：`pnpm verify:S08`；AT17、AT20、AT27。生产事件同时反复断连和 snapshot，重放必须连续且一致；让客户端读取暂停，服务继续执行并关闭慢连接，重连补全。大输出达到边界有截断 / 资源引用，越权读取被拒绝。
+**验证**：`pnpm verify:S08`；AT17、AT20、AT27、AT31 的输出子集。生产事件同时断连和 snapshot，重放连续且一致；慢客户端关闭不影响执行，重连补全。达到 artifact 配额仍保持 Bash 及模型原生输出，后续 Bash 可读 SDK 保留的文件；显示明确截断，越权下载被拒绝。
 
 **通过**：Node 客户端通过测试 HTTPS / WSS 完成真实 SDK 指令→工具→断网→重连；测试入口的证书配置有复现说明。没有未经提交就发出的事件，设备吊销同时影响 HTTP 与已有 WSS。
 
@@ -183,8 +184,9 @@
 3. 展示 pending 表单、到期状态及一次性回答；多设备更新可覆盖本地过期操作。
 4. 历史阅读不强制滚动、长列表虚拟化、展开工具输出、断网及恢复提示。
 5. partial 消息 / 工具显示已中断或结果未知并停止转圈；显示队列暂停原因、逐项取消和明确恢复入口。用 queueVersion 防过期操作，展示 WORKSPACE_BLOCKED / HISTORY_UNAVAILABLE 的真实阻塞原因。
+6. 按 AT31 在两平台展示长 Bash、工具错误后的自动修复、后台服务启动结果及后续访问；服务存活不把已完成工具一直显示成 running，应用不增加每条 Bash 的批准弹窗。
 
-**验证**：`pnpm verify:S10`；AT18、AT21、AT22 的执行页面部分。合成 fixture 与真实后端分别验证；模拟 HTTP 响应丢失保持原幂等键。切换模型后等级列表更新，busy 命令不可误发，表单不能因断网自动确认。
+**验证**：`pnpm verify:S10`；AT18、AT21、AT22 的执行页面部分及 AT31 的手机子集。合成 fixture 与真实后端分别验证；模拟 HTTP 响应丢失保持原幂等键。切换模型后等级列表更新，busy 命令不可误发，表单不能因断网自动确认；复用 Bash 夹具验证两平台长运行 / 后台服务 / 输出和断线观察。真实设备缺失仍记录 not_run。
 
 **通过**：手机能从真实后端发 prompt 并展示工具、配置与交互。模拟器覆盖和真实设备覆盖分别记录。
 
@@ -214,7 +216,7 @@
 4. 完成停止 / 备份 / 恢复流程，验证新卷恢复；明确操作会终止哪些 Run，保留中断结果。
 5. 执行前通过宿主 Docker inspect 与 /proc 核对并登记完整 container ID ↔ instanceId / executionScopeKey。restart-clean 串行 stop / wait / inspect 原容器，原子写匹配绑定的证据，再启动和登记新作用域；失败、半写入、身份不符都不能清除阻塞，不挂 Docker socket。无此证明只重启 Node / 换容器不会解锁。
 
-**验证**：`pnpm verify:S12`；AT19 的 Docker 子集、AT23、AT24、AT25、AT28。在干净 Linux Docker 主机执行 build→登记作用域→doctor→配对→真实任务→重建容器→继续旧会话→备份→新卷恢复。长 Bash 中 SIGKILL worker：原工具仍可能写入时绝不出现第二 writer；同容器 Node 重启、第二容器共用卷、错误容器退出证明均不能解锁；正确整容器停止后证明旧 Bash 不再写入，验证新作用域并解除进程阻塞，原队列仍暂停。注入 helper 崩溃 / stop 超时 / 半写证据。验证非 root、授权挂载、无 privileged / Docker socket。
+**验证**：`pnpm verify:S12`；AT19 的 Docker 子集、AT23、AT24、AT25、AT28、AT31 的部署子集。干净主机执行 build→登记作用域→doctor→配对→真实任务→重建→旧会话→备份→新卷恢复。用 `pnpm test:bash-parity -- --target docker` 验证同一镜像内原生 pi TUI 与后端的 Bash 语义和开发环境；已正常返回的后台服务跨 Run / 空闲回收继续。另对未返回 Bash SIGKILL：状态未知时不能自动分派下一 Run；同容器 Node 重启、第二容器或错误证据不能解锁，正确整容器停止后核对旧进程退出及队列仍暂停。注入 helper 崩溃 / stop 超时 / 半写证据；验证非 root、授权挂载、无 privileged / 默认 Docker socket。
 
 **通过**：部署命令可重现，容器重建不丢历史；TERM / 超时 / 并发主实例处理准确，整容器恢复影响的其他 Run 也变 interrupted、队列 paused。清理和备份恢复有实际验证，不能只检查证据 / 备份文件存在。本阶段不依赖 S11 手机，其 Docker 结果与手机组合在 S13 验收。
 
@@ -224,13 +226,13 @@
 
 **实现**：
 
-1. 汇总 AT01–AT30、FR01–FR12 对应证据，重新运行受变更影响的检查。
+1. 汇总 AT01–AT31、FR01–FR13 对应证据，重新运行受变更影响的检查。AT30 是汇总验收，必须先完成 AT01–AT29 及 AT31 的全部必需子集。
 2. 从干净 Linux 后端和干净移动端安装验证真实闭环，不复用仅在开发环境有效的缓存或手工数据库状态。
 3. 列出支持范围、已知限制、故障排查、升级与备份恢复说明；更新 README 为实际产品状态。
 
 **验证**：`pnpm verify:S13` 检查所有必需报告存在且通过，然后运行 `pnpm test:e2e`、必要的 live 回归和双端验收；AT30。缺凭据、缺设备、skip 或只有截图但缺关键步骤证据均不能通过。
 
-**通过**：所有 FR 有实际实现与对应验证，没有未知 writer、自动重复副作用、断线丢消息等未解决问题。记录实际风险和局限，不能声称提供 V1 未实现的多租户隔离或任意 TUI 支持。
+**通过**：所有 FR 有实际实现与验证，未知调用不会自动重复、断线不丢已提交记录，Bash 与同环境 pi TUI 的 AT31 对照全部通过。正常后台服务并存不被当成调度错误。记录实际风险和局限，不能声称提供 V1 未实现的多租户隔离或任意 TUI 组件支持。
 
 ## 交给下一位 AI 的启动指令
 

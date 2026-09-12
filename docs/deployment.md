@@ -18,6 +18,8 @@
 
 模型服务在网络另一端，SDK 在容器内调用它。项目编辑、Git、bash、构建和测试都在 Linux 容器里执行，不继承宿主机的软件环境。Android / iOS App 的发布构建是另一条流水线；Linux 后端容器不负责运行 Xcode。
 
+这里的容器是用户的 Linux 开发环境，Bash 按[原生 TUI 兼容要求](bash-compatibility.md)运行。普通 Bash、后台服务、网络请求、安装依赖和构建测试没有应用级命令过滤或逐条批准；运行环境的工具链、网络与权限应按项目配置齐全。
+
 ## 2. 镜像与目录
 
 多阶段构建：构建阶段用固定 Node 24 LTS Debian slim 与 pnpm / lockfile；运行阶段只带编译产物、生产依赖、Node、Git、bash、Python 3、CA 证书、openssh-client、tini 和 flock 所需工具。编译器按首批项目工具链需要加入，版本在 S12 固定并记录镜像 digest。
@@ -37,7 +39,7 @@
 
 SQLite 放本机 ext4 / xfs 等支持正确文件锁的持久卷，不用 NFS / SMB / 同步网盘。项目源文件可 bind mount，但若来自网络文件系统，要另行验证 Git、文件锁和延迟；不把它当作 V1 默认运行环境。
 
-初始镜像支持一套统一 Linux 工具链。不同项目需要不同系统依赖时，运营者扩展镜像；V1 不提供每项目动态安装 root 软件或独立构建镜像功能。
+初始镜像支持一套统一 Linux 工具链。不同项目需要不同系统依赖时，运营者扩展镜像并配置权限；用户目录内的包管理、虚拟环境、依赖下载和项目安装脚本可以直接通过 Bash 执行，不经过额外审批。系统软件安装遵循同 UID/GID 的 Linux 权限。V1 不把每个 Bash 命令放入缺少项目环境的一次性沙箱。
 
 ## 3. 配置契约
 
@@ -67,7 +69,7 @@ OAuth 可能需要刷新并写入状态；只读挂载 auth.json 时不能假设
 - 普通 Docker 模式下合理 drop capabilities、no-new-privileges，验证同用户子进程及工具仍可工作；不能只凭配置宣称有多租户沙箱。
 - 单实例锁 `/state/instance.lock`，第二个 app 不能同时对同一状态卷运行。不要设置两个副本共享 SQLite。
 - readiness 只有迁移、恢复、单实例锁及当前 Docker 执行作用域登记完成后成功。存在单个工作区的清理阻塞时可服务其他工作区，但不能绕过该阻塞。模型未配置可明确报告待配置，不把秘密放进 healthz。
-- 设置日志轮转、资源限制与输出上限，日志不记录 Authorization、WS ticket、pairing token 或模型凭据。
+- 设置运行日志轮转、可配置的容器资源和手机展示上限；展示配额不得裁剪 SDK 的模型结果或终止 Bash。日志不记录 Authorization、WS ticket、pairing token 或模型凭据。没有应用级 Bash 默认时限。
 - 开发 HTTP 入口只用于明确的本地测试。真实手机接入验收使用有效 HTTPS / WSS；不长期依赖放宽 Android cleartext 或 iOS ATS。
 
 Linux 容器中的 localhost 指向自己。项目需要外部数据库、宿主机服务、VPN 或私有 Git 时，部署者明确配置网络与凭据。若项目需要 Docker / Compose，单独设计该执行能力，不把宿主机 daemon socket 作为默认依赖。
@@ -83,7 +85,7 @@ docker compose --env-file .env -f deploy/compose.yaml exec app node apps/server/
 docker compose --env-file .env -f deploy/compose.yaml exec app node apps/server/dist/cli.js pair --ttl 600
 ```
 
-host-control 在宿主机调用 Docker CLI 启动 / 登记当前运行实例；应用不挂 Docker socket。直接 compose up 可以启动 API，但在有效登记前不能执行 Run。自动重启后 helper 可重新登记当前作用域；登记本身不解除历史上的清理阻塞。
+host-control 在宿主机调用 Docker CLI 启动 / 登记当前运行实例；应用不挂 Docker socket。直接 compose up 可以启动 API，但在有效登记前不能执行 Run。登记是部署时的自动归属校验，不检查命令内容、不向用户请求逐条审批；每个普通命令和每次 Run 结束都不需要调用 helper。自动重启后 helper 可重新登记当前作用域；登记本身不解除历史上的清理阻塞。
 
 doctor 检查：目录真实路径、读写及文件归属、Git / bash / Node / Python、SQLite 外键 / WAL / 迁移、默认模型可用性、模型网络、pi 历史错误、队列暂停、当前作用域登记及清理阻塞。它应返回结构化成功 / 失败和非零退出码，不打印密钥。
 
@@ -91,9 +93,11 @@ pair 在管理终端生成高熵单次 token 或包含它的 QR，10 分钟过�
 
 镜像构建和初始化不能偷偷读取开发者的个人 pi 或 SSH 目录。明确的项目配置、凭据和宿主机路径只在部署时注入。
 
-### 5.1 Bash 清理与完整容器恢复
+### 5.1 未完成调用的故障恢复
 
-SDK 0.85.1 的默认 Bash 在 Linux 用 `detached:true`，shell 的进程组通常不同于 worker。正常 abort 通过 SDK 的进程树清理并确认结束；杀 worker 的 PGID 不能替代这一确认。活动执行中 worker SIGKILL、停止超时或父进程崩溃且工具状态未知时，对受影响 workspace_key 保存 `blocked_reason=PROCESS_CLEANUP_UNCONFIRMED` 和旧 `blocked_scope_key`。时间线可立即封存为中断，但工作区不能启动第二个 writer。
+SDK 0.85.1 的默认 Bash 在 Linux 用 `detached:true`，shell 的进程组通常不同于 worker。正常停止使用 SDK abort 并等待当前调用返回，不额外清扫已正常返回的后台服务；杀 worker 的 PGID 不能替代 SDK 的停止结果。只有活动执行中 SIGKILL、停止超时或主进程崩溃且未完成调用状态未知时，才对受影响 workspace_key 保存 `blocked_reason=PROCESS_CLEANUP_UNCONFIRMED` 和旧 `blocked_scope_key`，阻止应用自动分派下一 Run。该门槛不保证整个目录只有一个 OS writer。
+
+正常 Bash 返回后留下的 nohup、setsid、开发服务器或 watcher 属于正常运行环境：不把它们当成未知残留，不等待它们退出才完成 Run，不因归档、切换 Session 或空闲 worker 回收额外清理。用户可在后续 Bash 中访问、观察和停止服务。若 SDK 本身因未重定向的输出句柄仍在等待，按原生行为继续运行，不伪造 tool.finished。
 
 V1 使用以下恢复契约，不增加独立 runner 或容器内 Docker 权限：
 
@@ -103,17 +107,17 @@ V1 使用以下恢复契约，不增加独立 runner 或容器内 Docker 权限�
 4. 退出确认后，通过仅挂 state 的维护步骤写小型 JSON 证据 `{formatVersion:1,instanceId,previousScopeKey,containerId,verificationId,verifiedAt}`，先临时写后原子替换。证据中的 containerId 必须来自预先核验的作用域绑定，不能随便选择一个已停止容器并抄入旧 scope。helper 与常驻 app 不同时写 SQLite；证据放 runtime 目录，由 app 恢复入口消费。此时再启动 app 并登记新作用域。
 5. app 同时验证证据匹配 instanceId / 原作用域 / 原容器绑定、当前 scope 已变化，才解除对应的 PROCESS_CLEANUP_UNCONFIRMED。重复消费证据幂等；半写入或不匹配保持阻塞。原 Run 仍 interrupted、原 command 仍 unknown、Session 队列仍 paused。历史文件损坏等其他阻塞不能一并清除。
 
-完整重启会影响 app 容器内其他项目的活动 Run，移动端需提前显示该影响；这些 Run 同样保留中断记录并暂停队列。普通完成、工具退出已确认和空闲 worker 回收不需要此恢复操作。
+完整重启会影响 app 容器内其他项目的活动 Run 及后台服务，执行运维入口时需显示该影响；活动 Run 保留中断记录并暂停队列。它只用于无法确认未知调用状态的故障处理。普通完成、服务启动命令正常返回和空闲 worker 回收无需此操作，后台服务继续运行。
 
 同 scope 内重启 Node 不能解锁；换一个容器、换 boot ID 或复制状态卷也不能凭作用域不同自行解锁。第二个容器的新 PID namespace 不能证明旧容器已退出。旧绑定无法核实时停止自动恢复，按已停机的一致备份恢复流程处理；V1 不实现跨主机接管推断。证据只是单 owner 的受控运维记录，不增加签名系统或声称它是多租户安全隔离。
 
-S06 在 Linux harness 验证阻塞 / 证据状态逻辑；S12 必须在真实 Docker 中用长 Bash 写临时标记后 SIGKILL worker，观察残留工具、同容器 Node 重启和第二容器均无法触发第二 writer。正确 helper 停止后核对旧进程退出、标记停止增长、新作用域及队列仍暂停；再注入错误容器证据、helper 崩溃、stop 超时和半写证据，不能只检查某个 JSON 文件存在。
+S06 在 Linux harness 验证阻塞 / 证据状态逻辑；S12 在真实 Docker 中对**尚未返回**的长 Bash SIGKILL worker，确认其结果未知时，同容器 Node 重启和第二容器均不能自动分派后续 Run。正确 helper 停止后核对旧进程退出、标记停止增长、新作用域及队列仍暂停；再注入错误证据、helper 崩溃、stop 超时和半写证据。另以 AT31 对照**已正常返回**的后台服务：它应跨 Run 和空闲回收继续运行，不需要 helper，也不触发 blocked。
 
 ## 6. 停止、备份与恢复
 
 S12 提供 `maintenance enter / exit`、`backup --destination <path>`、`restore --source <path>`，并将其真实使用方式写入发布安装说明。
 
-一致备份顺序：进入维护模式，拒绝新变更请求但允许状态查询与停止 → 等待 Run 结束或明确中止 → 确认 worker / 工具停止（不明时先走完整容器恢复）→ 停写 → SQLite checkpoint / backup → 拷贝对应 pi / outputs / 必要配置及 runtime 归属记录 → 记录 manifest 与 hash → 恢复服务。
+一致备份顺序：进入维护模式，拒绝新变更请求但允许状态查询与停止 → 等待 Run 结束或明确中止 → 确认当前 SDK 调用已结束（未知执行先按故障流程处理）→ 停写 → SQLite checkpoint / backup → 拷贝对应 pi / outputs / 必要配置及 runtime 归属记录 → 记录 manifest 与 hash → 恢复服务。后台服务存活本身不阻塞 app 状态备份；若服务也修改备份范围内的数据，由运维流程先停止该写入。项目代码 / 服务数据的一致备份另按项目执行，不能通过每次 Run 后杀服务来实现。
 
 backup 目的地必须显式指定且不在项目目录。备份包含凭据时应有受限权限及运营者选定的加密存储；不能上传到公开仓库。工具 cache 无需纳入会话备份。
 
@@ -128,7 +132,8 @@ backup 目的地必须显式指定且不在项目目录。备份包含凭据时�
 | 无法写项目文件 | doctor 校验 UID/GID、挂载及 owner；修正授权目录，不全局 chmod 777 |
 | 手机连上但无事件 | 区分 ticket 认证、Session 授权、cursor / 缺口和 proxy upgrade；不能重新执行 prompt 来“刷新” |
 | 模型不可用 | 显示可修正的鉴权 / 模型错误；不输出配置内容 |
-| worker 清理不明 | workspace blocked，经 host-control restart-clean 核验原容器退出并登记新作用域；原命令不重跑，队列不自动恢复 |
+| 未完成调用崩溃且状态不明 | workspace blocked，确需整环境恢复时使用 host-control restart-clean；原命令不重跑，队列不自动恢复 |
+| 命令返回后服务还在运行 | 正常行为，允许后续 Run 继续使用；通过 Bash 管理服务，不触发清理门槛 |
 | pi 历史缺失 / 损坏 | HISTORY_UNAVAILABLE，保护原文件；恢复匹配备份并校验，不直接 SDK open 创建空会话 |
 | 空会话没有 JSONL | uninitialized / unflushed 时可正常重建，重放 SQLite 已确认配置；不是默认的损坏告警 |
 | SQLite 写失败 / 磁盘满 | 停止接收新任务，停止继续生成无法保存的输出，告知恢复需求 |

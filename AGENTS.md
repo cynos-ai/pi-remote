@@ -15,11 +15,12 @@
 - V1 的执行目标是统一 Linux 环境，Docker Compose 为默认交付方式。移动端仍包含 Android 和 iOS；iOS 编译与设备验收需要 macOS / 云构建或已有安装包。
 - 保持单主服务、按需 session worker、SQLite、pi JSONL 的边界。默认不增加 PG、Redis、Matrix、云 relay 或独立 runner。
 - pi SDK 固定为 0.85.1；先通过 S02 验证再升级。只有 packages/agent-pi 可以导入 pi SDK 类型，公共协议不可泄漏其内部类型。
-- 服务端只使用已提交的规范事件流驱动手机；先持久化再广播。同一工作区串行执行，控制命令不能被长 prompt 阻塞。
+- 服务端只使用已提交的规范事件流驱动手机；先持久化再广播。同一工作区的前台 agent Run 串行分派，控制命令不能被长 prompt 阻塞；正常后台服务可与后续 Run 并存。
+- Bash 按 docs/bash-compatibility.md 与原生 pi TUI 对齐：保留默认执行器、命令 / 模型结果语义、无默认超时、后台命令及网络 / 开发工具。不加命令过滤、审批或路径沙箱；手机显示配额不得限制模型工具能力。
 - 不把 `agent_end` 当作任务成功；不把 shell 副作用当成可以凭幂等键恰好执行一次；不在崩溃后盲目重发已分派但状态未知的命令。
 - 空 Session 的 SDK 路径不代表文件已落盘；按持久状态初始化 / 校验，禁止对缺失或损坏的持久历史直接 open 以免静默重建。
 - failed / aborted / interrupted 原子封存 partial 内容并暂停 Session 队列；重启不重投旧控制命令，用户明确恢复才继续后续项。
-- worker PGID 退出不证明 SDK detached Bash 已停止；未知清理阻塞工作区，依部署契约核验原容器退出证明，不能仅因新 scope 就解锁。
+- worker PGID 退出不证明未完成的 SDK Bash 调用已停止；该未知调用按部署契约恢复。已正常返回的后台服务、空闲回收不能据此触发阻塞或被额外扫杀，正常完成不等待所有后台 PID 退出。
 - 压缩、模型及思考等级变更只在服务端核实空闲后执行。归档可恢复且不删除数据。
 - 单 owner 的 shell 具有容器用户权限；代码目录校验不构成执行沙箱。不能通过 privileged、Docker socket 或挂载整个宿主机解决一般开发环境问题。
 

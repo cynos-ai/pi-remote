@@ -113,7 +113,7 @@ items 为最近至多 50 个封存项，包括异常结束的 partial；liveItem
 
 重启时只有从未分派的 prompt / follow_up / compact 可保留，并服从暂停规则；queued steer / abort / respond 一律取消为 stale_runtime，不能迁移到新 Run。尚未分派的配置命令取消为 restart_before_dispatch。dispatching / accepted 不明结果标记 unknown，不自动重发。
 
-abort 是异步停止请求，202 不表示工具已退出。只有 SDK 空闲且常规受管理工具清理已确认，才把 Run 标为 aborted。停止超时按 interrupted 封存并暂停队列，未能确认结果的 abort command 标为 unknown，产生 WORKSPACE_BLOCKED；工作区仍不释放，不能让新 writer 进入。
+abort 是异步停止请求，202 不表示 SDK 已停止。当前调用按 SDK 原生 abort 返回且 agent 空闲后，Run 才标为 aborted；不要求之前已正常返回的后台服务退出，也不额外扩大进程清理范围。停止流程超时按 interrupted 封存并暂停队列，未能确认结果的 abort command 标为 unknown，产生 WORKSPACE_BLOCKED，阻止应用在未知调用仍可能执行时自动分派下一 Run。这一故障门槛不是 Bash 命令限制。
 
 模型 hook 失败可能发生在 SDK 已变更配置之后；command.updated(state="failed") 必须在可读取时带 result.actualConfig，同时发 session.updated 校准实际值，不能声称自动回滚。若 worker 已退出，使用持久化恢复规则并展示未知结果。
 
@@ -167,6 +167,10 @@ ToolCallBlock {id, index, kind:"tool_call", toolCallId, toolName, arguments:obje
 | runtime.notice | `{kind,message,details?}`，展示 compaction / retry / output_truncated / extension_notify / interrupted 等附加过程 |
 
 tool.args 和 completed blocks 的 arguments 都是通过 schema 验证的 JSON 对象。大型或非文本工具内容转换为类型明确的 artifact 引用，UI 不执行其 HTML 或脚本。V1 不传图片二进制；遇到不支持内容保留说明，不能静默宣称完全兼容 TUI。
+
+Bash 工具保持 SDK 的 command / 可选 timeout 语义和模型结果；本文的请求体、frame、显示尾部及 artifact 上限只约束客户端 API 与展示副本。未传 timeout 时不新增超时；手机断连、慢消费者和显示配额不终止 Bash、不改变模型可读取的原生结果文件。非零退出产生真实工具错误供 pi 继续处理，不能直接推断 Run.failed。
+
+tool.finished 表示该次 SDK 工具调用已返回，可能包含已成功启动后台服务的结果；不能解释为所有后代 PID 已退出。正常 Run 完成后释放前台调度槽，后台服务不占 liveItems 或活动 Run。其日志按命令自己的重定向位置读取，后续通过 Bash 操作；不凭猜测 PID 在时间线伪造后台服务监控状态。完整语义见 [Bash 兼容要求](bash-compatibility.md)。
 
 ### TimelineItem 与异常封存
 
@@ -231,4 +235,4 @@ worker 不是一个额外网络服务。IPC 消息包含 `{ipcVersion:1,sessionI
 
 execute 不阻塞处理控制消息。event_batch 使用严格递增 batchNo，保留有界未 ACK 缓冲，ACK 后释放；重发只发送同样字节语义的批次。超过缓冲 / 持久化超时则停止该运行并报告故障，不无限积压。
 
-heartbeat 每 5 秒；主失联 15 秒进入停止流程。主端记录 epoch / PID 启动标识 / executionScopeKey。默认停止宽限 15 秒，然后对已验证的受管理进程组强制终止。SDK 默认 Bash 在 Linux 使用 detached 进程组，worker PGID 被清空不代表 Bash 已停止；worker 被 SIGKILL 或清理无法确认时必须 blocked，依 [部署约定](deployment.md) 完整重启 app 容器并验证清理证明，不能只重启 Node。
+heartbeat 每 5 秒；主失联 15 秒进入当前调用的停止流程。主端记录 epoch / PID 启动标识 / executionScopeKey。默认停止宽限 15 秒，只能对已验证属于当前未完成调用的进程组升级停止；这些时限不用于正常 Bash 执行或无输出检测。SDK 默认 Bash 在 Linux 使用 detached 进程组，worker PGID 被清空不代表未知调用已停止；故障时依[部署约定](deployment.md)恢复。空闲 worker 退出、已返回工具留下的后台进程不触发 blocked，不做额外进程树清扫。

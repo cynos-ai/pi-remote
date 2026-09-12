@@ -4,6 +4,8 @@
 
 范围包括架构、HTTP / WSS / IPC、SQLite / pi JSONL、开发依赖、验收矩阵与 Docker 运维。保留 Linux、Docker Compose、直接加载 pi SDK 的 Node worker、SQLite、React Native / Expo 及单 owner 的既定选择。本轮没有实现应用代码。
 
+后续用户明确要求保留 Bash 与本地 TUI 的体验，现已补入 [Bash 兼容要求](../bash-compatibility.md)。本记录保留当时的评审结论；其中“无第二 writer”“工具清理”现精确定义为未完成调用未知时不自动分派下一前台 Run，不限制已正常返回的后台服务，也不要求每次 Run 后清扫进程或重启容器。此后的兼容修订未冒用本次独立复核结论。
+
 ## 评审发现与处置
 
 P1 表示可能静默丢失上下文；P2 表示会导致错误状态、阻塞、重复执行风险或开发阶段无法按顺序完成。以下“已修订”表示文档契约已修改，不代表相应运行时行为已通过测试。

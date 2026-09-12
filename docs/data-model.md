@@ -45,7 +45,7 @@ pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目�
 | projects | Linux root_path 唯一，root_identity 为 device:inode；workspace_key 决定串行范围；blocked_reason / blocked_scope_key 保存清理阻塞 |
 | sessions | 项目 FK、标题 version、pi 映射及持久状态、历史错误、queue_state / queue_version / 暂停原因、last_event_seq、当前未完成内容投影 |
 | commands | 所有持久变更的初始收据 response_json 与独立最终结果 result_json；非空 scope 防止创建资源时空 sessionId 导致幂等失效 |
-| runs | 每次 prompt / compact；一个 Session 最多一个 active Run，queued 可有多个；分派前保存 execution_scope_key |
+| runs | 每次 prompt / compact；一个 Session 最多一个 active Run，queued 可有多个；分派前保存 execution_scope_key；正常返回的后台服务不占 Run 槽 |
 | events | PK(session_id,seq)，属于 Run 的事件通过复合 FK 保证同 Session |
 | ipc_batches | workerEpoch + batchNo 去重，提交后返回相同 ACK |
 | timeline_items | 封存消息 / 工具结果不可变，包括中断的 partial；必带同 Session 的 run_id、completeness / end_reason，保留开始及封存 seq |
@@ -57,6 +57,8 @@ ID 使用服务端 UUID，客户端幂等键使用 UUID；引用对客户端是�
 Session 的 version 仅随配置与元数据变化递增，不随每个 token 变化。客户端改名 / 归档及配置命令带 expectedVersion；并发修改失败为 VERSION_CONFLICT。事件序号与 metadata version 含义不同。
 
 queue_version 独立于 Session version：队列增删、暂停、恢复均递增。ready 时暂停字段必须为空；paused 时必须指向同 Session 的异常终态 Run 和原因。共享 workspace_key 的项目一起设置进程清理阻塞；Session 队列暂停不会代替工作区锁。
+
+PROCESS_CLEANUP_UNCONFIRMED 只用于故障时未完成调用仍可能执行的恢复门槛，不用于“发现还有后台 PID”。SDK 已返回并持久化 tool.finished 的服务启动命令保留其最终结果，不因 Run 结束、归档或空闲 worker 退出被改为 unknown；不新增限制后台进程数量的业务表。工作区锁只串行前台 agent Run，允许正常后台服务与后续 Run 并存。
 
 ## 3. 命令接收事务
 
@@ -103,7 +105,7 @@ live_state 仅保存未完成内容及必要状态，已完成大历史由 timel
 
 ## 6. 运行与交互恢复
 
-分派前先把 command 标为 dispatching，记录 epoch 和 Run 的 execution_scope_key，再发送 IPC。worker 的接受事件将其变为 accepted。acceptance ACK 丢失不能自动重发 prompt；它属于未知副作用窗口。作用域与清理证明按 [部署约定](deployment.md) 执行，不能只凭 worker PID / PGID 判断 Bash 已停止。
+分派前先把 command 标为 dispatching，记录 epoch 和 Run 的 execution_scope_key，再发送 IPC。worker 的接受事件将其变为 accepted。acceptance ACK 丢失不能自动重发 prompt；它属于未知副作用窗口。故障时的作用域与清理证明按 [部署约定](deployment.md) 执行；不能只凭 worker PID / PGID 判断一个未完成 Bash 已停止，也不能因正常后台服务仍在运行就推翻已提交的最终结果。
 
 启动恢复在允许新运行前完成：
 
@@ -131,7 +133,7 @@ live_state 仅保存未完成内容及必要状态，已完成大历史由 timel
 
 artifact 文件名由服务生成，路径只在 `/state/outputs` 下；先写临时文件并完成大小 / hash 校验，再原子改名，提交元数据和引用事件。下载只接受 artifactId，经 Session 归属校验后解析受控相对路径，不接受服务器任意路径。
 
-默认单 artifact 上限 20 MiB、单 Session 保留输出总量 100 MiB，可配置；达到限制产生 output_truncated notice。SDK 自身已截断且未留全量时，明确标记无法提供完整输出。
+默认单 artifact 上限 20 MiB、单 Session 保留展示输出总量 100 MiB，可配置；达到限制产生 output_truncated notice。这是手机展示副本的配额，不限制 SDK Bash 执行、原生结果或原生 fullOutputPath 文件，不因为展示配额用尽删除 SDK 文件或停止命令。SDK 保留的文件仍可由后续 Bash 读取；手机无法完整下载时明确说明。SDK 自身未保留全量时，同样不伪造完整输出。
 
 V1 不自动裁剪 events。后续有保留策略时必须增加 cursor 过期与基线快照，不允许静默跳过旧事件。
 

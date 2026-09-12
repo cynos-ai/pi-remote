@@ -2,7 +2,7 @@
 
 状态：待实现的规范。2026-09-12。已确认目标为统一 Linux 执行环境，默认使用 Docker Compose。本文替代此前以开发电脑原生运行为默认的草案。
 
-接口与事件以 [protocol-v1.md](protocol-v1.md) 为准，存储以 [data-model.md](data-model.md) 为准，开发顺序以 [development-plan.md](development-plan.md) 为准。
+接口与事件以 [protocol-v1.md](protocol-v1.md) 为准，存储以 [data-model.md](data-model.md) 为准，开发顺序以 [development-plan.md](development-plan.md) 为准。[Bash 与 TUI 兼容要求](bash-compatibility.md) 是 V1 必须满足的产品约束。
 
 ## 1. 产品目标与边界
 
@@ -24,6 +24,7 @@
 | FR10 | 工作区串行、worker 容量限制、命令幂等和崩溃恢复 |
 | FR11 | Linux Docker 部署、状态持久化、权限、停止与备份恢复 |
 | FR12 | Android / iOS 实际设备的完整使用闭环 |
+| FR13 | 原生 Bash 与本地 pi TUI 对齐：命令、开发工具、网络、超时、后台服务及模型可见的工具结果 |
 
 Session 不设固定业务角色。开发、审核、分析等只作为标题；首版不实现基于角色的工作流或权限。项目关联真实代码目录，多个 Session 拥有独立上下文，但共享项目文件。
 
@@ -59,10 +60,12 @@ flowchart TB
 
 主进程与 workers 位于同一个 app 容器，项目挂载到 `/workspaces`，状态挂载到 `/state`。各 worker 的 cwd 是其项目目录。SDK 是库，`prompt()` 是方法调用，`subscribe()` 是回调，主服务无需连接一个额外的 pi 网络服务器。
 
+worker 使用原生 Bash 工具和本地执行器，应用只转换展示事件，不对命令加过滤、确认、默认超时或额外文件沙箱。依赖安装、Git、网络、管道、脚本、长运行和后台服务均按同一 Linux 环境中的 pi TUI 语义执行。工具返回给模型的内容不受手机传输 / 显示配额影响。
+
 | 对象 | 生命周期 |
 | --- | --- |
 | 主进程 | 容器启动后常驻，处理 API、鉴权、调度、SQLite 和 WSS |
-| worker | 需要执行或修改 SDK 状态时加载；默认最多 4 个已加载 worker，空闲 5 分钟可回收 |
+| worker | 需要执行或修改 SDK 状态时加载；默认最多 4 个已加载 worker，无活动调用满 5 分钟可回收；回收不额外停止已返回的后台服务 |
 | AgentSession | 位于 worker 内存；按持久状态创建空会话或从校验后的指定文件恢复，不随手机页面切换重建 |
 | 手机连接 | 前台连接，后台可能被操作系统挂起；不负责 worker 保活 |
 | 持久 Session | worker 不存在时依然保留，浏览历史不触发模型请求 |
@@ -78,6 +81,8 @@ flowchart TB
 3. worker 按持久状态初始化，首次分配的 SDK ID / 路径先获数据库 ACK，再订阅、绑定 UI 并调用 prompt；区分路径已分配、文件已落盘、SDK preflight 接受和完成。
 4. worker 按序上报规范化事件，主进程合并相邻小增量，提交事件及投影后才广播。
 5. 手机断网时执行及记录继续。运行真正结束后释放工作区与执行容量，worker 可暂留。
+
+运行结束以 SDK 调用和 agent settle 为依据，不等待所有后台进程退出。已正常返回的 Bash 可以留下开发服务器；后续 Run 继续访问它。单条工具失败仍由 pi 读取结果并修复，不由应用提前终止整个任务。
 
 SDK 回调与 SQLite 提交不构成跨进程事务。未收到主进程持久化 ACK 的内部批次可重发，按 `(workerEpoch, batchNo)` 去重；ACK 之前崩溃的未提交尾部可能丢失，显示中断，不伪造过程。
 
@@ -133,7 +138,7 @@ queueState 为 ready / paused，与列表执行状态分开。completed 自动�
 
 每个项目的 workspaceKey 默认是规范路径。Git 项目还解析真实的 git common directory；共享 Git 元数据的 worktree 使用同一调度键，V1 保守串行。Session 继承项目目录，V1 不支持单独切换目录。
 
-同 workspaceKey 只允许一个 Run，包含手动 compact。不同工作区在容量内可并行。队列按进入顺序公平调度，follow-up 不能永久占有目录。锁只协调本应用；容器外的文件修改不受其保护。
+同 workspaceKey 只允许一个前台 agent Run，包含手动 compact。不同工作区在容量内可并行。队列按进入顺序公平调度，follow-up 不能永久占有目录。已正常启动的后台服务不占 Run 槽，可与后续 Run 并存；这不是整个工作区只允许一个 OS writer 的保证。应用外操作和后台服务的文件协调遵循普通 Linux 开发语义。
 
 ## 6. 恢复保证
 
@@ -141,19 +146,19 @@ queueState 为 ready / paused，与列表执行状态分开。completed 自动�
 | --- | --- |
 | 手机断网 / 锁屏 | 执行继续；按事件 seq 重连，重复事件只应用一次 |
 | HTTP 响应丢失 / 并发重复请求 | 原幂等键返回原命令与响应；锁内先查幂等再检查可变状态，不生成第二次执行 |
-| worker 崩溃 | Run interrupted，封存已知内容，暂停 Session 队列；清理确认后才释放工作区 |
+| 活动 worker 崩溃 | Run interrupted，封存已知内容并暂停队列；未完成调用仍可能执行时保留工作区恢复门槛，不重复执行未知命令 |
 | 主进程 / 容器重启 | 未分派的执行项保留但服从暂停；旧 steer / abort / respond 取消；已分派但不明结果不自动重发 |
 | 旧 worker 迟到消息 | epoch 不匹配，拒绝写入新状态 |
-| 工具进程未确认结束 | 阻塞工作区，提示重启干净的 app 容器；不启动第二个 writer |
+| 未完成调用的状态无法确认 | 阻止自动分派下一 Run，按故障恢复流程处理；正常返回的后台服务不触发此门槛 |
 | 模型重试 / 自动压缩 | 继续记录相应阶段，不因早期 agent_end 错报完成 |
 | 等待输入时断网 | pending 保留；回答按 interactionId 和 epoch 校验 |
 | 等待输入时后端重启 | 回调失效，Interaction cancelled，Run interrupted；旧回答不接受 |
 | 空 Session 回收 / 重启 | 按 uninitialized / unflushed 状态重建，重放 SQLite 已确认配置；不是历史丢失 |
 | 持久会话文件缺失或损坏 | HISTORY_UNAVAILABLE，拒绝 open 与执行；不让 SDK 静默创建空历史 |
 
-单主服务启动时持有 `/state/instance.lock` 的排他系统锁，拒绝第二个主实例。容器 init、信号处理及 SDK abort 负责正常清理。固定 SDK 的 Bash 在 Linux 本身使用 detached 进程组，因此 worker 的 PGID 退出不能证明 Bash 已结束，这不要求用户主动 daemonize 才会发生。
+单主服务启动时持有 `/state/instance.lock` 的排他系统锁，拒绝第二个主实例。SDK abort 按原生语义停止当前未完成调用，应用不扩大到清扫历史后台服务。固定 SDK 的 Bash 在 Linux 本身使用 detached 进程组，因此 worker 的 PGID 退出不能证明一个未完成 Bash 已结束；也不能反过来把所有后台 PID 当成故障。
 
-活动执行中 worker SIGKILL 或清理不明时持久化工作区阻塞和 executionScopeKey。只重启 Node、变化的 workerEpoch 或另一容器的新作用域都不是清理证明。V1 采用 [部署文档](deployment.md) 中的宿主机恢复入口：登记容器与作用域归属，确认原 app 容器完整退出，保存清理证据，新作用域验证后才清除进程阻塞。此操作会中断该 app 容器的其他活动 Run；原 unknown 命令不重发，暂停队列不自动恢复。空闲 worker 正常回收不需要重启容器。主动逃逸容器执行边界的工具不在 V1 支持范围内。
+只在活动调用发生 SIGKILL / 失联且结果无法确认时持久化工作区恢复门槛和 executionScopeKey。故障时仅重启 Node、变化的 workerEpoch 或另一容器的新作用域都不是清理证明；确实无法确认原调用已结束时，可采用[部署文档](deployment.md)的整容器恢复入口。此操作影响其他活动 Run 和后台服务，因此只用于故障运维；原 unknown 命令不重发，暂停队列不自动恢复。正常命令结束、切换 Session、归档、空闲回收不扫杀已返回的后台服务，也不要求重启容器。后台 / nohup / setsid 用法按原生 SDK 支持。
 
 pi JSONL 与业务数据库分别持久化。Session 显式保存 uninitialized / unflushed / persisted；SDK 路径已分配不代表文件存在。首次落盘前配置以 SQLite 已确认值为准；落盘后恢复模型上下文使用已校验的 pi 文件，客户端回放使用数据库。文件先落盘、数据库标记后写入的窗口通过检查原映射并认领有效文件处理；空文件、残片或身份不符阻断恢复。不能将客户端事件重新拼成模型历史。详细状态机见 [数据模型](data-model.md)。
 
@@ -169,6 +174,7 @@ pi JSONL 与业务数据库分别持久化。Session 显式保存 uninitialized 
 | 模型 | ModelRuntime、setModel；provider 凭据仅留在后端；hook 抛错后也要回传实际配置，不假称回滚 |
 | 等级 | getAvailableThinkingLevels、setThinkingLevel；不使用 persist:true 修改全局默认 |
 | 流式 | subscribe、message_update、thinking_delta、工具生命周期事件 |
+| Bash | 原生 Bash 工具及默认本地执行器；保留 command / timeout、shell 环境、后台执行和模型工具结果；只旁路转换手机事件 |
 | 控制 | prompt、steer、abort；应用管理 follow-up 队列 |
 | 压缩 | compact、abortCompaction；compact 会先 abort，必须应用层先核实空闲 |
 | 显示名 | setSessionName；应用标题是来源，pi 名称是镜像 |
