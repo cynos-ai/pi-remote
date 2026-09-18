@@ -1,0 +1,7 @@
+{$PI_REMOTE_DOMAIN:localhost}:{$PI_REMOTE_HTTPS_LISTEN_PORT:8443} {
+  # This local profile is HTTPS/WSS-capable for development. Replace the
+  # site address and `tls internal` with a trusted certificate or ACME setup
+  # before connecting a real phone over a network.
+  tls internal
+  reverse_proxy app:8080
+}

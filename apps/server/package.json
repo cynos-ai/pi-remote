@@ -1,0 +1,25 @@
+{
+  "name": "@pi-remote/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b tsconfig.json --force && node ../../scripts/copy-server-assets.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit --composite false",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@pi-remote/agent-pi": "workspace:*",
+    "@pi-remote/protocol": "workspace:*",
+    "fastify": "5.12.4",
+    "ws": "8.21.3",
+    "zod": "4.6.2"
+  }
+}

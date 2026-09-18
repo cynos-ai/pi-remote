@@ -1,0 +1,53 @@
+{
+  "name": "pi-remote-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mobile companion for pi coding agent sessions.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck:packages": "pnpm --filter @pi-remote/protocol typecheck && pnpm --filter @pi-remote/agent-pi typecheck",
+    "typecheck:server": "pnpm --filter @pi-remote/protocol build && pnpm --filter @pi-remote/server typecheck",
+    "typecheck:mobile": "pnpm --filter @pi-remote/mobile typecheck",
+    "typecheck": "pnpm run typecheck:packages && pnpm run typecheck:server && pnpm run typecheck:mobile && tsc -p tsconfig.tests.json",
+    "build:packages": "pnpm --filter @pi-remote/protocol build && pnpm --filter @pi-remote/agent-pi build",
+    "build:server": "pnpm run build:packages && pnpm --filter @pi-remote/server build",
+    "build:mobile": "pnpm --filter @pi-remote/mobile build",
+    "build:android": "pnpm --filter @pi-remote/mobile run build:android",
+    "build:ios": "pnpm --filter @pi-remote/mobile run build:ios",
+    "build": "pnpm run build:server && pnpm run build:mobile",
+    "test:unit": "vitest run --config vitest.config.mjs",
+    "verify:S01": "node scripts/verify-s01.mjs",
+    "verify:S02": "node scripts/verify-s02.mjs",
+    "verify:S03": "node scripts/verify-s03.mjs",
+    "verify:S04": "node scripts/verify-s04.mjs",
+    "verify:S05": "node scripts/verify-s05.mjs",
+    "verify:S06": "node scripts/verify-s06.mjs",
+    "verify:S07": "node scripts/verify-s07.mjs",
+    "verify:S08": "node scripts/verify-s08.mjs",
+    "verify:S09": "node scripts/verify-s09.mjs",
+    "verify:S10": "node scripts/verify-s10.mjs",
+    "verify:S11": "node scripts/verify-s11.mjs",
+    "verify:S12": "node scripts/verify-s12.mjs",
+    "verify:S13": "node scripts/verify-s13.mjs",
+    "check:docs": "python3 scripts/check_docs.py",
+    "test:live": "node scripts/test-live.mjs",
+    "test:bash-parity": "node scripts/test-parity.mjs bash",
+    "test:tui-parity": "node scripts/test-parity.mjs tui",
+    "test:serve": "node scripts/test-serve.mjs",
+    "test:device": "node scripts/test-device.mjs",
+    "test:e2e": "node scripts/test-real-process-e2e.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.2",
+    "@types/react": "19.3.0",
+    "eslint": "10.10.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.0"
+  }
+}

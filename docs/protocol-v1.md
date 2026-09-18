@@ -254,3 +254,20 @@ worker 不是一个额外网络服务。IPC 消息包含 `{ipcVersion:1,sessionI
 initialize / execute / 配置 hook 均不阻塞控制消息读取。event_batch 使用严格递增 batchNo，保留有界未 ACK 缓冲，ACK 后释放；重发只发送同样字节语义的批次。实际存储失败要如实报告并处理，不能让手机慢连接影响 SDK 执行。
 
 heartbeat 每 5 秒；主失联 15 秒进入当前调用的停止流程。主端记录 epoch / PID 启动标识 / executionScopeKey。默认停止宽限 15 秒，只能对已验证属于当前未完成调用的进程组升级停止；这些时限不用于正常 Bash 执行或无输出检测。SDK 默认 Bash 在 Linux 使用 detached 进程组，worker PGID 被清空不代表未知调用已停止；故障时依[部署约定](deployment.md)恢复。空闲 worker 退出、已返回工具留下的后台进程不触发 blocked，不做额外进程树清扫。
+
+
+## 8. 2026-09-15 代码审核修订
+
+本节记录已落地的增量契约，验证范围见[修复记录](reviews/2026-09-15-code-review-fixes.md)。公共 protocolVersion 仍为 1；新增可选字段必须由更新后的严格 schema 识别，前后端一起发布。
+
+- Snapshot 增加 `notices`（旧记录缺省为空数组），每项为 `{seq,kind,message,details?}`。`runtime.notice.kind` 增加 `extension_ui`，details 为 `{method,args}`；标准状态、widget、工作提示、编辑器变更通过此事件保存和恢复。只支持终端函数渲染的能力明确显示差异，不返回伪成功。
+- `POST /v1/sessions/:id/editor-state` 接收 `{text}`，鉴权及所属 Session 校验后发送 `editor_state {text,requestId}`。worker 应用后以 `editor_state_ack {requestId}` 确认，HTTP 才返回 204。会话替换后，草稿同步到请求中指定 Session 自己的 worker，旧待答表单仍按所属 epoch 路由。该路径不等待 ready，不能阻塞初始化表单。respond/abort 等控制不依赖编辑器同步。
+- `GET /v1/models` 接受可选 `sessionId`、`refresh=true`。Session 目录来自实际 worker 模型运行时；无 Session 时读取运营者 agentDir 目录。`get_models {requestId,refresh?}` / `models {requestId,items,availableThinkingLevels}` 用于读取及刷新，`requestId:"runtime-state"` 为状态推送。snapshot 不等待初始化 hook 完成来读取目录缓存。
+- initialize 携带 `sessionId`（原 pi ID）、`sessionFile`、`persistenceState` 和标题。映射 ACK 必须在 setModel、thinking 和 session_start hooks 之前完成，ready 在初始化交互完成之后。SDK `isPersisted()` 仅指启用文件持久化，不是落盘证据；必须核实有效 JSONL。合法待答期间不触发 ready 硬超时，仍检测心跳丢失。
+- stop 调用 clearQueue 时区分同步 queue_update 与真实消费，returned/unknown 保留原输入 ID、文本和附件引用。compact 使用 `abort {runId,preserveQueue:true}` 独立处理，不走普通 stop 的取回草稿路径。
+- rename 携带可选 `intentId`，对应 `rename_ack {name,intentId}`；匹配的 ACK 才清除最新待同步意图，worker 不把自身写入再次当原生标题修改广播。原生有效配置/标题变化由 EventStore 分配新版本，无变化的回声不推进版本。
+- 原生替换先发 `session_replace_intent {requestId,kind,sourceOperationId?,piSessionId,piSessionFile,targetFile?}`，主进程持久化后回 `session_replace_ack {requestId,phase:"intent",appSessionId}`。SDK 得到新 manager 后发 `session_replaced {requestId,piSessionId,piSessionFile,persistenceState}`，主进程事务创建/认领映射，再回 `phase:"bound"`。随后才重绑扩展与执行 withSession。外层 worker envelope 的原 Session ID/epoch 不变，各事件的 sessionId 按 Operation 实际归属路由；`session_persisted.appSessionId` 指明目标映射。
+- 并发原生替换按实际转换顺序执行，每次转换独立关联意图和 bound ACK；session_start / withSession 等回调中的嵌套替换可继续执行，不阻塞在自己的外层转换。跨目录 switch 按目标 JSONL 的真实 cwd 在同 owner 下认领或创建项目，绑定后更新工作区信息，使后续重启使用正确目录。
+- 配置了空闲 worker 回收时，先核实该进程所有所属 Session 的待答交互、活动 Run/Operation、调度 lease 和实际心跳活动。未 ready、合法待答、并行 Bash 或自主 SDK 工作不会被当作空闲。
+- 大事件不在 worker 截掉正文：超过 IPC 帧限制时写私有 spool，发送 `transport_spool {fileName,byteLength,sha256}`，主进程核验并解包。完整输出在事件入库前转 artifact，预览明确 truncated，HTTP、snapshot、WSS 共用同一引用。配额拒绝时保留完整事件正文。ACK 只在持久化后发送；256 个待 ACK 批次之外的事件进入磁盘 FIFO，不能因此终止 SDK。未确认的 spool 不自动重投模型命令。
+- 手机在发送前持久化幂等键与原请求，响应未知时重启仍使用原键确认；明确的新提交才新建键。Command completed 只表示对应调用的结果，Run 成败依据 SDK 最终执行结果，不能由 prompt Promise 正常返回推断。

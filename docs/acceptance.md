@@ -72,3 +72,10 @@ AT31 / AT32 各阶段按表中子集交付，复用 B01–B08 / T01–T08 的任
 状态只能是 passed、failed、not_run；缺少运行条件不算通过。每个 passed 项必须能回溯命令、实际输出 / 断言或设备证据。公共报告删除 token、provider 认证、私人路径和真实代码内容；保留模型 ID、版本及必要行为结论。
 
 S13 检查所有 required IDs 和平台，遇到 missing / failed / not_run 非零退出。一次绿色的普通 CI 不自动代表发布验收通过。
+
+
+## 代码审核后的回归入口
+
+`pnpm test:unit` 包含真实 SDK 的消息身份、失败/重试、重复文本及附件草稿、并行 Bash、自主消息、原生会话替换、延迟 hook、编辑器/snapshot、长历史持久化和输出 artifact 回归。`pnpm test:e2e` 运行实际 server/worker、HTTPS/WSS、本地确定性 HTTP provider 与外部 SIGKILL；WSL 可使用 `pnpm test:e2e -- --stage-linux` 将相同已安装生产代码离线复制到 Linux 临时目录，避免挂载文件系统的 import 延迟。
+
+这两组测试通过也不能替代 AT 中真实运营者模型、原生 TUI 对照、Docker 与 Android/iOS 真机条件。修复编号 R01–R16 与测试映射见[代码审核修复记录](reviews/2026-09-15-code-review-fixes.md)。

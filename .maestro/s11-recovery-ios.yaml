@@ -1,0 +1,56 @@
+appId: com.piremote.mobile
+env:
+  PI_REMOTE_TEST_SERVER: ${PI_REMOTE_TEST_SERVER}
+  PI_REMOTE_TEST_PAIRING_TOKEN: ${PI_REMOTE_TEST_PAIRING_TOKEN}
+  PI_REMOTE_TEST_PROJECT_NAME: ${PI_REMOTE_TEST_PROJECT_NAME}
+  PI_REMOTE_TEST_PROJECT_ROOT: ${PI_REMOTE_TEST_PROJECT_ROOT}
+  PI_REMOTE_TEST_PROMPT: ${PI_REMOTE_TEST_PROMPT}
+  PI_REMOTE_TEST_STEER: ${PI_REMOTE_TEST_STEER}
+  PI_REMOTE_TEST_DEVICE_NAME: ${PI_REMOTE_TEST_DEVICE_NAME}
+---
+- launchApp:
+    clearState: true
+- assertVisible: "连接 pi-remote"
+- tapOn: "服务器 HTTPS 地址"
+- inputText: ${PI_REMOTE_TEST_SERVER}
+- tapOn: "一次性配对令牌"
+- inputText: ${PI_REMOTE_TEST_PAIRING_TOKEN}
+- tapOn: "设备名称"
+- eraseText
+- inputText: ${PI_REMOTE_TEST_DEVICE_NAME}
+- tapOn: "安全配对"
+- assertVisible: "项目"
+- tapOn: "＋ 注册项目"
+- tapOn: "项目名称"
+- inputText: ${PI_REMOTE_TEST_PROJECT_NAME}
+- tapOn: "Linux 目录"
+- inputText: ${PI_REMOTE_TEST_PROJECT_ROOT}
+- tapOn: "注册"
+- assertVisible: ${PI_REMOTE_TEST_PROJECT_NAME}
+- tapOn: "打开"
+- assertVisible: "Session 历史与状态"
+- tapOn: "＋ 新建 Session"
+- tapOn: "创建"
+- assertVisible: "查看历史"
+- tapOn: "查看历史"
+- assertVisible: "执行时间线与实时控制"
+- tapOn:
+    id: "session-composer"
+- inputText: ${PI_REMOTE_TEST_PROMPT}
+- tapOn: "发送 Prompt"
+- assertVisible: "最近收据"
+# 在真实 iOS 设备或 Simulator 上锁屏并切换网络；恢复前台后应先补快照/事件，不自动确认交互。
+- pressKey: HOME
+- launchApp
+- assertVisible: "执行时间线与实时控制"
+- assertVisible: "刷新快照"
+# 若任务仍在运行，发送 steer；真实 provider 已结束时流程应失败并记录长运行前提未满足。
+- tapOn:
+    id: "session-composer"
+- inputText: ${PI_REMOTE_TEST_STEER}
+- tapOn: "Steer 当前 Run"
+- tapOn: "发送 Steer"
+- assertVisible: "最近收据"
+# 由外部 LinuxFaultHarness / 运维终端注入 worker 或主进程退出后，观察中断、未知工具结果、旧队列暂停与新操作继续。
+- tapOn: "刷新快照"
+- assertVisible: "执行时间线与实时控制"

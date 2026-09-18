@@ -1,6 +1,6 @@
 # 原生运行、内容归属与同步补充契约
 
-状态：V1 待实现契约，按新宗旨独立审核后补齐。与[协议](protocol-v1.md)、[数据模型](data-model.md)和[参考 SQL](schema-v1.sql)共同约束实现；下面是确定的适配工作，不能以禁用扩展代替。源码核对不等于真实 SDK 验收。
+状态：V1 实现契约，已按代码审核修订桥接和恢复路径；具体验证见[修复记录](reviews/2026-09-15-code-review-fixes.md)。与[协议](protocol-v1.md)、[数据模型](data-model.md)和[参考 SQL](schema-v1.sql)共同约束实现；下面是确定的适配工作，不能以禁用扩展代替。源码核对不等于真实 SDK 验收。
 
 ## 1. Operation、Run 和外部 Command
 

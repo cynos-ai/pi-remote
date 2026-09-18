@@ -54,6 +54,6 @@
 | T07 适配清单 | 附件、用户 Bash、custom、树 / fork、导入导出及 UI 均有入口 / 步骤；合法 header-only / 非 assistant 历史可恢复，原生替换和后续执行不串 Session |
 | T08 问题驱动的限制 | 任一新增默认限制都有实际复现或用户配置依据，范围和解除方式明确；普通启动无需清理证明，故障记录不阻止无关操作 |
 
-S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制与标准交互；S10 验证移动入口；S12 复验正常 Linux 部署；S13 汇总证据。当前仅完成设计修订，没有声称这些场景已经运行。
+S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制与标准交互；S10 验证移动入口；S12 复验正常 Linux 部署；S13 汇总证据。当前合同、Linux、Docker 子集已有对应阶段报告；真实 provider、交互式原生 TUI、Android / iOS 实机及终端专用 custom renderer 对照仍未完成，不将这些缺口描述为已通过。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

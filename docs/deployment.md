@@ -1,6 +1,6 @@
 # 统一 Linux 与 Docker 部署约定
 
-状态：默认部署方案，S12 实现。下列文件、CLI 和命令是未来交付契约，当前仓库没有可启动的镜像或 Compose 文件。实施后必须把示例替换为已验证的真实入口。
+状态：默认部署方案，S12 已实现并在 WSL 2 / Docker 上通过完整生命周期验证。下列文件、CLI 和命令对应仓库当前实际入口；真实 provider、Android / iOS 实机和发布候选验收仍由 S13 完成。
 
 ## 1. 拓扑
 
@@ -10,7 +10,8 @@
 手机 → HTTPS / WSS → TLS 入口 → app:8080
                                 ├─ Node 主进程
                                 ├─ pi SDK workers
-                                ├─ /state/app.sqlite
+                                ├─ /state/state.sqlite
+                                ├─ /state/instance.lock.sqlite
                                 ├─ /state/pi
                                 ├─ /state/outputs
                                 └─ /workspaces/<project>
@@ -18,26 +19,35 @@
 
 模型服务在网络另一端，SDK 在容器内调用它。项目编辑、Git、bash、构建和测试都在 Linux 容器里执行，不继承宿主机的软件环境。Android / iOS App 的发布构建是另一条流水线；Linux 后端容器不负责运行 Xcode。
 
+## 1.1 国内依赖与镜像源
+
+项目默认使用国内源：Node / pnpm 依赖由根 `.npmrc` 固定到 `https://registry.npmmirror.com`，CI 同时设置 `NPM_CONFIG_REGISTRY`，避免 CI 回退到公共 npm registry。S12 的 Dockerfile、Compose 和 CI 镜像步骤默认使用 `docker.m.daocloud.io` 作为 Docker Hub 镜像前缀；镜像源应通过显式变量保留可运维覆盖能力，凭据不得写入仓库。S12 已在 WSL 2 上实际完成 npm / Docker 国内源检查和镜像构建。
+
 这里的容器是用户的 Linux 开发环境，所有 pi 能力遵循[整体 TUI 体验原则](tui-experience.md)，Bash 另有[逐项对照](bash-compatibility.md)。原生资源、扩展、开发工具和网络按相同配置加载，工具链、网络与权限应按项目配置齐全。
 
 ## 2. 镜像与目录
 
-多阶段构建：构建阶段用固定 Node 24 LTS Debian slim 与 pnpm / lockfile；运行阶段只带编译产物、生产依赖、Node、Git、bash、Python 3、CA 证书、openssh-client、tini 和 flock 所需工具。编译器按首批项目工具链需要加入，版本在 S12 固定并记录镜像 digest。
+多阶段构建：构建阶段用固定 Node 24 LTS Debian slim 与 pnpm / lockfile；运行阶段只带编译产物、生产依赖、Node、Git、bash、Python 3、CA 证书、openssh-client、tini、sqlite3 和运行时工具。编译器按首批项目工具链需要加入，版本在 S12 固定；镜像 tag 和国内镜像前缀均可由 Compose 参数覆盖。
 
 运行用户为非 root，默认 UID/GID 1000；部署变量 `PI_REMOTE_UID / PI_REMOTE_GID` 可对应宿主机目录。不要使用宿主机 root 身份运行 agent 来规避权限问题。首次创建卷由管理员或专门初始化步骤设置所有权；常驻服务不反复递归 chown 项目目录。
 
 | 路径 | 行为 |
 | --- | --- |
 | `/app` | 应用编译产物，运行时不修改 |
-| `/state/app.sqlite` | SQLite 与同目录 WAL / SHM，主进程统一写入 |
+| `/state/state.sqlite` | SQLite 与同目录 WAL / SHM，主进程统一写入 |
 | `/state/pi` | 指定 SDK agentDir / session 存储，凭据受限 |
 | `/state/outputs` | artifact 临时写入与封存，默认总量限制 |
+| `/state/instance.lock.sqlite` | 跨容器单实例 SQLite 排他锁；服务持有 `BEGIN EXCLUSIVE` 事务 |
+| `/state/instance.lock` | 人类可读的 PID / 启动标记，仅用于诊断和旧锁兼容 |
 | `/state/runtime` | 可选的当前进程 / epoch 诊断信息，不是启动许可或清理证明库 |
 | `/state/home` | 工具需要的可写用户目录 / cache，不能暴露给手机文件 API |
+| `/state/worker-spool/<workerEpoch>` | worker 事件 backlog 与大 IPC 输出；事件 / 大帧在父进程提交并 ACK 前保留 |
 | `/workspaces` | 允许注册项目的根；每个实际挂载都应明确来源 |
 | `/tmp` | 临时文件，可用有容量上限的 tmpfs |
 
 SQLite 放本机 ext4 / xfs 等支持正确文件锁的持久卷，不用 NFS / SMB / 同步网盘。项目源文件可 bind mount，但若来自网络文件系统，要另行验证 Git、文件锁和延迟；不把它当作 V1 默认运行环境。
+
+worker spool 的 `.event.json` 与大帧 `.json` 文件不按时间强制删除：前者由 worker 在收到父进程 `batch_ack` 后清理，后者由父进程在事件落库且 ACK 成功写回后清理。服务启动只清理超过 60 秒的 `.tmp` 原子写临时文件；未确认的持久文件留给重启后的恢复 / 排查。若磁盘空间不足，doctor 应报告 spool 与 state 使用量，由运营者先处理已确认的历史或扩容，不通过无条件 TTL 删除未确认输出。
 
 初始镜像支持一套统一 Linux 工具链。不同项目需要不同系统依赖时，运营者扩展镜像并配置权限；用户目录内的包管理、虚拟环境、依赖下载和项目安装脚本可以直接通过 Bash 执行，不经过额外审批。系统软件安装遵循同 UID/GID 的 Linux 权限。V1 不把每个 Bash 命令放入缺少项目环境的一次性沙箱。
 
@@ -69,7 +79,7 @@ OAuth 可能需要刷新并写入状态；只读挂载 auth.json 时不能假设
 - `restart: unless-stopped`，服务 crash 后可重启；准确记录中断，不自动重跑旧未知命令。
 - app 容器只挂必要项目和 state，不开启 privileged，不默认挂 Docker socket。
 - 沿用普通 Docker 权限基线；不额外默认叠加 capability 裁剪、no-new-privileges 或只读 HOME。运营者主动收紧时验证所需开发工具，并记录实际影响；不能只凭容器配置宣称有多租户沙箱。
-- 单实例锁 `/state/instance.lock`，第二个 app 不能同时对同一状态卷运行。不要设置两个副本共享 SQLite。
+- 单实例锁由 `/state/instance.lock.sqlite` 的持有连接和 `BEGIN EXCLUSIVE` 保证；`/state/instance.lock` 是诊断标记。第二个 app 不能同时对同一状态卷运行，且备份 / 恢复会拒绝仍持有锁的容器。不要设置两个副本共享 SQLite。
 - readiness 在迁移、数据库状态恢复和单实例锁完成后成功；不依赖宿主进程登记或清理证明。模型待配置、项目路径错误等按相关操作报告，不妨碍其他项目与列表操作。
 - 设置运行日志轮转、可配置的容器资源和手机展示上限；展示配额不得裁剪 SDK 的模型结果或终止 Bash。日志不记录 Authorization、WS ticket、pairing token 或模型凭据。没有应用级 Bash 默认时限。
 - 开发 HTTP 入口只用于明确的本地测试。真实手机接入验收使用有效 HTTPS / WSS；不长期依赖放宽 Android cleartext 或 iOS ATS。
@@ -78,7 +88,7 @@ Linux 容器中的 localhost 指向自己。项目需要外部数据库、宿主
 
 ## 5. S12 应实现的操作入口
 
-以下是命令契约，尚未实现：
+以下是已实现并验证过的基本入口（`.env` 从 `.env.example` 复制后按部署环境填写）：
 
 ```sh
 docker compose --env-file .env -f deploy/compose.yaml build
@@ -88,6 +98,18 @@ docker compose --env-file .env -f deploy/compose.yaml exec app node apps/server/
 ```
 
 直接 compose up 即可启动完整服务。撤回 host-control / restart-clean 及“登记后才可运行”的必需流程；不为预计的残留进程问题增加正常部署前置。需要的工具链、资源目录和用户配置一次配置后按原生 pi 使用。
+
+备份必须先停止 app，并把目标目录挂载到容器外的 `/backups`；目标不能在 `/state` 或已注册项目内：
+
+```sh
+docker compose --env-file .env -f deploy/compose.yaml stop app
+docker compose --env-file .env -f deploy/compose.yaml run --rm --no-deps \
+  -v "$PWD/.local/backups:/backups" app node apps/server/dist/cli.js \
+  backup --destination /backups/first
+docker compose --env-file .env -f deploy/compose.yaml up -d
+```
+
+恢复必须使用新的空状态卷 / 目录。恢复完成后，用相同镜像和环境变量启动服务，再读取旧 Session；不要把备份目录直接作为工作区或状态目录。验证脚本还会实际启动恢复后的服务并读取旧设备凭据与 Session：`pnpm verify:S12`。
 
 doctor 检查目录 / 权限、工具链、SQLite、模型网络、原生资源加载、具体历史错误、当前运行及旧队列状态。它报告实际问题，不要求清理凭证、不把所有诊断变成执行门槛；不打印密钥。
 

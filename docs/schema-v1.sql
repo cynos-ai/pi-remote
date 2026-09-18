@@ -37,6 +37,7 @@ CREATE TABLE projects (
   root_path TEXT NOT NULL UNIQUE,
   workspace_key TEXT NOT NULL,
   root_identity TEXT NOT NULL UNIQUE,
+  git_common_dir TEXT,
   default_model_json TEXT CHECK(default_model_json IS NULL OR json_valid(default_model_json)),
   default_thinking_level TEXT,
   version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),

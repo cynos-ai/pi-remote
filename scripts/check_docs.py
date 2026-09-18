@@ -1,4 +1,4 @@
-"""Validate this documentation handoff, not the future application.
+"""Validate documentation and contracts, independently of application tests.
 
 Uses only Python's standard library. No model calls or network requests.
 """
@@ -588,7 +588,7 @@ def main() -> None:
             "MIT license missing")
     print(f"PASS: {count} Markdown files and links; 13 stages; 14 requirements; 32 acceptance cases; 8 Bash + 8 whole TUI comparison cases.")
     print(f"PASS: {events} synthetic events; {tables} SQLite reference tables and integrity constraints; MIT license.")
-    print("Application, live SDK, Docker and device checks: NOT RUN (documentation-only repository).")
+    print("This command checks documentation/contracts only; application, live provider, Docker and device results are recorded separately.")
 
 
 if __name__ == "__main__":

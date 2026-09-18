@@ -1,0 +1,33 @@
+appId: com.piremote.mobile
+env:
+  PI_REMOTE_TEST_SERVER: ${PI_REMOTE_TEST_SERVER}
+  PI_REMOTE_TEST_PAIRING_TOKEN: ${PI_REMOTE_TEST_PAIRING_TOKEN}
+  PI_REMOTE_TEST_PROJECT_NAME: ${PI_REMOTE_TEST_PROJECT_NAME}
+  PI_REMOTE_TEST_PROJECT_ROOT: ${PI_REMOTE_TEST_PROJECT_ROOT}
+---
+- launchApp:
+    clearState: true
+- assertVisible: "连接 pi-remote"
+- tapOn: "服务器 HTTPS 地址"
+- inputText: ${PI_REMOTE_TEST_SERVER}
+- tapOn: "一次性配对令牌"
+- inputText: ${PI_REMOTE_TEST_PAIRING_TOKEN}
+- tapOn: "设备名称"
+- eraseText
+- inputText: "S09 Maestro"
+- tapOn: "安全配对"
+- assertVisible: "项目"
+- tapOn: "＋ 注册项目"
+- tapOn: "项目名称"
+- inputText: ${PI_REMOTE_TEST_PROJECT_NAME}
+- tapOn: "Linux 目录"
+- inputText: ${PI_REMOTE_TEST_PROJECT_ROOT}
+- tapOn: "注册"
+- assertVisible: ${PI_REMOTE_TEST_PROJECT_NAME}
+- tapOn: "打开"
+- assertVisible: "Session 历史与状态"
+- tapOn: "＋ 新建 Session"
+- tapOn: "创建"
+- assertVisible: "查看历史"
+- tapOn: "查看历史"
+- assertVisible: "读取快照与历史|这个 Session 还没有可显示的历史"

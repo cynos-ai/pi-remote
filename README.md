@@ -6,7 +6,7 @@ Android / iOS App 连接统一 Linux 环境中的后端，查看项目、继续�
 
 **产品原则：整体保留同环境本地 pi TUI 的使用体验。** 原生工具、扩展、skills、模型、会话及交互默认可用；先适配和验证，真正出现问题后才按证据作局部调整，不提前增加整类功能限制。
 
-**当前状态：设计与开发交接文档已建立，应用代码尚未实现。** 本仓库不是一个已经可以启动的 App；文档中的开发命令是后续阶段必须实现的接口。
+**当前状态：S01–S12 的工程实现已进入工作树。** Docker 部署、项目挂载、HTTPS/WSS、持久化、备份与新卷恢复已在 WSL 2 通过验证；S08 的真实 provider / 原生 TUI 对照以及 S09–S11 的真实 Android / iOS 设备流程仍未完成，S13 发布验收待这些条件满足。这些限制不能用合同测试、E2E 夹具或 JS export 代替。阶段验证命令和剩余阻塞项见[开发进度](docs/progress.md)。
 
 ## 第一版选择
 
@@ -37,13 +37,26 @@ Android / iOS App 连接统一 Linux 环境中的后端，查看项目、继续�
 
 交给其他 AI 开发时，让它先读取 [AGENTS.md](AGENTS.md)，然后从进度表中第一个未完成且前置条件满足的阶段开始。不要将文档、模拟事件或成功构建当作真实 agent 与手机链路已经验收。
 
-本次文档仓库可以执行的检查：
+仅检查文档与契约：
 
 ```sh
 python3 scripts/check_docs.py
 ```
 
 这会检查文档链接与表格、阶段与验收的双向映射、两套兼容矩阵、参考 SQL，以及正常 / 异常、无 Run 内容与表单、自主运行和输入恢复的合成契约；不调用模型，也不代表应用实现通过测试。
+
+本地代码验证（Node 24.19.0、pnpm 10.28.0）：
+
+```sh
+pnpm install --frozen-lockfile
+pnpm test:unit
+pnpm typecheck
+pnpm lint
+pnpm build
+pnpm test:e2e
+```
+
+`test:e2e` 在 Linux 启动实际 server / worker，连接本地确定性 HTTP 模型服务并注入真实进程故障；无需付费模型凭据。修复范围及实际验证结果见[代码审核修复记录](docs/reviews/2026-09-15-code-review-fixes.md)。
 
 ## 第一版能力
 

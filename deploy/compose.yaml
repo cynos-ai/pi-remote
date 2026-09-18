@@ -1,0 +1,90 @@
+name: pi-remote
+
+services:
+  app:
+    image: ${PI_REMOTE_IMAGE:-pi-remote:local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        DOCKER_REGISTRY_MIRROR: ${DOCKER_REGISTRY_MIRROR:-docker.m.daocloud.io}
+        NODE_IMAGE_TAG: ${NODE_IMAGE_TAG:-24.19.0-bookworm-slim}
+        DEBIAN_MIRROR: ${DEBIAN_MIRROR:-https://mirrors.aliyun.com}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    user: "${PI_REMOTE_UID:-1000}:${PI_REMOTE_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 45s
+    environment:
+      NODE_ENV: production
+      PI_REMOTE_HOST: 0.0.0.0
+      PI_REMOTE_PORT: 8080
+      PI_REMOTE_STATE_DIR: /state
+      PI_REMOTE_PI_DIR: /state/pi
+      PI_REMOTE_WORKSPACE_ROOT: /workspaces
+      PI_REMOTE_DATABASE_FILE: /state/state.sqlite
+      PI_REMOTE_OWNER_ID: ${PI_REMOTE_OWNER_ID:-owner}
+      PI_REMOTE_OWNER_NAME: ${PI_REMOTE_OWNER_NAME:-Owner}
+      PI_REMOTE_PAIRING_TTL_SECONDS: ${PI_REMOTE_PAIRING_TTL_SECONDS:-600}
+      PI_REMOTE_CURSOR_SECRET: ${PI_REMOTE_CURSOR_SECRET:-development-only-cursor-secret}
+      PI_REMOTE_MAX_ACTIVE_RUNS: ${PI_REMOTE_MAX_ACTIVE_RUNS:-}
+      PI_REMOTE_MAX_LOADED_WORKERS: ${PI_REMOTE_MAX_LOADED_WORKERS:-}
+      PI_REMOTE_MAX_QUEUED_COMMANDS: ${PI_REMOTE_MAX_QUEUED_COMMANDS:-}
+      PI_REMOTE_WORKER_IDLE_SECONDS: ${PI_REMOTE_WORKER_IDLE_SECONDS:-0}
+      PI_REMOTE_SERIALIZE_WORKSPACE: ${PI_REMOTE_SERIALIZE_WORKSPACE:-0}
+      PI_REMOTE_ALLOWED_ORIGINS: ${PI_REMOTE_ALLOWED_ORIGINS:-}
+      PI_REMOTE_DEFAULT_PROVIDER: ${PI_REMOTE_DEFAULT_PROVIDER:-}
+      PI_REMOTE_DEFAULT_MODEL: ${PI_REMOTE_DEFAULT_MODEL:-}
+      PI_REMOTE_MODEL_HEALTH_URL: ${PI_REMOTE_MODEL_HEALTH_URL:-}
+      PI_REMOTE_MODEL_TIMEOUT_MS: ${PI_REMOTE_MODEL_TIMEOUT_MS:-15000}
+      HOME: /state/home
+    volumes:
+      - app-state:/state
+      - type: bind
+        source: ${PI_REMOTE_WORKSPACE_HOST:-../.local/workspaces}
+        target: /workspaces
+    ports:
+      - "${PI_REMOTE_HTTP_PORT:-8080}:8080"
+    tmpfs:
+      - /tmp:rw,size=256m
+    logging:
+      driver: json-file
+      options:
+        max-size: ${PI_REMOTE_LOG_MAX_SIZE:-10m}
+        max-file: ${PI_REMOTE_LOG_MAX_FILES:-3}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  gateway:
+    image: ${DOCKER_REGISTRY_MIRROR:-docker.m.daocloud.io}/library/caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${PI_REMOTE_HTTPS_PORT:-8443}:8443"
+    environment:
+      PI_REMOTE_DOMAIN: ${PI_REMOTE_DOMAIN:-localhost}
+      PI_REMOTE_HTTPS_LISTEN_PORT: 8443
+    volumes:
+      - ./tls/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: ${PI_REMOTE_GATEWAY_LOG_MAX_SIZE:-10m}
+        max-file: ${PI_REMOTE_GATEWAY_LOG_MAX_FILES:-3}
+
+volumes:
+  app-state:
+  caddy-data:
+  caddy-config:

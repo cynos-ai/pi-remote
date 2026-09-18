@@ -158,3 +158,12 @@ V1 不自动裁剪 events。后续有保留策略时必须增加 cursor 过期�
 ## 8. 将来迁移 PostgreSQL 的条件
 
 多个 API 实例跨机器共享状态、独立写入竞争明显或需要数据库高可用时再评估 PG。迁移包含 schema / 数据转换、所有权与任务租约，不只是更换连接字符串。V1 保留数据访问模块和迁移版本，先实现一套 SQLite 后端。
+
+
+## 2026-09-15 实现校准
+
+事件写入只加载活动投影，不扫描已封存 timeline 正文；批内 reducer 共用一次可变投影副本，SQL 仅更新受影响的 Command、Run、Interaction。Snapshot 从 SQLite 读取最后 50 条历史并包含持久 notices。现阶段 live_state_json 仍保留部分终态实体投影，不把短基准描述成无限历史的容量保证。
+
+unflushed 且原路径不存在时，使用原 pi ID 重新分配文件路径，允许同 ID 的未落盘映射更新；persisted 的缺失/空/错误身份文件一律在 SDK open 前报错，保留原文件。落盘状态以实际 JSONL 为准。原生替换的 intent/bound 信息作为来源 Session 的持久 runtime.notice 保存，目标 Session 独立认领映射，旧历史不重绑；多 Session 恢复使用不同批次命名空间。
+
+原生标题/config 的无版本事件在事务内比较有效值并分配版本；手机标题同步意图带唯一标识，匹配 ACK 才清除。移动端 SQLite 保存 prepared/unknown 的原请求、幂等键和 Session，确认收据之后才能删除。spool 和 artifacts 与 SDK 历史职责不同：它们保存展示/IPC 内容，不提供 shell 副作用的恰好一次执行保证。

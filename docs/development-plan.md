@@ -1,6 +1,6 @@
 # 分步骤开发计划
 
-状态：执行规格，S01–S13 尚未实施。每一步的命令由该步实现；当前仅 `python3 scripts/check_docs.py` 可运行。不要把下面的命令复制进 README 当作已有产品使用说明。
+状态：执行规格，S01–S12 已有工作树实现，S02/S06–S11 的外部 live / 原生 TUI / 设备子集仍按报告状态执行。每一步的命令由该步实现；不要把下面的命令复制进 README 当作已有产品使用说明。
 
 先读[整体 TUI 体验原则](tui-experience.md)、[架构](v1-design.md)、[协议](protocol-v1.md)、[数据](data-model.md)、[Bash 兼容要求](bash-compatibility.md)及[验收矩阵](acceptance.md)。阶段通过后在 [progress.md](progress.md) 保存真实证据，再继续下一个前置条件满足的阶段。
 
