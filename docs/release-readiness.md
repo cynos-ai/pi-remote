@@ -15,6 +15,8 @@
 
 ## 当前尚未满足
 
+2026-09-19 配置补充：DeepSeek 单模型在活动工具期间选择模型/调整等级、停止后重启恢复 low、后续实际调用与默认值隔离均通过。两个不同模型的切换仅有本地合成 provider 证据；真实两模型、persist=true、空历史回收和 model_select 错误仍待验收。
+
 - 真实 provider：2026-09-19 已验证 DeepSeek 单模型的工具调用、thinking、基础后端命令、控制、compact 队列/生成前取消及断线回放子集；仍需第二个不同模型、完整控制/交互和 compact 矩阵、重试及长时间开发验证。旧 ID `deepseek-v4-flash` 实际由官方映射到 V4.1-Flash。首次实时测试失败原因未定，定向复验通过；详情和证据见[开发进度](progress.md)。
 - 原生 TUI：在相同 Linux、SDK、资源和配置下完成 T01–T08 / B01–B08 对照。确定性 SDK 与 `/bin/bash` smoke 不能代替交互 TUI。
 - Android / iOS：安装实际构建，在两平台分别完成配对、历史、命令、表单、锁屏后台恢复、弱网和双设备流程；需要设备可访问的 HTTPS/WSS 后端。

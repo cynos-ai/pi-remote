@@ -48,13 +48,14 @@ export async function stageRealProcessRuntime(repository, destination) {
   }));
   for (const file of ['e2e/real-process.test.mjs', 'e2e/real-process-harness.mjs',
     'sdk/real-server-entry.mjs', 'sdk/local-http-provider.mjs', 'sdk/r16-native-extension.mjs',
-    'sdk/live-server-entry.mjs', 'sdk/live-backend.mjs', 'sdk/live-controls.mjs', 'sdk/live-compact.mjs', 'sdk/summary-stream-probe.mjs', 'sdk/live-backend.test.mjs']) {
+    'sdk/live-server-entry.mjs', 'sdk/live-backend.mjs', 'sdk/live-controls.mjs', 'sdk/live-configuration.mjs', 'sdk/live-compact.mjs', 'sdk/summary-stream-probe.mjs', 'sdk/live-backend.test.mjs']) {
     const target = resolve(destination, 'tests', file);
     await mkdir(dirname(target), { recursive: true });
     await cp(join(repository, 'tests', file), target);
   }
   await mkdir(join(destination, 'scripts'), { recursive: true });
   await cp(join(repository, 'scripts/acceptance-evidence.mjs'), join(destination, 'scripts/acceptance-evidence.mjs'));
+  await cp(join(repository, 'scripts/live-model-selection.mjs'), join(destination, 'scripts/live-model-selection.mjs'));
   const hashes = {};
   for (const file of ['apps/server/dist/index.js', 'apps/server/dist/runtime/manager.js',
     'apps/server/dist/runtime/recovery.js', 'apps/server/dist/services/commands.js',

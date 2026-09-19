@@ -16,7 +16,7 @@ function argument(name) {
 
 const suite = argument("--suite") ?? "sdk";
 const scenario = argument("--scenario") ?? "basic";
-if (!["basic", "controls", "compact", "compact-cancel", "compact-cancel-stream"].includes(scenario) || (scenario !== "basic" && suite !== "commands")) {
+if (!["basic", "controls", "configuration", "compact", "compact-cancel", "compact-cancel-stream"].includes(scenario) || (scenario !== "basic" && suite !== "commands")) {
   console.error("controls/compact scenarios require --suite commands");
   process.exit(2);
 }
@@ -69,7 +69,7 @@ function requireLiveConfiguration() {
   if (process.platform !== "linux") return false;
   const operations = Number(process.env.PI_REMOTE_LIVE_MAX_OPERATIONS);
   const timeout = Number(process.env.PI_REMOTE_LIVE_TIMEOUT_MS ?? 120000);
-  if (!Number.isSafeInteger(operations) || operations < (scenario.startsWith("compact") ? 8 : scenario === "controls" ? 3 : suite === "sdk" ? 2 : 1) || !Number.isFinite(timeout) || timeout < 1000 || timeout > 1800000) return false;
+  if (!Number.isSafeInteger(operations) || operations < (scenario.startsWith("compact") ? 8 : scenario === "configuration" ? 4 : scenario === "controls" ? 3 : suite === "sdk" ? 2 : 1) || !Number.isFinite(timeout) || timeout < 1000 || timeout > 1800000) return false;
   selectLiveModels(process.env);
   return true;
 }
@@ -239,7 +239,7 @@ try {
 }
 report.status = aggregate(report.checks);
 report.limitations.push("Automated checks and operator-recorded captures are distinct evidence sources; full suite coverage is mandatory.");
-report.limitations.push("PI_REMOTE_LIVE_MAX_OPERATIONS bounds top-level model operations (SDK: 2; backend basic: 1; controls: 3; compact comparison/cancellation: 8), not provider HTTP requests or monetary spend. Native tool loops/retries may make additional calls; use provider-side spending limits.");
+report.limitations.push("PI_REMOTE_LIVE_MAX_OPERATIONS bounds top-level model operations (SDK: 2; backend basic: 1; controls: 3; configuration: 4; compact comparison/cancellation: 8), not provider HTTP requests or monetary spend. Native tool loops/retries may make additional calls; use provider-side spending limits.");
 
 await writeFile(join(reportDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
 if (report.status !== "passed") process.exitCode = 1;

@@ -42,7 +42,12 @@ export async function localHttpProvider(options = {}) {
       return;
     }
     const results = body.messages.slice(lastUser + 1).filter(m => m.role === 'tool');
-    if (options.compact && body.tools?.length && /COMPACT_(GATE|AFTER)/.test(text) && !results.length) {
+    if (options.configuration && /CONFIG_(GATE|AFTER)/.test(text) && !results.length) {
+      const name = text.includes('CONFIG_AFTER') ? 'write' : 'bash';
+      const args = name === 'write' ? { path: 'config-result.txt', content: 'config-restored' } : { command: 'bash config-gate.sh' };
+      chunk({ tool_calls: [{ index: 0, id: `config-${requests.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+      chunk({}, 'tool_calls');
+    } else if (options.compact && body.tools?.length && /COMPACT_(GATE|AFTER)/.test(text) && !results.length) {
       const name = text.includes('COMPACT_AFTER') ? 'write' : 'bash';
       const args = name === 'write' ? { path: 'compact-result.txt', content: 'pi-compact-marker' } : { command: 'bash compact-gate.sh' };
       chunk({ tool_calls: [{ index: 0, id: `compact-${requests.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });

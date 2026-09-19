@@ -36,7 +36,7 @@ node scripts/test-parity.mjs tui --target runtime --plan
 | `PI_REMOTE_LIVE_PROVIDER` / `PI_REMOTE_LIVE_MODEL` | 普通模型 |
 | `PI_REMOTE_LIVE_THINKING_PROVIDER` / `PI_REMOTE_LIVE_THINKING_MODEL` | 另一个能实际返回 thinking 的模型，必须与普通模型不同 |
 | `PI_REMOTE_LIVE_SINGLE_MODEL=1` | 显式允许同一模型做普通 / thinking smoke；结果使用独立 AUTO-SDK-thinking-single 项，不能满足 AT03 的第二模型条件 |
-| `PI_REMOTE_LIVE_MAX_OPERATIONS` | 明确允许的顶层模型操作数；sdk 至少 2，commands/realtime 基础场景至少 1，controls 至少 3，三个 compact 场景均至少 8 |
+| `PI_REMOTE_LIVE_MAX_OPERATIONS` | 明确允许的顶层模型操作数；sdk 至少 2，commands/realtime 基础场景至少 1，controls 至少 3，configuration 至少 4，三个 compact 场景均至少 8 |
 | `PI_REMOTE_LIVE_TIMEOUT_MS` | 每次 SDK 操作或后端测试场景的等待上限，默认 120000，允许 1000–1800000；后端启动另有 90 秒上限 |
 | `PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR` | 私有证据目录；文件名如 `live-commands.json`、`parity-tui-runtime.json` |
 
@@ -60,6 +60,8 @@ commands/realtime 使用生产 server/worker 和真实 HTTPS/WSS，绑定临时�
 `--suite commands --scenario compact-cancel` 要求至少 8 次顶层操作，双方各执行两轮准备对话 / compact / 后续 prompt。在临时原生 `session_before_compact` 扩展的待答窗口中，分别调用 SDK `abortCompaction()` 和后端定向 abort；检查取消终态、待答关闭、无摘要落盘以及原上下文仍可用于写文件。该场景记为 `AUTO-CMD-compact-cancel-before-summary`，只覆盖摘要生成前的取消，不代表 provider 摘要流中断或交互式 TUI 已验证。
 
 `--suite commands --scenario compact-cancel-stream` 同样至少需要 8 次顶层操作，使用临时本机 HTTP relay 观察已配置 provider 的 OpenAI-compatible 摘要流。双方各在 relay 收到并转发首个非空 content frame 后停止；relay 暂停后续数据交付，形成可重复的取消窗口。检查客户端断开、SDK 取消事件、后端 Run/Command 终态、无摘要落盘及后续对话。这是实际 provider 加受控传输时序的测试，不代表未经延迟的网络时序或交互式 TUI 对照；记为 `AUTO-CMD-compact-cancel-stream`，不替代完整 `CMD-compact-queue`。relay 仅转发到原配置的 provider 地址，拒绝重定向，不落盘请求、响应或凭据；测试结束关闭 relay，生产配置不变。
+
+`--suite commands --scenario configuration` 至少需要 4 次顶层操作（直接 SDK 与后端各 gate / 恢复后 prompt）。真实 Bash 工具等待期间完成模型选择和思考等级修改，与 SDK 实际 clamp 对照；停止 gate 后分别重新打开原生会话、SIGKILL 并重启后端，核对配置、后续 assistant 的实际 model/provider 以及结果文件。所有配置修改均不持久化为默认值，原始 agent 配置先复制到临时目录。单模型模式只证明同模型重新选择及等级配置，不替代两模型切换；本场景亦不覆盖 token 流中的精确时序、persist=true、空历史回收或 model_select hook 错误，使用 `AUTO-CMD-active-config-recovery` 子集标识。
 
 ## 采集和导入人工对照
 

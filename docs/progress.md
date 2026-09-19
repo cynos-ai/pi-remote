@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-19 执行中配置与重启恢复
+
+基于 `8419e8bb3c0b660bd241e2d03910ec6669d8c9a1` 的工作树，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1 继续 S07。新增 `--scenario configuration`，预算至少 4 次顶层任务。直接 SDK 与生产后端各在 Bash 工具等待期间请求 xhigh、选择目标模型、请求 low，比较 SDK 实际生效等级；后端配置完成时旧 Run 必须仍在 running。随后停止任务，分别重新打开原生会话、SIGKILL 并重启主服务，再验证配置、后续 assistant 的实际 model/provider 与写入文件。配置不改默认值，原始专用 agent 先复制到临时目录；无产品实现改动。
+
+`pnpm test:acceptance-backend` 11/11 通过（`test-results/deepseek-live/configuration-staged-regression.log`），本地使用两个合成模型验证实际切换及非 reasoning 模型的等级 clamp。首次运行仅因临时 Linux 目录漏复制 `live-model-selection.mjs` 而失败（`configuration-regression.log`），补全 staging 后通过。`pnpm test:acceptance` 24/24 通过（`configuration-acceptance.log`），所有改动文件定向 lint 通过（`configuration-lint.log`）。预算不足不能导入 runtime；新自动项 `AUTO-CMD-active-config-recovery` 不替代完整 `CMD-model-thinking`。
+
+测试覆盖活动工具期间的配置，不等同于 token 流中的精确时序；persist=true、空历史回收及 model_select hook 错误仍待单独验收。真实环境按用户指定的单模型配置执行，同模型重新选择不能算两个真实模型切换。
+
+真实 DeepSeek `node --env-file=.env scripts/test-live.mjs --suite commands --scenario configuration` 通过 `AUTO-CMD-active-config-recovery`；本轮请求 xhigh 的原生有效值仍为 xhigh，随后设为 low，双方重开/重启后恢复 low。后续 assistant model/provider 与实际文件均核对，两个临时 agent 的默认 settings 内容未改变。证据 `test-results/deepseek-live/configuration-live.log`、`configuration-passed-report.json`，4 次顶层操作上限、360000 ms 测试时限。suite 保持 blocked、退出码 1（其余 6 个完整 case 未在本次运行），不覆盖两模型实测、完整 TUI 或设备。报告保留执行时父提交和源码指纹。
+
+最终 `pnpm verify:S07` 为 12 passed / 0 failed / 2 not_run，状态 blocked（`test-results/deepseek-live/configuration-s07.log`、`test-results/s07/report.json`）。构建、命令/交互合同、lint、全量 typecheck 和文档检查通过；完整 commands 与原生 TUI 未完成。188 个非忽略文件的凭据扫描匹配数为 0，`git diff --check` 通过。下一步为 persist=true 默认配置隔离、空会话回收恢复及 model_select hook 异常；本轮不重复独立进程故障矩阵，已在新增真实进程场景中执行配置后的主服务 SIGKILL/恢复。
+
 ## 2026-09-19 compact 摘要流取消
 
 基于 `24ac04358ed2e8ad34027ef32ae638696aacba49` 工作树继续 S07，环境沿用 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。新增 `--scenario compact-cancel-stream`，要求至少 8 次顶层操作。固定 SDK 没有公开摘要 token 事件，因此测试专用本机 relay 在收到并转发 provider 首个非空 content frame 后暂停后续交付，分别触发原生 `abortCompaction()` 和后端定向 abort。检查两个 HTTP 流关闭、原生取消事件、Run/Command 取消终态、无 compaction 落盘及原上下文可继续写文件。该受控网络窗口不等同于未经延迟的实网时序或交互式 TUI；不改变生产代码、模型配置或摘要默认行为。

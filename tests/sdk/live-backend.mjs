@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -42,6 +42,10 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
         streamProbe = await summaryStreamProbe(h.env.PI_REMOTE_PI_DIR, process.env.PI_REMOTE_LIVE_PROVIDER);
       }
     }
+    if (scenario === "configuration") {
+      h.env.PI_REMOTE_PI_DIR = join(h.root, "configuration-agent");
+      await cp(process.env.PI_REMOTE_LIVE_AGENT_DIR, h.env.PI_REMOTE_PI_DIR, { recursive: true });
+    }
     // No raw logs/database evidence from the deterministic harness may be saved.
     assert.ok(!process.env.R16_EVIDENCE_DIR, "unset R16_EVIDENCE_DIR for private live tests");
     await h.start();
@@ -63,6 +67,11 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
       const created = await h.http("POST", `/v1/projects/${project.project.id}/sessions`, { title: "synthetic live task", model: ordinary });
       h.sessionId = created.session.id;
       const stream = await h.connect();
+      if (scenario === "configuration") {
+        const { runLiveConfiguration } = await import("./live-configuration.mjs");
+        await runLiveConfiguration(h, record, value => { phase = value; });
+        return;
+      }
       if (scenario.startsWith("compact")) {
         const { runLiveCompact, runEmptyCompact, runCompactCancel } = await import("./live-compact.mjs");
         if (scenario.startsWith("compact-cancel")) await runCompactCancel(h, record, value => { phase = value; }, streamProbe);
