@@ -18,13 +18,29 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S04 | passed | SQLite 迁移、事件事务、live projection、快照和历史分页 |
 | S05 | passed | 鉴权、项目和会话 API |
 | S06 | blocked | worker、调度与恢复合同测试通过；原生 TUI / live provider 对照未运行 |
-| S07 | blocked | 合同及 DeepSeek 基础命令、stop 草稿、steer 消费、follow-up 顺序真实子集通过；compact、完整交互和原生对照待验收 |
+| S07 | blocked | 合同及 DeepSeek 基础命令、stop/steer/follow-up、compact 队列和生成前取消子集通过；完整 compact/交互及原生 TUI 对照待验收 |
 | S08 | blocked | 合同及 DeepSeek 真实流/工具、断线继续与持久事件回放子集通过；完整实时矩阵及原生对照待验收 |
 | S09 | blocked | 移动端配对、资源列表、归档、历史与本地缓存实现；真实 Android / iOS 设备未运行 |
 | S10 | blocked | 移动端实时、时间线、命令与表单已实现；真实 Android / iOS 流程未运行 |
 | S11 | blocked | 双设备/弱网合同与实际 server/worker 进程故障集成通过；真实 Android / iOS 设备未运行 |
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
+
+## 2026-09-19 compact 原生队列与取消对照
+
+本轮基于 `28f80b2acaa8a0d53b1437064b94828805590d6a` 工作树，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / pi SDK 0.85.1 继续 S07。真实进程回归复现：compact 为保留原生输入而停止当前生成时，worker 仍强制设置 abort 标记，导致原生队列已继续执行并成功结束的旧 Run 被误记为 aborted。现仅在 preserveQueue 路径预置中断结果，允许后续原生 assistant 的实际 stop/error 覆盖；显式 stop 仍清取草稿并保持 abort 优先。未修改协议、schema 或生产压缩配置。
+
+新增 `--scenario compact` 与 `--scenario compact-cancel`，每个场景分别要求至少 8 次顶层操作。直接 SDK 与生产后端使用相同的临时配置和合成项目，比较原生队列、旧 Run、压缩历史、摘要保留标记以及后续真实写文件；取消场景在原生 before-compact 待答窗口定向 abort，核对取消终态、待答关闭、无摘要落盘和原上下文可继续。后者只覆盖摘要生成前取消，尚未覆盖 provider 摘要流中断或交互式 TUI。两项自动结果均不能代替完整 `CMD-compact-queue`。
+
+- 修复前 `compact-regression.log` 保留旧 Run aborted/completed 不一致；修复后正常队列、无队列及空历史失败恢复均通过。取消夹具最初使用 SDK 不自动发现的扩展后缀，且短历史仍在保留窗口内；改用受支持的 `.js`、补足独立历史轮次，并对 compact 提前退出立即报错。未放宽断言或产品前置条件，失败日志保留。
+- `pnpm test:acceptance-backend`：8/8 通过，证据 `test-results/deepseek-live/compact-cancel-final-regression.log`。这是生产 server/worker 加本地合成 provider 的回归，不替代真实模型。
+- `pnpm test:acceptance`：22/22 通过，证据 `test-results/deepseek-live/compact-final-acceptance.log`，包括两个 compact 场景的预算限制与子集不得通过完整矩阵的约束。
+- 真实 DeepSeek `--scenario compact`：`AUTO-CMD-compact-native-queue` passed；双方 seed → gate → steer → native followUp 顺序一致、队列均消费完、旧 Run completed、摘要和后续文件验证通过。证据 `test-results/deepseek-live/compact-live.log`、`compact-live-passed-report.json`。
+- 真实 DeepSeek `--scenario compact-cancel`：`AUTO-CMD-compact-cancel-before-summary` passed；证据 `test-results/deepseek-live/compact-cancel-live.log`、`compact-cancel-passed-report.json`。凭据仍只保存在忽略的本地配置中。
+
+两份真实报告分别保留运行时的父提交和工作树 SHA-256；正常压缩报告早于取消测试的后续修改，不改写它的身份。完整 commands 仍包含 not_run，因此两次定向运行的 suite 均为 blocked（退出码 1），不声明 S07、完整 TUI 或发布验收通过。
+
+最终 `pnpm verify:S07` 为 12 passed / 0 failed / 2 not_run，状态 blocked；构建、命令/交互合同、lint、全量 typecheck、文档检查均通过。未运行项是完整 commands 与原生 TUI，当前定向报告不合并旧 controls 结果。证据 `test-results/deepseek-live/compact-s07.log`、`test-results/s07/report.json`。`node scripts/test-real-process-e2e.mjs --no-build` 9/9 通过，证据 `test-results/deepseek-live/compact-e2e.log`；包含真实进程 SIGKILL、停止草稿、不重发未知命令、超过 60 秒待答恢复及原生会话替换，模型传输仍为本地合成。186 个非忽略文件的凭据扫描匹配数为 0，`git diff --check` 通过，`.env` 与私有 agent/报告继续被忽略。下一步继续完整 compact 的摘要流取消、应用队列/扩展对照及 streaming 配置；原生 TUI、第二模型和双端设备仍需独立验收。
 
 ## 2026-09-19 控制场景继续复验
 

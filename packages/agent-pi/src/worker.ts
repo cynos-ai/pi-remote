@@ -1384,7 +1384,14 @@ export class PiWorker {
       this.rejectCommand(payload.commandId, "STALE_RUN", "target run is not active in this worker");
       return;
     }
-    if ("abortRequested" in target) target.abortRequested = true;
+    if ("abortRequested" in target) {
+      if (payload.preserveQueue) {
+        // Native compact may drain preserved inputs after aborting the current
+        // generation. A later assistant outcome must be allowed to replace this
+        // interrupted outcome; explicit stop still wins via abortRequested.
+        target.assistantOutcome = { stopReason: "aborted" };
+      } else target.abortRequested = true;
+    }
     else target.outcome = { stopReason: "aborted" };
     try {
       // Match the native TUI stop order: take the SDK queue first, persist

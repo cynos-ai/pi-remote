@@ -9,7 +9,7 @@ import { root } from "../../scripts/acceptance-evidence.mjs";
 
 // Reuse only the real HTTPS/WSS/process client. Never call the deterministic
 // harness factory: that factory installs a local substitute model provider.
-export async function runLiveBackend(suite, record, scenario = "basic") {
+export async function runLiveBackend(suite, record, scenario = "basic", options = {}) {
   const h = new RealProcessHarness();
   h.label = `live-${suite}`;
   h.privateEvidence = true;
@@ -31,6 +31,12 @@ export async function runLiveBackend(suite, record, scenario = "basic") {
       PI_REMOTE_PI_DIR: process.env.PI_REMOTE_LIVE_AGENT_DIR, PI_REMOTE_WORKSPACE_ROOT: h.project,
       PI_REMOTE_OWNER_ID: "live-test-owner", PI_REMOTE_OWNER_NAME: "Live test",
       PI_REMOTE_CURSOR_SECRET: randomUUID(), R16_TLS_KEY: key, R16_TLS_CERT: cert };
+    if (scenario.startsWith("compact")) {
+      const { prepareCompactAgent, installCompactCancelExtension } = await import("./live-compact.mjs");
+      h.env.PI_REMOTE_PI_DIR = join(h.root, "compact-agent");
+      await prepareCompactAgent(process.env.PI_REMOTE_LIVE_AGENT_DIR, h.env.PI_REMOTE_PI_DIR);
+      if (scenario === "compact-cancel") await installCompactCancelExtension(h.env.PI_REMOTE_PI_DIR);
+    }
     // No raw logs/database evidence from the deterministic harness may be saved.
     assert.ok(!process.env.R16_EVIDENCE_DIR, "unset R16_EVIDENCE_DIR for private live tests");
     await h.start();
@@ -52,6 +58,13 @@ export async function runLiveBackend(suite, record, scenario = "basic") {
       const created = await h.http("POST", `/v1/projects/${project.project.id}/sessions`, { title: "synthetic live task", model: ordinary });
       h.sessionId = created.session.id;
       const stream = await h.connect();
+      if (scenario.startsWith("compact")) {
+        const { runLiveCompact, runEmptyCompact, runCompactCancel } = await import("./live-compact.mjs");
+        if (scenario === "compact-cancel") await runCompactCancel(h, record, value => { phase = value; });
+        else if (options.compactEmptySession) await runEmptyCompact(h, record);
+        else await runLiveCompact(h, record, value => { phase = value; }, options.compactQueuedInputs ?? true);
+        return;
+      }
       if (scenario === "controls") {
         const { runLiveControls } = await import("./live-controls.mjs");
         await runLiveControls(h, stream, record, value => { phase = value; });
@@ -112,6 +125,7 @@ export async function runLiveBackend(suite, record, scenario = "basic") {
     // errors, assertion values, server logs, or response bodies.
     const category = error?.code === "ERR_ASSERTION" ? "assertion" : error?.code === "ENOENT" ? "missing-file" : "execution";
     const diagnostics = [];
+    if (h.compactBaseline) diagnostics.push({ nativeCompact: h.compactBaseline });
     if (scenario === "controls") {
       try {
         const { controlDiagnostics } = await import("./live-controls.mjs");
@@ -129,7 +143,7 @@ export async function runLiveBackend(suite, record, scenario = "basic") {
       }
       const failures = h.query("SELECT payload_json FROM events WHERE type = 'command.updated'")
         .map(row => JSON.parse(row.payload_json).error).filter(Boolean);
-      const failureMessages = failures.map(error => error.message).filter(value => typeof value === "string");
+      const failureMessages = [...failures.map(error => error.message), error?.message].filter(value => typeof value === "string");
       const safeCodes = ["SDK_OPERATION_FAILED", "WORKER_START_TIMEOUT", "WORKER_HEARTBEAT_TIMEOUT", "WORKER_BUSY", "WORKER_DISCONNECTED", "STALE_RUN"];
       for (const code of safeCodes) if (failures.some(error => error.code === code)) diagnostics.push({ failureCode: code });
       const categories = [
@@ -157,6 +171,7 @@ export async function runLiveBackend(suite, record, scenario = "basic") {
     throw error;
   } finally {
     clearTimeout(timer);
+    h.nativeCleanup?.();
     // Discover remaining workers even when startup failed before workerPid().
     if (h.main?.pid) {
       try {

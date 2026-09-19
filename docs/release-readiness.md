@@ -9,9 +9,11 @@
 - `pnpm verify:S13` 检查 S01–S12 源码指纹及完整 live/parity 报告，重新执行 `pnpm test:e2e` 和设备 runner；不隐式重复付费模型调用。任何缺失、过期、失败或未运行的必需证据均不能通过。入口、采集和导入流程见[验收入口说明](acceptance-runners.md)。
 - 2026-09-19 修复直接 prompt 异常结束后旧 follow_up 未暂停的问题；既有进程故障回归 9/9 通过。继续复验后，DeepSeek 的 `CMD-steer-stop-drafts` 完整场景通过：包含完整草稿、暂停旧队列、旧 target、新任务、steer 消费和 follow_up 精确副作用顺序。本地后端/诊断回归 4/4 通过。此前请求超时和断言失败的证据保留，不能据本次通过断言所有历史根因已查明；详见开发进度。完整 commands 矩阵仍缺 compact 等场景。
 
+- 2026-09-19 修复 compact 保留原生队列时旧 Run 被强制记为 aborted 的问题。DeepSeek 的原生队列/摘要/后续文件对照与摘要生成前取消对照分别通过；本地后端回归 8/8、验收报告测试 22/22 通过。完整 compact 矩阵仍需摘要流中断、其他队列/扩展及交互式 TUI 对照，详见[开发进度](progress.md)。
+
 ## 当前尚未满足
 
-- 真实 provider：2026-09-19 已验证 DeepSeek 单模型的工具调用、thinking、基础后端命令及断线回放子集；仍需第二个不同模型、完整控制/交互、compact、重试和长时间开发验证。旧 ID `deepseek-v4-flash` 实际由官方映射到 V4.1-Flash。首次实时测试失败原因未定，定向复验通过；详情和证据见[开发进度](progress.md)。
+- 真实 provider：2026-09-19 已验证 DeepSeek 单模型的工具调用、thinking、基础后端命令、控制、compact 队列/生成前取消及断线回放子集；仍需第二个不同模型、完整控制/交互和 compact 矩阵、重试及长时间开发验证。旧 ID `deepseek-v4-flash` 实际由官方映射到 V4.1-Flash。首次实时测试失败原因未定，定向复验通过；详情和证据见[开发进度](progress.md)。
 - 原生 TUI：在相同 Linux、SDK、资源和配置下完成 T01–T08 / B01–B08 对照。确定性 SDK 与 `/bin/bash` smoke 不能代替交互 TUI。
 - Android / iOS：安装实际构建，在两平台分别完成配对、历史、命令、表单、锁屏后台恢复、弱网和双设备流程；需要设备可访问的 HTTPS/WSS 后端。
 - 移动端差异：附件已接通 Expo 系统文件选择器、Session 归属校验和二进制上传；仍需在 Android / iOS 真机验证权限、弱网与后台恢复。终端专用 custom renderer 仍需按原生 API 完成入口或结构化回退，并补对应真机证据；当前不会静默丢弃输入。

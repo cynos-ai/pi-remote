@@ -37,7 +37,15 @@ export async function localHttpProvider(options = {}) {
       return;
     }
     const results = body.messages.slice(lastUser + 1).filter(m => m.role === 'tool');
-    if (options.controls && /CONTROL_(GATE|STEER|FOLLOW)/.test(text) && !results.length) {
+    if (options.compact && body.tools?.length && /COMPACT_(GATE|AFTER)/.test(text) && !results.length) {
+      const name = text.includes('COMPACT_AFTER') ? 'write' : 'bash';
+      const args = name === 'write' ? { path: 'compact-result.txt', content: 'pi-compact-marker' } : { command: 'bash compact-gate.sh' };
+      chunk({ tool_calls: [{ index: 0, id: `compact-${requests.length}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+      chunk({}, 'tool_calls');
+    } else if (options.compact) {
+      chunk({ content: 'Project marker: pi-compact-marker. Keep the queued user instructions.' });
+      chunk({}, 'stop');
+    } else if (options.controls && /CONTROL_(GATE|STEER|FOLLOW)/.test(text) && !results.length) {
       const command = text.includes('CONTROL_STEER') ? "printf 'steer\\n' >> effects"
         : text.includes('CONTROL_FOLLOW') ? "printf 'follow\\n' >> effects" : text.includes('fresh-gate.sh') ? 'bash fresh-gate.sh' : 'bash gate.sh';
       chunk({ tool_calls: [{ index: 0, id: `control-${requests.length}`, type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command }) } }] });
