@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-19 标题竞争与 fork 映射崩溃窗口
+
+基于 `a547eae`，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1 扩展真实进程会话回归。两次手机 PATCH 使用同一 version 并发提交，断言恰好一个成功、另一个 409 VERSION_CONFLICT；SDK 标题回声不重复递增 version，后续原生改名可生效。标题已写 JSONL、事件未提交 SQLite 时对真实主进程 SIGKILL；重启加载会话后读取原生标题，未知旧命令不变为成功。
+
+fork 分别在目标文件写入后、映射事务之前，以及映射已提交、bound ACK 尚未发送时暂停并 SIGKILL 主进程。检查文件身份与内容保留、源历史未变、旧命令 unknown、无 continuation 模型请求或新 Run。未映射文件经用户显式 switch 认领，已映射目标经新 prompt 继续，均保持目标身份、不创建第二份 fork 文件、不自动重放 FORK_FIRST / FORK_SECOND。
+
+故障注入位于 `tests/sdk/fault-checkpoints.mjs`，仅由临时测试入口 opt-in 启用：在真实 manager 方法前 SIGSTOP，由父测试确认真实文件/数据库状态再发送 SIGKILL。不修改生产代码，不替换 SDK、消息、EventStore 或恢复逻辑；这是受控时序证据，不能声称覆盖所有自然竞争。未映射文件路径由夹具观察记录再显式传入，尚未证明手机 UI 可发现或找回该文件。
+
+实际执行 `node scripts/test-real-process-e2e.mjs --no-build --sessions-only`：7/7 通过，含新增 4 项与前轮 3 项；日志为 `test-results/session-races.log`。完整 `node scripts/test-real-process-e2e.mjs --no-build`：21/21 通过，日志为 `test-results/session-races-e2e.log`。阶段记录写入 `test-results/session-races-s07.log` 与 `test-results/s07/report.json`，本地详细证据不提交。`python3 scripts/check_docs.py` 与 `git diff --check` 通过。真实 provider、交互式 TUI、设备、延迟旧标题回声与新原生标题竞争以及手机恢复入口仍未完成；本轮不填充完整 live 验收项。
+
+本轮 `pnpm verify:S07`：14 passed / 2 failed，构建、合同、真实表单/会话进程、lint、全量 typecheck 和文档检查通过；两个失败项仍为旧 live-commands / parity-tui-commands 证据源码指纹不匹配。保持阶段 failed，不以本地合成测试代替真实验收，也不重写旧报告。
+
 ## 2026-09-19 原生 fork、导入、标题与多 Run
 
 基于 `8fa4a9e`，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1 增加 `tests/e2e/sessions-process.test.mjs`，使用临时项目、SDK 正常发现的扩展、生产 server / worker、HTTPS/WSS 与本地合成 provider。新增 `--sessions-only`，接入 S07 与完整 E2E，不修改产品协议或运行时行为。

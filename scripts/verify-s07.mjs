@@ -104,6 +104,8 @@ if (build.code === 0) {
       "native fork with two cross-session causal Runs and unchanged source history",
       "header-only import, extension/API title synchronization and restart",
       "missing/corrupt history rejected without recreation; source remains usable",
+      "concurrent title CAS and native title recovery before event commit",
+      "real SIGKILL before fork mapping and before mapping ACK; no automatic continuation replay",
       "local synthetic provider; not live provider, interactive TUI or device acceptance"
     ]);
   } else record("S07-native-form-processes", "not_run", "node scripts/test-real-process-e2e.mjs --no-build --forms-only", [], "requires Linux");

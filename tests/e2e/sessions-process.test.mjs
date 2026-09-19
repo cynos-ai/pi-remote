@@ -1,12 +1,120 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { RealProcessHarness, until } from './real-process-harness.mjs';
 
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
+
+async function armFault(h, point) {
+  await writeFile(join(h.root, 'state/fault-arm'), point);
+}
+async function reachedFault(h, point) {
+  return until(async () => {
+    try {
+      const value = JSON.parse(await readFile(join(h.root, 'state/fault-reached'), 'utf8'));
+      return value.point === point ? value.payload : null;
+    } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  }, point);
+}
+
+test('two phone renames at one version have one winner and native echo does not increment twice', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const initial = await h.command('prompt', { text: 'TITLE_SOURCE' });
+  await h.workerPid();
+  await h.terminal(initial.commandId);
+  const source = mapping(h);
+  const snapshot = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  const replies = await Promise.allSettled(['Phone A', 'Phone B'].map(title => h.http('PATCH', `/v1/sessions/${h.sessionId}`, { expectedVersion: snapshot.session.version, title })));
+  assert.equal(replies.filter(reply => reply.status === 'fulfilled').length, 1);
+  const rejected = replies.find(reply => reply.status === 'rejected');
+  assert.match(rejected.reason.message.split('\n')[0], /409.*VERSION_CONFLICT/);
+  const winner = h.query('SELECT title, version FROM sessions WHERE id = ?', h.sessionId)[0];
+  assert.equal(winner.version, snapshot.session.version + 1);
+  await until(async () => (await history(source.pi_session_file)).filter(item => item.type === 'session_info').at(-1)?.name === winner.title, 'native rename echo');
+  // A subsequent command is a barrier after the synchronous SDK rename hook.
+  const barrier = await h.command('extension_command', { text: '/r16-title Native Final' });
+  await h.terminal(barrier.commandId);
+  const final = await until(() => {
+    const row = h.query('SELECT title, version FROM sessions WHERE id = ?', h.sessionId)[0];
+    return row.title === 'Native Final' ? row : null;
+  }, 'later native title');
+  assert.equal(final.version, winner.version + 1);
+  assert.equal((await history(source.pi_session_file)).filter(item => item.type === 'session_info').at(-1).name, final.title);
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('native title written before event commit is recovered after real main SIGKILL', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true, faults: true });
+  const initial = await h.command('prompt', { text: 'TITLE_RECOVERY' });
+  await h.workerPid();
+  await h.terminal(initial.commandId);
+  const source = mapping(h);
+  await armFault(h, 'before-title-commit');
+  const change = await h.command('extension_command', { text: '/r16-title TITLE_AFTER_CRASH' });
+  await reachedFault(h, 'before-title-commit');
+  assert.equal((await history(source.pi_session_file)).filter(item => item.type === 'session_info').at(-1).name, 'TITLE_AFTER_CRASH');
+  assert.equal(h.query('SELECT title FROM sessions WHERE id = ?', h.sessionId)[0].title, 'R16 real SDK');
+  await h.killMain();
+  await h.start();
+  await h.terminal(change.commandId, 'unknown');
+  const resumed = await h.command('prompt', { text: 'AFTER_TITLE_CRASH' });
+  await h.workerPid();
+  await h.terminal(resumed.commandId);
+  assert.equal(h.query('SELECT title FROM sessions WHERE id = ?', h.sessionId)[0].title, 'TITLE_AFTER_CRASH');
+  assert.equal(mapping(h).pi_session_id, source.pi_session_id);
+  assert.equal(h.provider.requests.length, 2);
+});
+
+for (const point of ['before-bound', 'before-bound-ack']) {
+  test(`fork SIGKILL at ${point} preserves written history without replaying continuation`, { timeout: 120000 }, async t => {
+    const h = await RealProcessHarness.create(t, { extension: true, faults: true });
+    const initial = await h.command('prompt', { text: 'FORK_CRASH_SOURCE' });
+    await h.workerPid();
+    await h.terminal(initial.commandId);
+    const source = mapping(h);
+    const sourceBytes = await readFile(source.pi_session_file, 'utf8');
+    const entry = (await history(source.pi_session_file)).find(item => item.type === 'message' && item.message.role === 'assistant');
+    await armFault(h, point);
+    const fork = await h.command('extension_command', { text: `/r16-fork ${entry.id}` });
+    const checkpoint = await reachedFault(h, point);
+    const target = point === 'before-bound' ? { pi_session_file: checkpoint.piSessionFile, pi_session_id: checkpoint.piSessionId }
+      : h.query('SELECT id, pi_session_file, pi_session_id FROM sessions WHERE id = ?', checkpoint.appSessionId)[0];
+    const targetBytes = await readFile(target.pi_session_file, 'utf8');
+    assert.equal(JSON.parse(targetBytes.split('\n')[0]).id, target.pi_session_id);
+    assert.ok(!targetBytes.includes('FORK_FIRST'));
+    assert.equal(h.query('SELECT COUNT(*) AS count FROM sessions')[0].count, point === 'before-bound' ? 1 : 2);
+    assert.equal(h.provider.requests.length, 1);
+    await h.killMain();
+    await h.start();
+    await h.terminal(fork.commandId, 'unknown');
+    assert.equal(await readFile(target.pi_session_file, 'utf8'), targetBytes);
+    assert.equal(await readFile(source.pi_session_file, 'utf8'), sourceBytes);
+    assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 1);
+    const filesBefore = (await readdir(join(h.agent, 'sessions'), { recursive: true })).filter(file => file.endsWith('.jsonl')).sort();
+    if (point === 'before-bound') {
+      // Explicitly reclaim the file; never retry the unknown fork command.
+      const imported = await h.command('extension_command', { text: `/r16-switch ${target.pi_session_file}` });
+      await h.workerPid();
+      await h.terminal(imported.commandId);
+      h.sessionId = h.query('SELECT id FROM sessions WHERE pi_session_id = ?', target.pi_session_id)[0].id;
+      await until(() => h.query("SELECT id FROM runs WHERE session_id = ? AND status = 'completed'", h.sessionId).length === 1, 'explicit recovery continuation');
+    } else {
+      h.sessionId = target.id;
+      const continued = await h.command('prompt', { text: 'EXPLICIT_FORK_RECOVERY' });
+      await h.workerPid();
+      await h.terminal(continued.commandId);
+    }
+    assert.deepEqual((await readdir(join(h.agent, 'sessions'), { recursive: true })).filter(file => file.endsWith('.jsonl')).sort(), filesBefore);
+    assert.equal(mapping(h).pi_session_id, target.pi_session_id);
+    assert.equal(h.provider.requests.length, 2);
+    assert.ok(!JSON.stringify(h.provider.requests).includes('FORK_FIRST'));
+    assert.ok(!JSON.stringify(h.provider.requests).includes('FORK_SECOND'));
+    assert.equal(h.query('SELECT state FROM commands WHERE id = ?', fork.commandId)[0].state, 'unknown');
+  });
+}
 
 test('native fork preserves source and assigns two continuation Runs to one cross-session Command', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });

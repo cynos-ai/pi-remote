@@ -77,7 +77,11 @@ Linux 下运行 `node scripts/test-real-process-e2e.mjs --forms-only`，或随 `
 
 Linux 下运行 `node scripts/test-real-process-e2e.mjs --sessions-only`，或随 `pnpm verify:S07` / `pnpm test:e2e` 执行。通过 SDK 扩展的 fork / switchSession 验证：fork 后两次 continuation 生成不同 Run、共用源 Session 的因果 Command，源历史不变；未映射的合法 header-only 历史可导入，后续执行与重启保持身份；扩展 A → 手机 B → 扩展 A 的标题落盘与投影一致；缺失、零字节和损坏历史不被静默重建，失败后原会话仍可继续。
 
-这些测试使用本地合成 provider，不代替真实 `CMD-native-session-title` / `CMD-autonomous-multiple-runs`。并发改名、落盘与事件提交之间崩溃、fork 映射 ACK 窗口及完整真实模型/TUI矩阵仍需各自证据。
+会话回归还覆盖同版本两次手机改名的 CAS 竞争（一个成功、另一个 VERSION_CONFLICT）、SDK 回声不重复递增版本，以及原生标题已落 JSONL 但未提交事件时的 SIGKILL 恢复。fork 分别在映射前和映射已持久化但 ACK 尚未发送时中断，确认文件不丢失、旧命令 unknown、不自动重放 continuation，后续通过显式 switch 或目标 Session 新 prompt 恢复，不再次 fork。
+
+这些崩溃测试由独立测试入口在真实 manager 方法边界执行 SIGSTOP，再由父测试发送 SIGKILL；只控制时序，不替换 SDK、IPC 消息、持久化或恢复实现。故障开关只存在于 tests，生产接口未增加故障注入能力。未映射文件的恢复路径由夹具记录并显式传入，不代表已有手机端自动发现或找回入口。
+
+这些测试使用本地合成 provider，不代替真实 `CMD-native-session-title` / `CMD-autonomous-multiple-runs`。移动端可操作的恢复流程、旧标题回声延迟与新原生标题竞争、无人为暂停的网络/进程时序及完整真实模型/TUI矩阵仍需各自证据。
 
 ## 采集和导入人工对照
 

@@ -47,7 +47,7 @@ export async function stageRealProcessRuntime(repository, destination) {
     }
   }));
   for (const file of ['e2e/real-process.test.mjs', 'e2e/forms-process.test.mjs', 'e2e/sessions-process.test.mjs', 'sdk/forms-extension.mjs', 'e2e/real-process-harness.mjs',
-    'sdk/real-server-entry.mjs', 'sdk/local-http-provider.mjs', 'sdk/r16-native-extension.mjs',
+    'sdk/real-server-entry.mjs', 'sdk/fault-checkpoints.mjs', 'sdk/local-http-provider.mjs', 'sdk/r16-native-extension.mjs',
     'sdk/live-server-entry.mjs', 'sdk/live-backend.mjs', 'sdk/live-controls.mjs', 'sdk/live-configuration.mjs', 'sdk/live-defaults.mjs', 'sdk/live-compact.mjs', 'sdk/summary-stream-probe.mjs', 'sdk/live-backend.test.mjs']) {
     const target = resolve(destination, 'tests', file);
     await mkdir(dirname(target), { recursive: true });

@@ -75,6 +75,7 @@ export class RealProcessHarness {
     };
     if (options.startupForm) h.env.R16_STARTUP_FORM = '1';
     if (options.formsPhase) h.env.R16_FORMS_PHASE = options.formsPhase;
+    if (options.faults) h.env.R16_FAULTS = '1';
     await h.start();
     const pairing = spawnSync(process.execPath, ['apps/server/dist/cli.js', 'pair'], {
       cwd: repo, env: h.env, encoding: 'utf8'

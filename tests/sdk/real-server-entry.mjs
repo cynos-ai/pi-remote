@@ -6,6 +6,7 @@ import { buildServer } from '../../apps/server/dist/index.js';
 import { parseEnv } from '../../apps/server/dist/config.js';
 import { openServerDatabaseSync } from '../../apps/server/dist/storage/database.js';
 import { WorkerManager } from '../../apps/server/dist/runtime/manager.js';
+import { installFaultCheckpoints } from './fault-checkpoints.mjs';
 
 const env = parseEnv();
 const database = openServerDatabaseSync({ filename: join(env.PI_REMOTE_STATE_DIR, 'state.sqlite') });
@@ -14,6 +15,7 @@ const manager = new WorkerManager(database, {
   agentDir: env.PI_REMOTE_PI_DIR, sessionDir: join(env.PI_REMOTE_PI_DIR, 'sessions'),
   mappingTimeoutMs: 60000
 });
+if (process.env.R16_FAULTS === '1') installFaultCheckpoints(manager, env.PI_REMOTE_STATE_DIR);
 manager.start();
 const app = buildServer({ env, database, workerManager: manager, logger: true, https: {
   key: await readFile(process.env.R16_TLS_KEY),
