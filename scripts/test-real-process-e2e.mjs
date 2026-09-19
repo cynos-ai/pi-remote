@@ -28,7 +28,8 @@ try {
     directory = stage;
   }
   const tests = process.argv.includes('--forms-only') ? ['tests/e2e/forms-process.test.mjs']
-    : ['tests/e2e/real-process.test.mjs', 'tests/e2e/forms-process.test.mjs'];
+    : process.argv.includes('--sessions-only') ? ['tests/e2e/sessions-process.test.mjs']
+    : ['tests/e2e/real-process.test.mjs', 'tests/e2e/forms-process.test.mjs', 'tests/e2e/sessions-process.test.mjs'];
   run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=1', ...tests], directory);
 } catch (error) {
   console.error(error);

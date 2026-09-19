@@ -73,6 +73,12 @@ Linux 下运行 `node scripts/test-real-process-e2e.mjs --forms-only`，或随 `
 
 配置 hook 的第一张表单属于 configure；原生异步 hook 在该操作结束后的后续表单属于 extension 子 Operation，测试校验 parentOperationId。各阶段核对扩展实际收到的返回值，Bash 另核对文件副作用。仅 run 阶段使用本地合成 provider，其余阶段不生成模型请求；这些结果不填充真实 `CMD-all-phase-forms` 或交互式 TUI / 设备验收。
 
+## 原生会话的真实进程回归
+
+Linux 下运行 `node scripts/test-real-process-e2e.mjs --sessions-only`，或随 `pnpm verify:S07` / `pnpm test:e2e` 执行。通过 SDK 扩展的 fork / switchSession 验证：fork 后两次 continuation 生成不同 Run、共用源 Session 的因果 Command，源历史不变；未映射的合法 header-only 历史可导入，后续执行与重启保持身份；扩展 A → 手机 B → 扩展 A 的标题落盘与投影一致；缺失、零字节和损坏历史不被静默重建，失败后原会话仍可继续。
+
+这些测试使用本地合成 provider，不代替真实 `CMD-native-session-title` / `CMD-autonomous-multiple-runs`。并发改名、落盘与事件提交之间崩溃、fork 映射 ACK 窗口及完整真实模型/TUI矩阵仍需各自证据。
+
 ## 采集和导入人工对照
 
 在同一 Linux、SDK、模型、资源与配置下，对原生 pi TUI 和待测 target 分别操作。使用 `script` 等终端记录工具或已有测试 harness 保存实际输出；清洗秘密及私有内容，记录可复核的结果。B03 必须实际运行超过 300 秒；B08 的故障必须施加到测试进程。按 [Bash 对照](bash-compatibility.md) 和 [整体 TUI 对照](tui-experience.md) 完成步骤，不能凭截图或退出码猜结果。

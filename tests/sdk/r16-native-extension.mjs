@@ -27,4 +27,17 @@ export default function extension(pi) {
       } });
     }
   });
+  pi.registerCommand('r16-fork', {
+    description: 'Native fork followed by two causally related model runs',
+    handler: async (args, ctx) => {
+      await ctx.fork(args.trim(), { position: 'at', withSession: async replacement => {
+        await replacement.sendUserMessage('FORK_FIRST');
+        await replacement.sendUserMessage('FORK_SECOND');
+      } });
+    }
+  });
+  pi.registerCommand('r16-title', {
+    description: 'Native extension title event',
+    handler: async args => { pi.setSessionName(args.trim()); }
+  });
 }

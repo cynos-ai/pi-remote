@@ -26,6 +26,20 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-19 原生 fork、导入、标题与多 Run
+
+基于 `8fa4a9e`，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1 增加 `tests/e2e/sessions-process.test.mjs`，使用临时项目、SDK 正常发现的扩展、生产 server / worker、HTTPS/WSS 与本地合成 provider。新增 `--sessions-only`，接入 S07 与完整 E2E，不修改产品协议或运行时行为。
+
+验证范围：原生 fork 的 withSession 顺序发起两次实际模型运行，两个不同 Run 均关联源 Session 的同一 Command，目标历史包含两次输入而源历史字节不变，重启后模型收到 fork 上下文；未映射的合法 header-only JSONL 经 switchSession 导入、运行、落盘并在重启后保持原生身份；扩展 A → 手机 B → 扩展 A 的标题在 SQLite 和 JSONL 一致，源 Session 标题不受污染；缺失、零字节与损坏 JSONL 被拒绝后文件不被重建或改写，不产生新 Session，原会话可继续对话。
+
+定向命令 `node scripts/test-real-process-e2e.mjs --no-build --sessions-only` 首轮两项正常路径通过，证据为 `test-results/sessions-process.log`。补充异常路径后，首轮错误地要求扩展命令 failed；核对 SDK `_tryExecuteExtensionCommand` 确认其捕获异常并经 ExtensionRunner 发出错误，Command completed 不代表导入成功。改为同时断言 completed、同 Operation 的原生导入错误通知、文件不变/缺失、映射不变及新对话成功；没有修改产品语义。首轮失败保留于 `test-results/sessions-s07.log`、`test-results/sessions-full-e2e.log`；最终复验使用 `test-results/sessions-s07-final.log`、`test-results/s07/report.json`、`test-results/sessions-full-e2e-final.log`。详细日志仅保留在忽略目录。
+
+后续修正了夹具的归属查询：queued 的 command.updated 尚无 operationId，必须选取真实执行后非空的归属再比对错误通知。第二轮完整 E2E 为 16 passed / 1 failed（该查询导致等待超时），保留原日志；修正后的定向会话测试 3/3 通过，见 `test-results/sessions-corrected.log`。最终源码运行 `node scripts/test-real-process-e2e.mjs --no-build` 为 **17/17 通过**，包括新增 3 项及既有 14 项，证据为 `test-results/sessions-full-e2e-verified.log`；阶段记录另存 `test-results/sessions-s07-verified.log`，不覆盖前次失败证据。`python3 scripts/check_docs.py` 与 `git diff --check` 通过。
+
+最终 `pnpm verify:S07` 为 14 passed / 2 failed：构建、合同、真实表单/会话进程、lint、全量 typecheck 与文档通过；失败仍是旧 live-commands / parity-tui-commands 报告源码身份过期，未改写证据或重跑付费模型。阶段报告保持 failed，发布条件未满足。
+
+这些证据不代替真实 `CMD-native-session-title` / `CMD-autonomous-multiple-runs`：并发标题竞争、JSONL 已落盘但事件未提交的崩溃窗口、fork 文件写入后的映射 ACK 窗口、无外部 Command 的自主运行、compact 后 prompt 及真实 provider / TUI / 设备矩阵仍有未覆盖项。不将本轮两个顺序 continuation 泛化为全部多 Run 行为通过。
+
 ## 2026-09-19 五阶段真实进程表单回归
 
 基于 `7d4178719121dda780908f957392edbbabdc9e12`，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / pi SDK 0.85.1 补充 `tests/sdk/forms-extension.mjs` 与 `tests/e2e/forms-process.test.mjs`。扩展从临时 agentDir 正常发现，使用真实 SDK、生产 server / worker、HTTPS/WSS 和 SQLite；五个入口分别为 session_start、thinking_level_select、before_agent_start、user_bash 和 extension_command。四类表单均验证实际回答、取消返回值、持久终态、同键幂等及新键重复回答拒绝，另验证输入超时、迟到回答拒绝和待答期间快照/重连回放。Bash 检查真实文件副作用；仅 run 场景产生一次本地合成模型请求，没有付费模型调用。

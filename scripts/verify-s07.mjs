@@ -100,6 +100,12 @@ if (build.code === 0) {
       "five lifecycle entry points, four dialogs, cancellation, expiry, replay and duplicate responses",
       "local synthetic model only; not provider, interactive TUI or device acceptance"
     ]);
+    await command("S07-native-session-processes", "node", ["scripts/test-real-process-e2e.mjs", "--no-build", "--sessions-only"], [
+      "native fork with two cross-session causal Runs and unchanged source history",
+      "header-only import, extension/API title synchronization and restart",
+      "missing/corrupt history rejected without recreation; source remains usable",
+      "local synthetic provider; not live provider, interactive TUI or device acceptance"
+    ]);
   } else record("S07-native-form-processes", "not_run", "node scripts/test-real-process-e2e.mjs --no-build --forms-only", [], "requires Linux");
 } else {
   record(
