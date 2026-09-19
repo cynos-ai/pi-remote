@@ -26,6 +26,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-19 五阶段真实进程表单回归
+
+基于 `7d4178719121dda780908f957392edbbabdc9e12`，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / pi SDK 0.85.1 补充 `tests/sdk/forms-extension.mjs` 与 `tests/e2e/forms-process.test.mjs`。扩展从临时 agentDir 正常发现，使用真实 SDK、生产 server / worker、HTTPS/WSS 和 SQLite；五个入口分别为 session_start、thinking_level_select、before_agent_start、user_bash 和 extension_command。四类表单均验证实际回答、取消返回值、持久终态、同键幂等及新键重复回答拒绝，另验证输入超时、迟到回答拒绝和待答期间快照/重连回放。Bash 检查真实文件副作用；仅 run 场景产生一次本地合成模型请求，没有付费模型调用。
+
+配置 hook 的后续表单遵循既有异步契约：首张属于 configure，配置操作完成后创建 extension 子 Operation，并断言 parentOperationId；不强制延长原生配置命令或取消后续表单。首轮夹具误用了内部 snapshot.interactions、未改变实际 thinking 等级，以及将扩展 slash 发往普通 prompt；已按公开 pendingInteractions、实际不同等级与 extension_command 入口修正。首次直接 Windows 挂载运行遇到测试超时，后续使用既有离线 Linux staging；不将这些夹具失败记录为产品修复。
+
+新增 `--forms-only` 入口，并接入 `pnpm verify:S07` 与完整 `pnpm test:e2e`。实际执行 `pnpm verify:S07`：13 passed / 2 failed，构建、合同、五阶段真实进程、lint、全量 typecheck 和文档检查通过；两个失败来自旧 live-commands / parity-tui-commands 报告源码身份失效，阶段报告诚实为 failed，不能据此判定产品运行故障，也不改写旧报告身份。实际执行 `node scripts/test-real-process-e2e.mjs --no-build`：14/14 通过，包括新增 5 项和原有 9 项故障恢复/会话测试。`python3 scripts/check_docs.py` 与 `git diff --check` 通过。证据：`test-results/forms-process.log`、`forms-staged.log`、`forms-fixed.log` 保存初次失败；`test-results/forms-s07.log`、`test-results/s07/report.json` 及 `test-results/forms-full-e2e.log` 保存最终验证。这些本地日志不提交。
+
+范围：未修改产品协议或运行时行为，未把合成 provider 的结果填入真实 `CMD-all-phase-forms`。第二个真实模型、model_select 全表单、完整会话 fork/import/标题/多 Run、交互式 TUI 与 Android/iOS 仍需后续验证或实现，S07 不据此改为 passed。下一步继续原生会话与多 Run 的真实进程闭环，再补真实 provider 表单证据和移动适配。
+
 ## 2026-09-19 默认配置、空会话回收与扩展错误
 
 本轮基于 `d821ffab211b528a6fff8d59ca780916d165f74e` 工作树，环境为 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。新增 `--scenario defaults`（至少 4 次顶层任务），对照默认值落盘、新会话继承、已加载会话隔离、空历史主动回收恢复，以及两个不同模型间的 model_select hook 错误。测试保存默认 low，再将空会话单独设为 medium，避免把回退到默认值误判为成功恢复；保留“回收前后历史文件均缺失、旧 PID 退出、新 PID 加载、后续真实调用”的断言。

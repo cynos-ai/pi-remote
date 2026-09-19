@@ -45,10 +45,14 @@ export class RealProcessHarness {
       await mkdir(join(h.agent, 'extensions'));
       await cp(join(repo, 'tests/sdk/r16-native-extension.mjs'), join(h.agent, 'extensions/r16-native.js'));
     }
+    if (options.formsPhase) {
+      await mkdir(join(h.agent, 'extensions'), { recursive: true });
+      await cp(join(repo, 'tests/sdk/forms-extension.mjs'), join(h.agent, 'extensions/forms.js'));
+    }
     h.provider = await localHttpProvider();
     await writeFile(join(h.agent, 'models.json'), JSON.stringify({ providers: { 'r16-local': {
       baseUrl: h.provider.baseUrl, api: 'openai-completions', apiKey: 'local-placeholder-not-a-secret',
-      models: [{ id: 'deterministic', contextWindow: 128000, maxTokens: 4096 }]
+      models: [{ id: 'deterministic', contextWindow: 128000, maxTokens: 4096, ...(options.formsPhase === 'configure' ? { reasoning: true } : {}) }]
     } } }));
     await writeFile(join(h.agent, 'settings.json'), JSON.stringify({
       defaultProvider: 'r16-local', defaultModel: 'deterministic',
@@ -70,6 +74,7 @@ export class RealProcessHarness {
       R16_TLS_KEY: key, R16_TLS_CERT: cert
     };
     if (options.startupForm) h.env.R16_STARTUP_FORM = '1';
+    if (options.formsPhase) h.env.R16_FORMS_PHASE = options.formsPhase;
     await h.start();
     const pairing = spawnSync(process.execPath, ['apps/server/dist/cli.js', 'pair'], {
       cwd: repo, env: h.env, encoding: 'utf8'

@@ -67,6 +67,12 @@ commands/realtime 使用生产 server/worker 和真实 HTTPS/WSS，绑定临时�
 
 该场景记 `AUTO-CMD-persist-empty-recovery`。若配置两个不同模型，还会用临时扩展抛出 model_select 错误，核对原生 setModel 未 reject、实际模型已改变，后端保留完成收据并持久化关联 Operation 的错误提示，记 `AUTO-CMD-model-select-error`。同模型重复选择不触发原生事件，单模型时这一项诚实记 not_run。两项子集均不能代替完整 `CMD-model-thinking` 或交互式 TUI。
 
+## 无付费模型的真实进程表单回归
+
+Linux 下运行 `node scripts/test-real-process-e2e.mjs --forms-only`，或随 `pnpm verify:S07` / `pnpm test:e2e` 执行。夹具通过 SDK 正常发现临时扩展，使用生产 server / worker、HTTPS/WSS 和 SQLite，覆盖 initialize、thinking 配置 hook、run、user_bash 和 extension_command 五个入口的 select / confirm / input / editor 回答与取消，以及输入到期、待答快照与重连回放、同键幂等和新键重复回答拒绝。
+
+配置 hook 的第一张表单属于 configure；原生异步 hook 在该操作结束后的后续表单属于 extension 子 Operation，测试校验 parentOperationId。各阶段核对扩展实际收到的返回值，Bash 另核对文件副作用。仅 run 阶段使用本地合成 provider，其余阶段不生成模型请求；这些结果不填充真实 `CMD-all-phase-forms` 或交互式 TUI / 设备验收。
+
 ## 采集和导入人工对照
 
 在同一 Linux、SDK、模型、资源与配置下，对原生 pi TUI 和待测 target 分别操作。使用 `script` 等终端记录工具或已有测试 harness 保存实际输出；清洗秘密及私有内容，记录可复核的结果。B03 必须实际运行超过 300 秒；B08 的故障必须施加到测试进程。按 [Bash 对照](bash-compatibility.md) 和 [整体 TUI 对照](tui-experience.md) 完成步骤，不能凭截图或退出码猜结果。

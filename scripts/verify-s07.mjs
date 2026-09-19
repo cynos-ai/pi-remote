@@ -94,6 +94,13 @@ if (build.code === 0) {
     "operationId/runId/origin/workerEpoch ownership",
     "cancelled, expired, duplicate, and asynchronous hook interactions"
   ]);
+  if (process.platform === "linux") {
+    await command("S07-native-form-processes", "node", ["scripts/test-real-process-e2e.mjs", "--no-build", "--forms-only"], [
+      "real SDK extensions + production server/worker + HTTPS/WSS",
+      "five lifecycle entry points, four dialogs, cancellation, expiry, replay and duplicate responses",
+      "local synthetic model only; not provider, interactive TUI or device acceptance"
+    ]);
+  } else record("S07-native-form-processes", "not_run", "node scripts/test-real-process-e2e.mjs --no-build --forms-only", [], "requires Linux");
 } else {
   record(
     "S07-command-contract",
@@ -133,7 +140,7 @@ const report = {
   },
   checks,
   limitations: [
-    "The repeatable S07 tests use a fake SDK handle and worker transport; they verify ownership and lifecycle contracts but do not replace a live model or native pi TUI.",
+    "S07 includes fake-handle contracts and real SDK/server/worker form tests with a local synthetic provider; neither replaces live provider, interactive pi TUI or device acceptance.",
     "Live provider commands, native TUI parity, Linux process-group behavior, and device evidence remain external requirements for S07/AT32.",
     "No credentials, prompts, session JSONL, or database contents are written to this report."
   ]

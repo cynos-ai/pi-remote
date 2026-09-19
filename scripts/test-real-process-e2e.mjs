@@ -27,7 +27,9 @@ try {
     await cp(join(stage, 'r16-runtime-manifest.json'), join(cwd, 'test-results/code-review/r16-runtime-manifest.json'));
     directory = stage;
   }
-  run(process.execPath, ['--test', '--test-concurrency=1', 'tests/e2e/real-process.test.mjs'], directory);
+  const tests = process.argv.includes('--forms-only') ? ['tests/e2e/forms-process.test.mjs']
+    : ['tests/e2e/real-process.test.mjs', 'tests/e2e/forms-process.test.mjs'];
+  run(process.execPath, ['--test', '--test-reporter=tap', '--test-concurrency=1', ...tests], directory);
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
