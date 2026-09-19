@@ -21,6 +21,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify:S01
+      - run: pnpm test:acceptance
+      - run: pnpm test:acceptance-backend
       - run: pnpm test:e2e
-      - run: pnpm verify:S12
+      - run: pnpm verify:S12 -- --deployment-only
       - run: python3 scripts/check_docs.py

@@ -10,7 +10,7 @@
 
 ```text
 pnpm run verify:S02
-pnpm run test:bash-parity -- --target sdk
+pnpm run test:bash-parity -- --target sdk --smoke
 pnpm run test:tui-parity -- --target sdk
 ```
 
@@ -36,3 +36,7 @@ pnpm run test:tui-parity -- --target sdk
 
 详细机器报告默认位于 `test-results/s02/report.json` 和 `test-results/parity-bash-sdk/report.json`，不提交运行数据。
 
+
+## 2026-09-18 runner 更新
+
+live 已支持 sdk / commands / realtime；完整 Bash / TUI 入口支持 sdk / runtime / commands / realtime / docker 的逐项证据导入。`--smoke` 仅生成独立的确定性报告，完整矩阵缺项仍阻塞。S02 消费完整报告并检查当前源码指纹，不能仅靠 SDK smoke 通过。具体配置、自动覆盖边界、人工对照采集及报告规则见[验收入口说明](acceptance-runners.md)。

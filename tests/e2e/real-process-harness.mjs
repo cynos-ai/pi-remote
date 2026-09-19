@@ -88,7 +88,7 @@ export class RealProcessHarness {
   }
 
   async start() {
-    const child = spawn(process.execPath, ['tests/sdk/real-server-entry.mjs'], {
+    const child = spawn(process.execPath, [this.entry ?? 'tests/sdk/real-server-entry.mjs'], {
       cwd: repo, env: this.env, stdio: ['ignore', 'pipe', 'pipe']
     });
     this.children.push(child);
@@ -142,7 +142,7 @@ export class RealProcessHarness {
       assert.equal(this.main.exitCode, null, this.logs);
       const command = this.query('SELECT state FROM commands WHERE id = ?', commandId)[0];
       return ['completed', 'failed', 'unknown', 'cancelled', 'aborted'].includes(command?.state);
-    }, () => `command ${commandId} terminal state; logs: ${this.logs}`);
+    }, () => `command ${commandId} terminal state; logs: ${this.logs}`, this.timeoutMs ?? 90000);
     const value = await this.http('GET', `/v1/commands/${commandId}`);
     assert.equal(value.state, state, JSON.stringify(value) + '\n' + this.logs);
     return value;
@@ -196,7 +196,7 @@ export class RealProcessHarness {
   }
 
   async close() {
-    if (process.env.R16_EVIDENCE_DIR) {
+    if (process.env.R16_EVIDENCE_DIR && !this.privateEvidence) {
       await mkdir(process.env.R16_EVIDENCE_DIR, { recursive: true });
       let durable;
       try {

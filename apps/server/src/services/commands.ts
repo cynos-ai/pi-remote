@@ -966,6 +966,23 @@ export class CommandService {
       const current = loadReducerState(this.database, sessionId);
       const item = current.queue.items.find((candidate) => candidate.commandId === commandId);
       if (!item) {
+        // A directly submitted Run is not itself a tail item. Its abnormal
+        // completion must still pause existing tails before any pump can run.
+        // Failed input/control commands do not own that Run and cannot pause it.
+        const stoppedRun = Object.values(current.runs).find((run) =>
+          run.commandId === commandId && ["failed", "aborted", "interrupted"].includes(run.status)
+        );
+        if (stoppedRun && current.queue.state === "ready" && current.queue.items.length > 0) {
+          const reason = stoppedRun.status as "failed" | "aborted" | "interrupted";
+          this.eventStore.appendBatchWithinTransaction({
+            sessionId,
+            workerEpoch: `queue-${randomUUID()}`,
+            batchNo: 1,
+            events: [event(current, current.lastSeq + 1, null, null, "queue.updated",
+              nextQueueProjection(current.queue, current.queue.items, { runId: stoppedRun.runId, reason }), this.now())]
+          });
+          return;
+        }
         shouldPump = current.queue.state === "ready" && current.queue.items.length > 0 && !activeRun(current);
         return;
       }

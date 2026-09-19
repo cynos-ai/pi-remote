@@ -328,6 +328,29 @@ describe("S07 command controls", () => {
     await vi.waitFor(() => expect(loadReducerState(data.database, SESSION).queue.items).toHaveLength(0));
   });
 
+  it.each(["cancelled", "failed"] as const)("pauses existing tails after a direct Run is %s without blocking fresh work", async (status) => {
+    const data = await fixture();
+    const { manager, getChild } = managerFor(data);
+    const service = new CommandService(data.database, manager);
+    cleanups.push(async () => service.dispose());
+    const first = await service.submit(actor, SESSION, { kind: "prompt", payload: { text: "first" } }, "40000000-0000-4000-8000-000000000001");
+    await vi.waitFor(() => expect(getChild().executed).toHaveLength(1));
+    const tail = await service.submit(actor, SESSION, { kind: "follow_up", payload: { text: "old tail" } }, "40000000-0000-4000-8000-000000000002");
+    outbound(getChild(), "command_result", { commandId: first.body.commandId, status });
+    await vi.waitFor(() => expect(loadReducerState(data.database, SESSION).queue.state).toBe("paused"));
+    const paused = loadReducerState(data.database, SESSION).queue;
+    expect(paused.pause).toEqual({ runId: first.body.runId, reason: status === "cancelled" ? "aborted" : "failed" });
+    expect(data.database.prepare("SELECT dispatched_at FROM commands WHERE id = ?").get(tail.body.commandId)?.dispatched_at).toBeNull();
+    const fresh = await service.submit(actor, SESSION, { kind: "prompt", payload: { text: "fresh" } }, "40000000-0000-4000-8000-000000000003");
+    await vi.waitFor(() => expect(getChild().executed).toHaveLength(2));
+    outbound(getChild(), "command_result", { commandId: fresh.body.commandId, status: "completed" });
+    await vi.waitFor(() => expect(loadReducerState(data.database, SESSION).commands[fresh.body.commandId]?.state).toBe("completed"));
+    expect(loadReducerState(data.database, SESSION).queue).toEqual(paused);
+    await service.submit(actor, SESSION, { kind: "cancel_queued", payload: { targetCommandId: tail.body.commandId } }, "40000000-0000-4000-8000-000000000004");
+    expect(loadReducerState(data.database, SESSION).queue.state).toBe("ready");
+    expect(loadReducerState(data.database, SESSION).queue.items).toHaveLength(0);
+  });
+
   it("recovers a production follow_up without losing its queued Run or resending uncertain work", async () => {
     const data = await fixture();
     const { manager, getChild } = managerFor(data);

@@ -1,3 +1,4 @@
+import { sourceIdentity, consumeReport } from "./acceptance-evidence.mjs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -111,35 +112,17 @@ for (const [id, commandName, args] of [
   await command(id, commandName, args);
 }
 
-// The repeatable bridge tests intentionally use a fake SDK handle. A live
-// provider and native pi TUI are separate evidence requirements; never label
-// those requirements passed from a synthetic worker fixture.
-const liveConfigured = process.env.PI_REMOTE_LIVE_TESTS === "1";
-record(
-  "S07-live-provider",
-  "not_run",
-  "pnpm test:live -- --suite commands",
-  [],
-  liveConfigured
-    ? "live authorization is present, but the S07 live commands harness is not yet implemented"
-    : "PI_REMOTE_LIVE_TESTS=1 and operator-provided model configuration are required"
-);
-record(
-  "S07-native-tui",
-  "not_run",
-  "pnpm test:tui-parity -- --target commands",
-  [],
-  process.env.PI_REMOTE_NATIVE_TUI_TESTS === "1"
-    ? "native TUI capture is not available to this repeatable workspace run"
-    : "a real Linux pi TUI baseline and bounded capture configuration are required"
-);
+for (const scope of ["live-commands","parity-tui-commands"]) {
+  const result = await consumeReport(scope);
+  record(`S07-${scope}`, result.status, `test-results/${scope}/report.json`, result.evidence, result.reason);
+}
 
 const failed = checks.some((check) => check.status === "failed");
 const notRun = checks.some((check) => check.status === "not_run");
 const report = {
   stage: "S07",
   status: failed ? "failed" : notRun ? "blocked" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,

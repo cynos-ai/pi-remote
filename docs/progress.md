@@ -1,10 +1,10 @@
 # 开发进度与验证证据
 
-最后更新：2026-09-17。
+最后更新：2026-09-19。
 
 ## 当前状态
 
-S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过；S02 的真实 SDK contract smoke 通过，但真实模型、thinking、原生 TUI 和完整 parity 仍缺外部条件，因此保持 `blocked`；S03 的公共 schema、S04 的 SQLite 存储 contract 及 S05 的鉴权 / 资源 API 均已通过验证。S06 的 worker、调度与恢复已实现，但原生 TUI / live provider 对照仍待真实条件；S07 的命令控制与全阶段交互桥接已实现并完成可重复契约测试，真实 provider / 原生 TUI 对照仍待外部条件，因此保持 `blocked`。S08 的 WSS / HTTPS 回放、S09 的移动端本地验证和 S10 的移动端实时/执行页面合同验证已完成；S11 的双设备和弱网合同测试已完成；2026-09-15 另补实际 server / worker 进程故障集成测试；S12 的 Docker 交付也已通过完整 WSL 生命周期验证。S13 的发布就绪检查入口已补齐，但真实 provider、原生 TUI 和 Android / iOS 实机尚未运行，因此保持 `blocked`。参考 SQL 和尚未接入的示例事件不代表已经部署的业务功能。
+S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过；S02 的真实 SDK contract、DeepSeek 工具调用和单模型 thinking 已通过，但第二模型、完整异常/长任务、原生 TUI 和完整 parity 仍未完成，因此保持 `blocked`；S03 的公共 schema、S04 的 SQLite 存储 contract 及 S05 的鉴权 / 资源 API 均已通过验证。S06 的 worker、调度与恢复已实现，但原生 TUI / live provider 对照仍待真实条件；S07 的命令控制与全阶段交互桥接已实现并完成可重复契约测试，真实 provider / 原生 TUI 对照仍待外部条件，因此保持 `blocked`。S08 的 WSS / HTTPS 回放、S09 的移动端本地验证和 S10 的移动端实时/执行页面合同验证已完成；S11 的双设备和弱网合同测试已完成；2026-09-15 另补实际 server / worker 进程故障集成测试；S12 的 Docker 交付也已通过完整 WSL 生命周期验证。S13 的发布就绪检查入口已补齐，真实 provider 已有部分通过证据，但完整模型矩阵、原生 TUI 和 Android / iOS 实机仍未完成，因此保持 `blocked`。参考 SQL 和尚未接入的示例事件不代表已经部署的业务功能。
 
 已完成一轮[独立设计评审与修订](reviews/2026-09-12-design-review.md)：当时的 7 项发现已修订；后续用户要求已替换其中的预先限制，历史审核结论不能代替当前版本的验证。
 
@@ -13,18 +13,82 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
 | S01 | passed | Linux 冻结安装、lint、typecheck、单测、构建、Android / iOS JS bundle、healthz |
-| S02 | blocked | SDK contract smoke 与能力清单通过；真实模型、thinking、原生 TUI / 完整 parity 未运行 |
+| S02 | blocked | SDK contract、DeepSeek 真实工具与单模型 thinking 通过；第二个不同模型、异常/长任务和原生 TUI / 完整 parity 待验收 |
 | S03 | passed | 公共 DTO/schema、正常/异常/无 Run/native fixture reducer 与序号边界测试 |
 | S04 | passed | SQLite 迁移、事件事务、live projection、快照和历史分页 |
 | S05 | passed | 鉴权、项目和会话 API |
 | S06 | blocked | worker、调度与恢复合同测试通过；原生 TUI / live provider 对照未运行 |
-| S07 | blocked | 命令和交互桥接合同已实现并测试；live provider / 原生 TUI 对照未运行 |
-| S08 | blocked | WSS、快照及断线回放合同与 HTTPS smoke 通过；live provider / 原生 TUI 未运行 |
+| S07 | blocked | 合同及 DeepSeek 基础命令、stop 草稿、steer 消费、follow-up 顺序真实子集通过；compact、完整交互和原生对照待验收 |
+| S08 | blocked | 合同及 DeepSeek 真实流/工具、断线继续与持久事件回放子集通过；完整实时矩阵及原生对照待验收 |
 | S09 | blocked | 移动端配对、资源列表、归档、历史与本地缓存实现；真实 Android / iOS 设备未运行 |
 | S10 | blocked | 移动端实时、时间线、命令与表单已实现；真实 Android / iOS 流程未运行 |
 | S11 | blocked | 双设备/弱网合同与实际 server/worker 进程故障集成通过；真实 Android / iOS 设备未运行 |
-| S12 | passed | WSL Docker 镜像、非 root 开发环境、项目挂载、HTTPS/WSS、配对、重建持久化、备份与新卷恢复 |
-| S13 | blocked | 发布就绪检查已实现；真实 provider、原生 TUI、Android / iOS 实机及完整验收未运行 |
+| S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
+| S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
+
+## 2026-09-19 控制场景继续复验
+
+沿用上一轮精确控制指令，没有继续修改产品执行逻辑。新增控制诊断结构：输入状态、原生 JSONL 中的合成指令标记、工具名称/错误标记；任意对话、工具参数和输出不进入报告。新增脱敏回归，证明测试用私有字符串不会被序列化到诊断中。
+
+本轮首次真实 DeepSeek 控制场景已完整通过 `CMD-steer-stop-drafts` 与 `AUTO-CMD-stop-drafts`：三份完整草稿取回、旧队列暂停及取消、旧 target 拒绝、新任务执行、steer consumed、同键收据、独立 follow_up Run、`gate → steer → follow` 精确副作用顺序、无草稿重放。证据 `test-results/deepseek-live/controls-trace.log` 与 `controls-trace-passed-report.json`。此前请求超时与结果断言失败仍作为历史保留；旧报告未保留的细节无法事后推断，因此不声称已经证明每次历史失败的根因。
+
+随后补入脱敏回归与说明文档并冻结源码。`pnpm test:acceptance-backend` 4/4 通过（`controls-trace-regression.log`），包含三个真实进程/确定性模型场景及一项诊断脱敏测试；这些本地结果不代替真实模型验收。完整 commands 矩阵还缺模型/等级 streaming 配置、compact、全阶段表单、原生会话/标题及自主多 Run；第二模型、原生 TUI 和设备验收仍未完成。
+
+冻结后的第二次真实 controls 再次通过（`controls-frozen-live.log`、`test-results/live-commands/report.json`）：2 passed / 5 not_run，suite 为 blocked，退出码 1 仅表示完整矩阵缺项。`pnpm test:acceptance` 20/20 通过（`controls-trace-acceptance.log`）。两次真实通过均在 WSL Linux / Node 24.19.0 / pi SDK 0.85.1 执行，仍使用用户指定的 DeepSeek 模型 ID。凭据扫描 185 个非忽略文件，匹配数为 0；`git diff --check` 通过。验收记录保留执行时的父提交 `262b4c3` 与工作树 SHA-256，不在提交后改写原始报告身份；最终发布仍须在发布提交重新汇总所需证据。
+
+最终 `pnpm verify:S07` 为 **12 passed / 0 failed / 2 not_run**，状态 blocked、退出码 1。构建、命令/交互合同、lint、全量 typecheck、文档检查均通过；两项 not_run 分别为剩余 5 项 commands 场景和 8 项原生 TUI 对照，已不再含真实 controls 执行失败。证据 `controls-frozen-s07.log`、`test-results/s07/report.json`。本轮修复、验收脚本、CI 与进度记录一并交付；不宣称完整 S07 或发布验收通过。
+
+## 2026-09-19 stop / steer / follow-up 控制验收与修复
+
+新增 `--suite commands --scenario controls`，使用真实生产 server/worker、HTTPS/WSS 和临时 Bash gate，要求三次顶层任务预算。场景验证两份相同 steer 和一份 native followUp 的完整多行中文草稿取回、持久 follow_up 在 stop 后暂停、旧 target 不停止新 Run、steer 消费、后续任务顺序、同键收据与结果文件无重复写入。真实模型与本地确定性模型分别记录，带附件输入、compact、原生 TUI 对照仍不在此场景内。
+
+本地真实进程回归复现了现有缺陷：直接 prompt 的异常终态不在 queue.items 中，原 reconcileQueue 分支会直接 pump 后续项，导致 stop 后旧 follow_up 继续执行。现依据该 Command 自己关联的异常终态 Run 暂停已有后续项；不因失败的输入/控制命令暂停其他 Run，不覆盖已有 pause，不限制新对话，取消最后一项仍恢复 ready。这是对现有 protocol-v1 队列规则的实现修复，未改协议或 schema。增加 cancelled / failed 两种直接 Run 的命令回归，并在真实进程场景保留“暂停后不自动执行”断言。
+
+调试证据保留于 `test-results/deepseek-live/`：`controls-regression.log` 记录产品修复前 ready/paused 断言失败，`controls-regression-fixed.log` 和 `controls-regression-diagnostic.log` 为修复后 3/3 通过。`controls-e2e.log` 记录既有真实进程故障回归 9/9 通过，包含 SIGKILL、不重投未知命令、stop 草稿、旧队列保留、初始化表单及原生会话替换；该回归使用本地确定性模型。
+
+真实 DeepSeek 第一次 controls 在第二个任务等待 gate 超时；第二次补充终态诊断后确认该任务 completed 但未调用工具，不能算通过。两次 stop 部分均已执行到取回三份完整草稿、暂停并取消持久 follow_up；第二次单独记 `AUTO-CMD-stop-drafts` passed，不代替完整 `CMD-steer-stop-drafts`。保留 `controls-first-report.json`、`controls-diagnostic-report.json`、`controls-live.log`、`controls-live-diagnostic.log`。随后为第二段使用不同脚本及明确的新任务指令；仍要求真实 Bash 调用，不放宽原断言。
+
+后续复验曾在首次工具调用前失败，安全诊断识别到 timeout，未采集到足以区分 provider / worker 的具体错误码；证据 `controls-third-report.json`、`controls-timeout-report.json`。停止并行构建后，下一次完成 stop、旧 target 拒绝、新任务及后续任务终态，但最后断言失败；保留 `controls-consumption-report.json`。随后将精确 Bash 指令写入 steer/follow-up，并把副作用顺序、输入消费及最终快照拆成独立诊断阶段；只输出允许列表中的错误类别、命令状态和合成标记，不保存秘密或模型正文。
+
+最终精确指令版本的本地 runner 回归 3/3 通过（`controls-regression-latest.log`）；真实调用在首次工具前失败，报告含 `SDK_OPERATION_FAILED`、`provider-request-timeout`，未观察到工具开始或内容流（`controls-live-latest.log`、`test-results/live-commands/report.json`）。至此停止重复付费调用。当前完整 controls / S07 不通过；下一步应在 provider 请求恢复稳定后继续核对真实 steer 消费及 follow_up 副作用顺序，不能用历史 stop 部分通过或本地确定性结果代替。生产修复之后未再改变产品执行逻辑；后续修改仅为验收指令和安全诊断。
+
+当前源码的验收报告回归 `pnpm test:acceptance` 20/20 通过（`controls-acceptance-current.log`）；`git diff --check` 通过。185 个 Git 非忽略文件的 key 扫描匹配数为 0；`.env`、模型配置及实际运行报告继续被忽略。环境仍为 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1，工作树基于 `262b4c3`，本轮未提交或推送。
+
+最终 `pnpm verify:S07`：12 passed / 1 failed / 1 not_run，退出码 1；构建、命令/交互合同、lint、全量 typecheck 和文档检查通过。failed 为真实 commands 场景尚未通过，not_run 为缺少 8 项原生 TUI 对照。证据 `controls-s07-current.log`、`test-results/s07/report.json`。完整阶段保持未通过，不把本地检查的绿色结果替代真实验收。
+
+## 2026-09-19 DeepSeek 真实调用
+
+基于提交 `262b4c33cf09ffdfb2463a91732dc05fd31871ec` 的未提交工作树，环境为 WSL Linux、Node 24.19.0、pnpm 10.28.0、pi SDK 0.85.1。按用户要求从指定 key.txt 只提取 DeepSeek key，存入 Git 忽略的本地 `.env`；私有模型配置通过环境变量引用，不写入源码。TLS 使用已验证证书链中的公开 CA，未关闭证书验证。
+
+使用用户指定的 `deepseek-v4-flash`。官方文档说明该旧 ID 目前映射到 DeepSeek-V4.1-Flash；本次证据表示该 ID 在测试时实际提供的服务，不证明已退役模型的原始版本。用户指定单模型，因此启用显式单模型 smoke；不能将同一模型开关 thinking 当作 AT03 的两个不同模型。
+
+- `node --env-file=.env scripts/test-live.mjs --suite sdk`：真实 read/write 与结果文件核对、thinking block 均通过；3 passed / 3 not_run，整体 blocked。证据 `test-results/live-sdk/report.json`、`test-results/deepseek-live/sdk.log`。修复 runner 将 SDK 0.85.1 的 checkAuth 对象误判为 boolean 的问题；初次失败发生在生成请求之前。临时测试项目置于系统临时目录，避免继承本仓库上下文。
+- 同命令 `--suite commands`：生产 server/worker、HTTPS/WSS、真实工具结果、同键 prompt 收据及空闲配置投影通过；2 passed / 6 not_run，整体 blocked。证据 `test-results/live-commands/report.json`、`test-results/deepseek-live/commands.log`；未证明不同模型间切换或完整控制/交互。
+- 同命令 `--suite realtime`：首次 execution 失败，原因未确定；保留 `test-results/deepseek-live/realtime-first-report.json` 和 `realtime.log`，不改写为成功。补充只含固定阶段/错误类别的安全诊断后，定向复验 RT-stream-tool、RT-reconnect-replay 通过，2 passed / 3 not_run，整体 blocked；证据 `test-results/live-realtime/report.json`、`test-results/deepseek-live/realtime-diagnostic.log`。断线后真实任务完成，回放 seq/type/payload 与 SQLite 相等。此次通过不能证明首次失败根因已修复。
+
+SDK 与 commands 报告先于安全诊断修改生成，保留原始源码指纹，不伪造为当前源码证据；最终发布需在冻结版本统一复验。未完成项仍包括不同的第二个模型、异常重试、长时间开发、完整 commands/realtime 矩阵、原生 TUI/Bash 对照及 Android/iOS 设备。上述真实调用不构成完整阶段或端到端发布验收。
+
+本轮本地回归：`pnpm test:acceptance` 19/19（由 `verify:S02` 执行）、`pnpm test:acceptance-backend` 2/2、`pnpm lint`、`git diff --check` 通过。后端回归使用本地确定性模型服务，不计入 live 证据。刷新 SDK 的 Bash/TUI 缺证据报告后，`pnpm verify:S02` 为 10 passed / 1 failed / 2 not_run，退出码 1；唯一 failed 为真实 SDK 报告的源码指纹先于安全诊断修改，不能当作当前版本通过，也不是新发现的模型运行失败。证据：`test-results/deepseek-live/backend-regression.log`、`lint-final.log`、`s02-final.log`。扫描 184 个 Git 非忽略文件，DeepSeek key 匹配数为 0；确认 `.env` 与私有模型目录被忽略。工作树尚未提交或推送。
+
+## 2026-09-18 验收入口与报告规则修订
+
+基于提交 `262b4c3` 的工作树修改；本轮未调用真实 provider，也未运行手机流程。此前 S12 的 passed 只支持 Docker 部署生命周期子集，不能覆盖 development-plan 要求的原生对照；现将完整阶段恢复为 blocked，历史 Docker 证据保留。
+
+新增 [验收入口说明](acceptance-runners.md) 与统一证据校验。live 支持 sdk / commands / realtime；新增后端路径使用生产 server/worker、临时 HTTPS/WSS、真实模型工具往返、同键请求、配置和 cursor 回放。自动覆盖之外的必需场景继续逐项 not_run；TUI / Bash 全矩阵采用运营者实际采集、原生端与应用端双份证据及人工复核，不声称已实现自动操作 TUI。
+
+报告绑定 commit 与源码 SHA-256；验证 case 覆盖、状态、版本、非空采集文件、SHA-256 和目录边界。完整 parity 与确定性 `--smoke` 分目录；阶段验证器读取对应报告，不再写死 not_run，也不在汇总时隐式调用付费模型。S12 增加 `--deployment-only` 供普通 CI，独立报告不能替代完整 S12。所有阶段报告记录源码指纹，S13 拒绝空报告、旧源码和不完整的 live/parity 覆盖。
+
+验证环境：WSL Linux、Node 24.19.0、pnpm 10.28.0、pi SDK 0.85.1。证据目录为 `test-results/acceptance-runners/`（不提交运行数据）。
+
+- `pnpm test:acceptance`：17/17 通过，含 13 类 CLI 在缺真实环境时输出完整 blocked 报告；证据 `contract.log`、`missing-environment.log`。
+- `pnpm build:server`、`pnpm lint`、`python3 scripts/check_docs.py`：通过；文档检查覆盖 22 个 Markdown、13 阶段、14 FR、32 AT。lint / docs 输出见 `lint.log`、`docs.log`。
+- `pnpm test:acceptance-backend`：2/2 通过，真实生产 server/worker + HTTPS/WSS + 本地确定性模型服务；不记作真实 provider 通过。证据 `backend.log`。
+- `pnpm verify:S02`：10 passed、3 not_run，状态 blocked、退出码 1；SDK 合同及 runner 回归通过，完整 live / Bash / TUI 证据缺失。证据 `s02.log`、`test-results/s02/report.json`。
+- `pnpm verify:S13`：2 passed、11 failed、16 not_run，状态 failed、退出码 1。其中实际进程 E2E 通过；11 个失败项是尚未重跑的新格式阶段报告缺少当前源码指纹，16 个未运行项包括 S02 阶段及 live / parity / 设备证据。已确认不会接受旧版报告或缺项。证据 `s13.log`、`test-results/s13/report.json`；没有把汇总失败改成成功。
+
+调试中修复了快模型在轮询前完成导致断线时机失真的竞态：现在首个流事件回调立即断线，再核对持久事件。WSL 挂载目录首次运行出现 SDK 导入耗时导致的 harness 超时，已沿用既有离线 Linux 暂存方式复验；原断言保留，没有改为 skip。新增脚本不修改产品默认工具、资源或超时语义。
+
+未覆盖：真实 provider、交互式 TUI、Docker 原生对照、Android/iOS 设备与终端 renderer 产品适配。本轮没有重跑全部阶段、Docker 生命周期或双端构建；其历史证据只表示对应旧版源码的验证。完整发布仍须在同一版本补齐报告和真实证据。工作树改动尚未提交或推送。
 
 ## 2026-09-15 代码审核修复
 
@@ -128,7 +192,7 @@ S09 报告状态为 `blocked`：当前 WSL 没有 `adb`、Android 模拟器、Ma
 
 重新核对 Docker：`exciting_blackburn` 与 `dreamy_perlman` 使用 `pi-remote:s12-debug` 正在运行且 `/healthz` 返回 200，但两者均没有宿主机端口、项目挂载或状态卷，`docker compose -f deploy/compose.yaml ps --all` 也为空。因此它们不能作为手机可访问的持久化 Compose 部署证据；S12 的可连接入口仍以独立命名的 Compose 生命周期验证为准，不能把现有手工容器冒充为该证据。现有容器未停止、删除或改动。
 
-最终汇总 `pnpm verify:S13`：19 项检查中 8 项通过、11 项因真实 provider / 原生 TUI / Android / iOS 前置条件缺失而 `not_run`，阶段保持 `blocked`；本地真实 server/worker E2E 9/9 和确定性 Bash smoke 已通过。下一步只剩运营者环境中的实际模型、原生 TUI 对照及两平台实机验收，完成后再组合验收 S13。
+最终汇总 `pnpm verify:S13`：19 项检查中 8 项通过、11 项因真实 provider / 原生 TUI / Android / iOS 前置条件缺失而 `not_run`，阶段保持 `blocked`；本地真实 server/worker E2E 9/9 和确定性 Bash smoke 已通过。当时将剩余工作概括为外部环境验收不够准确；2026-09-18 核对发现 runner、证据汇总及终端专属 UI 适配仍有实现工作，见下方修订。
 
 用户反馈后再次核对实际 Docker 状态：Docker Desktop / WSL 引擎中确有一套 `deploy-api/web/postgres` 正在运行，但其 Compose 标签指向另一份旧 `lingjian` 项目，不是本仓库的 `pi-remote`；该套旧容器保持未操作。随后使用当前仓库的 `docker compose --env-file .env.example --file deploy/compose.yaml build app` 与 `up -d` 启动正式 Compose，镜像构建使用 `docker.m.daocloud.io`、`registry.npmmirror.com`，`pi-remote-app-1` 健康、`pi-remote-gateway-1` 运行，HTTP `:8080/healthz` 和 HTTPS `:8443/healthz` 均返回 200。实际 inspect 确认 app 为 `1000:1000` 非 root、`unless-stopped`、init、45 秒停止宽限，挂载持久 `/state` 卷和 `.local/workspaces`；app 内 `doctor` 为 `passed`，仅因当前未注入真实模型目录 / 凭据而给出 warning / not_run。此次使用 `.env.example` 的开发默认值，仅证明当前仓库 Compose 可启动，不替代有效域名证书、真实 provider 或手机验收。
 

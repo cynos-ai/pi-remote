@@ -1,3 +1,4 @@
+import { sourceIdentity } from "./acceptance-evidence.mjs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -74,7 +75,7 @@ if (build.code === 0) {
 const report = {
   stage: "S03",
   status: checks.some((check) => check.status === "failed") ? "failed" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: { os: process.platform, node: process.version, sdk: "0.85.1", device: null },
   checks,
   limitations: [

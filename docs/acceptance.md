@@ -79,3 +79,7 @@ S13 检查所有 required IDs 和平台，遇到 missing / failed / not_run 非�
 `pnpm test:unit` 包含真实 SDK 的消息身份、失败/重试、重复文本及附件草稿、并行 Bash、自主消息、原生会话替换、延迟 hook、编辑器/snapshot、长历史持久化和输出 artifact 回归。`pnpm test:e2e` 运行实际 server/worker、HTTPS/WSS、本地确定性 HTTP provider 与外部 SIGKILL；WSL 可使用 `pnpm test:e2e -- --stage-linux` 将相同已安装生产代码离线复制到 Linux 临时目录，避免挂载文件系统的 import 延迟。
 
 这两组测试通过也不能替代 AT 中真实运营者模型、原生 TUI 对照、Docker 与 Android/iOS 真机条件。修复编号 R01–R16 与测试映射见[代码审核修复记录](reviews/2026-09-15-code-review-fixes.md)。
+
+## Live / parity 报告入口
+
+具体执行与人工采集规范见[验收入口说明](acceptance-runners.md)。完整报告须含当前 commit / 源码 SHA-256、非空必需 case 集、真实来源及采集摘要。确定性 smoke、部署子集与完整验收分开输出；S13 不接受空 checks、缺项、旧源码或用子集代替完整矩阵。人工记录必须复核原生端与应用端的实际采集，文件摘要校验本身不证明行为正确。

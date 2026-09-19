@@ -20,6 +20,8 @@
     "build:ios": "pnpm --filter @pi-remote/mobile run build:ios",
     "build": "pnpm run build:server && pnpm run build:mobile",
     "test:unit": "vitest run --config vitest.config.mjs",
+    "test:acceptance": "node --test tests/acceptance/*.test.mjs",
+    "test:acceptance-backend": "node scripts/test-acceptance-backend.mjs",
     "verify:S01": "node scripts/verify-s01.mjs",
     "verify:S02": "node scripts/verify-s02.mjs",
     "verify:S03": "node scripts/verify-s03.mjs",

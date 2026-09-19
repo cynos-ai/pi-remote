@@ -1,3 +1,4 @@
+import { sourceIdentity } from "./acceptance-evidence.mjs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -136,7 +137,7 @@ const notRun = checks.some((check) => check.status === "not_run");
 const report = {
   stage: "S10",
   status: failed ? "failed" : notRun ? "blocked" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,

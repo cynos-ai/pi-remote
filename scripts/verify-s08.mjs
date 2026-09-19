@@ -1,3 +1,4 @@
+import { sourceIdentity, consumeReport } from "./acceptance-evidence.mjs";
 import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { execFile as execFileCallback, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -208,15 +209,17 @@ for (const [id, commandName, args] of [
   await command(id, commandName, args);
 }
 
-record("S08-live-provider", "not_run", "pnpm test:live -- --suite realtime", [], "real provider credentials and a bounded live realtime harness are not configured");
-record("S08-native-tui", "not_run", "pnpm test:tui-parity -- --target realtime", [], "a real Linux pi TUI baseline is not available in this WSL run");
+for (const scope of ["live-realtime","parity-bash-realtime","parity-tui-realtime"]) {
+  const result = await consumeReport(scope);
+  record(`S08-${scope}`, result.status, `test-results/${scope}/report.json`, result.evidence, result.reason);
+}
 
 const failed = checks.some((check) => check.status === "failed");
 const notRun = checks.some((check) => check.status === "not_run");
 const report = {
   stage: "S08",
   status: failed ? "failed" : notRun ? "blocked" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,

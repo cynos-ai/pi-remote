@@ -3,11 +3,23 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { aggregate, importEvidence, parityTargets, plan, sourceIdentity } from "./acceptance-evidence.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const kind = process.argv[2] ?? "bash";
-const target = process.argv.includes("--target") ? process.argv[process.argv.indexOf("--target") + 1] : undefined;
-const reportDir = join(root, "test-results", `parity-${kind}-${target ?? "default"}`);
+const target = process.argv.includes("--target") ? process.argv[process.argv.indexOf("--target") + 1] : "sdk";
+const smoke = process.argv.includes("--smoke");
+if (!["bash", "tui"].includes(kind) || !parityTargets.includes(target) || (smoke && (kind !== "bash" || target !== "sdk"))) {
+  console.error("use bash|tui with --target sdk|runtime|commands|realtime|docker; --smoke is only bash/sdk");
+  process.exit(2);
+}
+const scope = `parity-${kind}-${target}`;
+const identity = await sourceIdentity();
+if (process.argv.includes("--plan")) {
+  console.log(JSON.stringify(plan(scope, identity), null, 2));
+  process.exit(0);
+}
+const reportDir = join(process.env.PI_REMOTE_ACCEPTANCE_REPORT_DIR || join(root, "test-results"), `${scope}${smoke ? "-smoke" : ""}`);
 await mkdir(reportDir, { recursive: true });
 
 function spawnCapture(command, args, options = {}) {
@@ -23,6 +35,7 @@ function spawnCapture(command, args, options = {}) {
 }
 
 const report = {
+  schemaVersion: 1, scope: smoke ? `${scope}-smoke` : scope, ...identity, recordedAt: new Date().toISOString(),
   kind,
   target,
   status: "not_run",
@@ -32,7 +45,13 @@ const report = {
 };
 
 try {
-  if (target !== "sdk") throw new Error("S02 parity entrypoint currently supports only --target sdk");
+  if (!smoke) {
+    const index = process.argv.indexOf("--evidence");
+    const evidencePath = index >= 0 ? process.argv[index + 1] : process.env.PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR ? join(process.env.PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR, `${scope}.json`) : undefined;
+    report.checks = await importEvidence(evidencePath, scope, identity);
+  } else if (process.platform !== "linux") {
+    report.checks.push({ id: "B01-deterministic-shell-semantics", status: "not_run", evidence: [], reason: "environment: Linux is required" });
+  } else {
   const api = await import(pathToFileURL(join(root, "packages", "agent-pi", "dist", "index.js")).href);
   const fixtureRoot = await mkdtemp(join(root, "test-results", `parity-${kind}-fixture-`));
   const input = {
@@ -43,9 +62,6 @@ try {
   };
   await Promise.all([mkdir(input.project), mkdir(input.agentDir), mkdir(input.sessionDir)]);
   try {
-    if (kind !== "bash") {
-      throw new Error("a real interactive pi TUI capture is required for TUI parity; this script does not fabricate one");
-    }
     const handle = await api.createPiAgentSession({
       cwd: input.project,
       agentDir: input.agentDir,
@@ -66,12 +82,12 @@ try {
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
-  report.status = "passed";
-  report.limitations.push("This is a deterministic SDK-vs-/bin/bash smoke, not the required live model and native interactive TUI comparison.");
-} catch (error) {
-  report.status = "blocked";
-  report.limitations.push(error instanceof Error ? error.message : String(error));
+  }
+} catch {
+  report.checks.push({ id: "parity-runner", status: "failed", evidence: [], reason: `${smoke ? "execution" : "evidence"}: failed; inspect private captures/configuration locally` });
 }
+report.status = aggregate(report.checks);
+report.limitations.push(smoke ? "Deterministic SDK-vs-Bash smoke only; never a full parity report." : "Operator-recorded comparisons require native and application captures with matching environment. Validation checks coverage/provenance, not the truth of human observations. No automatic TUI interaction is claimed.");
 
 console.log(`${report.status.toUpperCase()} ${kind} parity${report.limitations.length ? `: ${report.limitations.join("; ")}` : ""}`);
 await import("node:fs/promises").then(({ writeFile }) => writeFile(join(reportDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8"));

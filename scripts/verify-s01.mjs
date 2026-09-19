@@ -1,3 +1,4 @@
+import { sourceIdentity } from "./acceptance-evidence.mjs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
@@ -134,7 +135,7 @@ server.kill();
 const report = {
   stage: "S01",
   status: checks.some((check) => check.status === "failed") ? "failed" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,

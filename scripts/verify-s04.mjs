@@ -1,3 +1,4 @@
+import { sourceIdentity } from "./acceptance-evidence.mjs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -103,7 +104,7 @@ const report = {
     : checks.some((check) => check.status === "not_run")
       ? "blocked"
       : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: { os: process.platform, node: process.version, sqlite: "node:sqlite", device: null },
   checks,
   limitations: [

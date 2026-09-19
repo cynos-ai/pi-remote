@@ -1,3 +1,4 @@
+import { sourceIdentity } from "./acceptance-evidence.mjs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -86,7 +87,7 @@ await command("S05-docs", "python3", ["scripts/check_docs.py"]);
 const report = {
   stage: "S05",
   status: checks.some((check) => check.status === "failed") ? "failed" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: { os: process.platform, node: process.version, sdk: "0.85.1", device: null },
   checks,
   limitations: [

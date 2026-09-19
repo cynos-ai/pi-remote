@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
  * Only this model endpoint is synthetic; pi performs parsing, tool execution,
  * streaming, JSONL persistence and IPC using its production code.
  */
-export async function localHttpProvider() {
+export async function localHttpProvider(options = {}) {
   const requests = [];
   const held = new Set();
   const server = createServer(async (req, res) => {
@@ -36,7 +36,18 @@ export async function localHttpProvider() {
       res.on('close', () => held.delete(res));
       return;
     }
-    if (text.includes('TOOL_BASH') && !body.messages.slice(lastUser + 1).some(m => m.role === 'tool')) {
+    const results = body.messages.slice(lastUser + 1).filter(m => m.role === 'tool');
+    if (options.controls && /CONTROL_(GATE|STEER|FOLLOW)/.test(text) && !results.length) {
+      const command = text.includes('CONTROL_STEER') ? "printf 'steer\\n' >> effects"
+        : text.includes('CONTROL_FOLLOW') ? "printf 'follow\\n' >> effects" : text.includes('fresh-gate.sh') ? 'bash fresh-gate.sh' : 'bash gate.sh';
+      chunk({ tool_calls: [{ index: 0, id: `control-${requests.length}`, type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command }) } }] });
+      chunk({}, 'tool_calls');
+    } else if (options.toolCopy && results.length < 2) {
+      const name = results.length === 0 ? 'read' : 'write';
+      const args = results.length === 0 ? { path: 'marker.txt' } : { path: 'result.txt', content: 'pi-live-marker\n' };
+      chunk({ tool_calls: [{ index: 0, id: `copy-${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
+      chunk({}, 'tool_calls');
+    } else if (text.includes('TOOL_BASH') && !results.length) {
       chunk({ tool_calls: [{ index: 0, id: 'local-bash-call', type: 'function', function: { name: 'bash', arguments: '' } }] });
       const args = JSON.stringify({ command: "printf 'model-tool\n' >> model-effects; printf 'tool-result-marker\n'" });
       for (const part of [args.slice(0, 20), args.slice(20)]) {

@@ -1,3 +1,4 @@
+import { sourceIdentity, consumeReport } from "./acceptance-evidence.mjs";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, readFile as readFileAsync, rm, writeFile } from "node:fs/promises";
@@ -7,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import https from "node:https";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const resultsDir = join(root, "test-results", "s12");
+const deploymentOnly = process.argv.includes("--deployment-only");
+const resultsDir = join(root, "test-results", deploymentOnly ? "s12-deployment-only" : "s12");
 const composeFile = "deploy/compose.yaml";
 const environment = {
   ...process.env,
@@ -405,12 +407,17 @@ if (restoreContainerName) await run("docker", ["rm", "-f", restoreContainerName]
 if (composeProject && composeEnvFile) await compose(["down", "--volumes", "--remove-orphans"]);
 if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
 
+for (const scope of deploymentOnly ? [] : ["parity-bash-docker", "parity-tui-docker"]) {
+  const result = await consumeReport(scope);
+  record(`S12-${scope}`, result.status, `test-results/${scope}/report.json`, result.evidence, result.reason);
+}
+
 const failed = checks.some((check) => check.status === "failed");
 const blocked = checks.some((check) => check.status === "not_run");
 const report = {
-  stage: "S12",
+  stage: deploymentOnly ? "S12-deployment-only" : "S12",
   status: failed ? "failed" : blocked ? "blocked" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,

@@ -2,6 +2,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { consumeReport, sourceIdentity } from "./acceptance-evidence.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const resultsDir = join(root, "test-results", "s02");
@@ -41,6 +42,9 @@ if (nodeMajor === 24) {
   record("S02-toolchain-node", "failed", "node --version", [], `expected Node 24, got ${process.version}`);
 }
 
+const acceptance = await run("pnpm", ["test:acceptance"]);
+record("S02-acceptance-runner-contract", acceptance.code === 0 ? "passed" : "failed", "pnpm test:acceptance", ["evidence validation and CLI negative cases"], acceptance.code === 0 ? undefined : "acceptance runner regression failed");
+
 const packageJson = JSON.parse(await readFile(join(root, "packages", "agent-pi", "package.json"), "utf8"));
 if (packageJson.dependencies?.["@earendil-works/pi-coding-agent"] === "0.85.1") {
   record("S02-sdk-version", "passed", "packages/agent-pi/package.json", ["@earendil-works/pi-coding-agent@0.85.1"]);
@@ -72,17 +76,15 @@ if (build.code === 0) {
   }
 }
 
-const liveConfigured = process.env.PI_REMOTE_LIVE_TESTS === "1";
-if (liveConfigured) {
-  record("AT02-live-sdk-prompt", "not_run", "pnpm test:live -- --suite sdk", [], "live runner is wired separately and must be executed with operator-provided configuration");
-  record("AT03-live-thinking", "not_run", "pnpm test:live -- --suite sdk", [], "live runner is wired separately and must be executed with operator-provided configuration");
-} else {
-  record("AT02-live-sdk-prompt", "not_run", "pnpm test:live -- --suite sdk", [], "PI_REMOTE_LIVE_TESTS=1 and external model configuration are required");
-  record("AT03-live-thinking", "not_run", "pnpm test:live -- --suite sdk", [], "PI_REMOTE_LIVE_TESTS=1 and external model configuration are required");
+const identity = await sourceIdentity();
+for (const [id, scope] of [
+  ["AT02-AT03-AT26-live-sdk", "live-sdk"],
+  ["AT31-sdk-bash-parity", "parity-bash-sdk"],
+  ["AT32-sdk-tui-parity", "parity-tui-sdk"]
+]) {
+  const result = await consumeReport(scope, identity);
+  record(id, result.status, `test-results/${scope}/report.json`, result.evidence, result.reason);
 }
-record("AT26-live-retry-and-settle", "not_run", "pnpm test:live -- --suite sdk", [], "requires a real provider and bounded live test budget");
-record("AT31-sdk-bash-parity", "not_run", "pnpm test:bash-parity -- --target sdk", [], "requires the same Linux SDK/TUI environment and live baseline");
-record("AT32-sdk-tui-parity", "not_run", "pnpm test:tui-parity -- --target sdk", [], "requires a real native pi TUI smoke and configured resources");
 
 try {
   await access(join(root, "packages", "agent-pi", "dist", "index.js"));
@@ -97,7 +99,7 @@ const report = {
     : checks.some((check) => check.status === "not_run")
       ? "blocked"
       : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,

@@ -1,3 +1,4 @@
+import { sourceIdentity, consumeReport } from "./acceptance-evidence.mjs";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -102,30 +103,17 @@ for (const [id, commandName, args] of [
   await command(id, commandName, args);
 }
 
-// The native TUI and live-provider portions are deliberately not fabricated.
-// They remain separately attributable evidence for AT31/AT32 and require the
-// operator's real model configuration and a Linux native pi TUI baseline.
-record(
-  "S06-AT31-native-parity",
-  "not_run",
-  "pnpm test:bash-parity -- --target runtime",
-  [],
-  "live provider and native TUI baseline are not configured in this workspace"
-);
-record(
-  "S06-AT32-native-parity",
-  "not_run",
-  "pnpm test:tui-parity -- --target runtime",
-  [],
-  "a native pi TUI capture is required; a synthetic capture would not be evidence"
-);
+for (const scope of ["parity-bash-runtime","parity-tui-runtime"]) {
+  const result = await consumeReport(scope);
+  record(`S06-${scope}`, result.status, `test-results/${scope}/report.json`, result.evidence, result.reason);
+}
 
 const failed = checks.some((check) => check.status === "failed");
 const notRun = checks.some((check) => check.status === "not_run");
 const report = {
   stage: "S06",
   status: failed ? "failed" : notRun ? "blocked" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,

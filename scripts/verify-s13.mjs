@@ -1,3 +1,4 @@
+import { sourceIdentity, consumeReport } from "./acceptance-evidence.mjs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -96,7 +97,12 @@ async function requireStageReport(stage) {
     record(`S13-report-${stage}`, "failed", path, [], "required stage report is missing or invalid; run that stage verifier first");
     return;
   }
+  const identity = await sourceIdentity();
   const statuses = Array.isArray(report.checks) ? report.checks.map((check) => check?.status) : [];
+  if (report.stage !== stage || !statuses.length || statuses.some(status => !["passed", "failed", "not_run"].includes(status)) || report.commit !== identity.commit || report.sourceSha256 !== identity.sourceSha256) {
+    record(`S13-report-${stage}`, "failed", path, [], "stage identity, nonempty checks and current source fingerprint are required; rerun stage verification");
+    return;
+  }
   if (report.status === "passed" && statuses.every((status) => status === "passed")) {
     record(`S13-report-${stage}`, "passed", path, [`${statuses.length} checks passed`]);
   } else if (report.status === "failed" || statuses.includes("failed")) {
@@ -115,18 +121,6 @@ async function runLocalE2e() {
     result.code === 0 ? ["actual server/worker", "SQLite/JSONL", "HTTPS/WSS", "external process fault injection"] : [],
     result.code === 0 ? undefined : tail(`${result.stdout}\n${result.stderr}`)
   );
-}
-
-async function runReportBackedCommand(id, command, args, reportPath, options = {}) {
-  const result = await run(command, args, options);
-  const report = await readJson(reportPath);
-  if (report?.status === "passed" && result.code === 0) {
-    record(id, "passed", [command, ...args].join(" "), report.evidence ?? ["command report"]);
-  } else if (report?.status === "blocked" || report?.status === "not_run") {
-    record(id, "not_run", [command, ...args].join(" "), report.evidence ?? [], report.limitations?.join("; ") || `runner status is ${report.status}`);
-  } else {
-    record(id, "failed", [command, ...args].join(" "), [], tail(`${result.stdout}\n${result.stderr}`));
-  }
 }
 
 async function runDevice(platform) {
@@ -156,24 +150,13 @@ try {
 }
 
 await runLocalE2e();
-await runReportBackedCommand(
-  "S13-bash-deterministic-smoke",
-  "pnpm",
-  ["test:bash-parity", "--", "--target", "sdk"],
-  join(root, "test-results", "parity-bash-sdk", "report.json")
-);
-await runReportBackedCommand(
-  "S13-live-provider",
-  "pnpm",
-  ["test:live", "--", "--suite", "sdk"],
-  join(root, "test-results", "live-sdk", "report.json")
-);
-await runReportBackedCommand(
-  "S13-native-tui",
-  "pnpm",
-  ["test:tui-parity", "--", "--target", "sdk"],
-  join(root, "test-results", "parity-tui-sdk", "report.json")
-);
+// Read explicitly executed evidence. Aggregation must not silently spend a
+// second model budget or overwrite complete manually captured comparisons.
+for (const scope of ["live-sdk", "live-commands", "live-realtime",
+  ...["sdk", "runtime", "commands", "realtime", "docker"].flatMap(target => [`parity-bash-${target}`, `parity-tui-${target}`])]) {
+  const result = await consumeReport(scope);
+  record(`S13-${scope}`, result.status, `test-results/${scope}/report.json`, result.evidence, result.reason);
+}
 await runDevice("android");
 await runDevice("ios");
 
@@ -182,7 +165,7 @@ const report = {
   status: checks.some((check) => check.status === "failed")
     ? "failed"
     : checks.some((check) => check.status === "not_run") ? "blocked" : "passed",
-  commit: "working-tree",
+  ...(await sourceIdentity()),
   environment: {
     os: process.platform,
     node: process.version,
