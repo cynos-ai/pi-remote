@@ -30,6 +30,11 @@ export async function localHttpProvider(options = {}) {
       choices: [{ index: 0, delta, finish_reason }]
     })}\n\n`);
     chunk({ role: 'assistant' });
+    if (options.emptyStream) {
+      chunk({}, 'stop');
+      res.end('data: [DONE]\n\n');
+      return;
+    }
     if (text.includes('HOLD_MODEL')) {
       chunk({ content: 'partial-before-stop' });
       held.add(res);

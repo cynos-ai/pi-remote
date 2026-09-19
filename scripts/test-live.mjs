@@ -16,7 +16,7 @@ function argument(name) {
 
 const suite = argument("--suite") ?? "sdk";
 const scenario = argument("--scenario") ?? "basic";
-if (!["basic", "controls", "compact", "compact-cancel"].includes(scenario) || (scenario !== "basic" && suite !== "commands")) {
+if (!["basic", "controls", "compact", "compact-cancel", "compact-cancel-stream"].includes(scenario) || (scenario !== "basic" && suite !== "commands")) {
   console.error("controls/compact scenarios require --suite commands");
   process.exit(2);
 }

@@ -40,7 +40,7 @@ export default function (pi) {
 `);
 }
 
-export async function runCompactCancel(h, record, setPhase) {
+export async function runCompactCancel(h, record, setPhase, streamProbe) {
   const project = join(h.root, "native-cancel-project");
   await mkdir(project);
   await writeFile(join(project, "cancel-compaction"), "probe");
@@ -53,7 +53,7 @@ export async function runCompactCancel(h, record, setPhase) {
   const endings = [];
   const unsubscribe = native.onEvent(event => { if (event.type === "compaction_end") endings.push(event); });
   try {
-    await native.bindExtensions({ mode: "rpc", uiContext: {
+    if (!streamProbe) await native.bindExtensions({ mode: "rpc", uiContext: {
       confirm: (_title, _message, options) => new Promise(resolve => {
         notifyHook();
         if (options.signal.aborted) resolve(false);
@@ -63,15 +63,17 @@ export async function runCompactCancel(h, record, setPhase) {
     setPhase("compact-cancel-native-seed");
     await native.session.prompt(seed);
     await native.session.prompt(cancelPreparation);
+    const nativeStream = streamProbe?.arm();
     const pending = native.session.compact(instructions);
     void pending.catch(() => {});
-    setPhase("compact-cancel-native-hook");
+    setPhase(nativeStream ? "compact-cancel-native-stream" : "compact-cancel-native-hook");
     await Promise.race([
-      hookReady,
+      nativeStream?.firstContent ?? hookReady,
       pending.then(() => { throw new Error("native compact completed before cancellation hook"); })
     ]);
     native.session.abortCompaction();
     await assert.rejects(pending, /Compaction cancelled/);
+    if (nativeStream) await nativeStream.cancelled;
     assert.equal(endings.length, 1);
     assert.equal(endings[0].aborted, true);
     assert.equal(native.sessionManager.getEntries().filter(e => e.type === "compaction").length, 0);
@@ -83,11 +85,14 @@ export async function runCompactCancel(h, record, setPhase) {
   await h.terminal((await h.command("prompt", { text: seed })).commandId);
   await h.terminal((await h.command("prompt", { text: cancelPreparation })).commandId);
   const before = await h.http("GET", `/v1/sessions/${h.sessionId}/snapshot`);
+  const backendStream = streamProbe?.arm();
   const compact = await h.command("compact", { expectedVersion: before.session.version, instructions });
-  setPhase("compact-cancel-backend-hook");
-  await until(() => h.query("SELECT type FROM events WHERE type = 'interaction.requested'").length > 0, "backend before-compact hook", h.timeoutMs);
+  setPhase(backendStream ? "compact-cancel-backend-stream" : "compact-cancel-backend-hook");
+  if (backendStream) await backendStream.firstContent;
+  else await until(() => h.query("SELECT type FROM events WHERE type = 'interaction.requested'").length > 0, "backend before-compact hook", h.timeoutMs);
   await h.terminal((await h.command("abort", { targetRunId: compact.runId })).commandId);
   await h.terminal(compact.commandId, "cancelled");
+  if (backendStream) await backendStream.cancelled;
   assert.equal(h.query("SELECT status FROM runs WHERE id = ?", compact.runId)[0].status, "aborted");
   const mapping = h.query("SELECT pi_session_file FROM sessions WHERE id = ?", h.sessionId)[0];
   const entries = (await readFile(mapping.pi_session_file, "utf8")).trim().split("\n").map(JSON.parse);
@@ -97,7 +102,9 @@ export async function runCompactCancel(h, record, setPhase) {
   assert.deepEqual(cancelled.liveItems, []);
   await h.terminal((await h.command("prompt", { text: after })).commandId);
   assert.equal((await readFile(join(h.project, "compact-result.txt"), "utf8")).trim(), marker);
-  record("AUTO-CMD-compact-cancel-before-summary", "passed", ["direct SDK abortCompaction and targeted backend abort during native before-compact hook", "cancelled summary not persisted; dialog closed; old context usable on both sides", "does not cover cancellation during provider summary streaming"]);
+  record(streamProbe ? "AUTO-CMD-compact-cancel-stream" : "AUTO-CMD-compact-cancel-before-summary", "passed", streamProbe
+    ? ["both sides observed nonempty provider summary content before abort", "test relay held subsequent delivery until client cancelled; no production changes", "both HTTP streams closed; no compaction persisted; original context usable", "controlled transport window, not unmodified network timing or interactive TUI"]
+    : ["direct SDK abortCompaction and targeted backend abort during native before-compact hook", "cancelled summary not persisted; dialog closed; old context usable on both sides", "does not cover cancellation during provider summary streaming"]);
 }
 
 async function prepareProject(directory) {

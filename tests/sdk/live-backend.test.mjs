@@ -1,11 +1,33 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { localHttpProvider } from "./local-http-provider.mjs";
 import { runLiveBackend } from "./live-backend.mjs";
 import { controlDiagnostics } from "./live-controls.mjs";
+import { summaryStreamProbe } from "./summary-stream-probe.mjs";
+
+test("summary cancellation probe rejects a successful response with no content", { timeout: 10000 }, async () => {
+  const provider = await localHttpProvider({ emptyStream: true });
+  const directory = await mkdtemp(join(tmpdir(), "pi-empty-summary-"));
+  let probe;
+  try {
+    const path = join(directory, "models.json");
+    await writeFile(path, JSON.stringify({ providers: { synthetic: { baseUrl: provider.baseUrl } } }));
+    probe = await summaryStreamProbe(directory, "synthetic");
+    const base = JSON.parse(await readFile(path, "utf8")).providers.synthetic.baseUrl;
+    const observed = probe.arm();
+    const response = fetch(`${base}/chat/completions`, { method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "synthetic" }] }) })
+      .then(response => response.text()).catch(() => {});
+    await assert.rejects(observed.firstContent, /probe failed before cancellation/);
+    await response;
+  } finally {
+    await probe?.close();
+    await provider.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("control diagnostics retain delivery structure without private content", async t => {
   const directory = await mkdtemp(join(tmpdir(), "pi-control-diagnostics-"));
@@ -27,7 +49,7 @@ test("control diagnostics retain delivery structure without private content", as
 
 // Tests the runner against a deterministic transport only. These results never
 // populate a live-* acceptance report or count as external-provider evidence.
-for (const [suite, scenario, compactQueuedInputs = true, compactEmptySession = false] of [["commands", "basic"], ["realtime", "basic"], ["commands", "controls"], ["commands", "compact"], ["commands", "compact", false], ["commands", "compact", true, true], ["commands", "compact-cancel"]]) {
+for (const [suite, scenario, compactQueuedInputs = true, compactEmptySession = false] of [["commands", "basic"], ["realtime", "basic"], ["commands", "controls"], ["commands", "compact"], ["commands", "compact", false], ["commands", "compact", true, true], ["commands", "compact-cancel"], ["commands", "compact-cancel-stream"]]) {
   test(`live ${suite}/${scenario} (queued=${compactQueuedInputs}, empty=${compactEmptySession}) runner: real backend and synthetic model transport`, { timeout: 240000 }, async () => {
     const provider = await localHttpProvider({ toolCopy: scenario === "basic", controls: scenario === "controls", compact: scenario.startsWith("compact") });
     const agentDir = await mkdtemp(join(tmpdir(), "pi-runner-agent-"));

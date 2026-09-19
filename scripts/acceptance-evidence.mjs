@@ -161,7 +161,7 @@ export function validateReport(report, scope, identity) {
         if (!roles.every(role => check.evidence.some(e => e.role === role && digest(e.sha256)))) return "failed";
       } else if (check.provenance === "automated") {
         const automated = { "live-sdk": ["AT02-prompt-tools", "AT03-thinking", "AUTO-SDK-thinking-single", "S02-live-results"],
-          "live-commands": ["AUTO-CMD-prompt-idempotency", "AUTO-CMD-idle-config", "AUTO-CMD-stop-drafts", "CMD-steer-stop-drafts", "AUTO-CMD-compact-native-queue", "AUTO-CMD-compact-cancel-before-summary"],
+          "live-commands": ["AUTO-CMD-prompt-idempotency", "AUTO-CMD-idle-config", "AUTO-CMD-stop-drafts", "CMD-steer-stop-drafts", "AUTO-CMD-compact-native-queue", "AUTO-CMD-compact-cancel-before-summary", "AUTO-CMD-compact-cancel-stream"],
           "live-realtime": ["RT-stream-tool", "RT-reconnect-replay"] };
         if (!automated[scope]?.includes(check.id)) return "failed";
       } else return "failed";

@@ -17,6 +17,7 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
   h.root = await mkdtemp(join(tmpdir(), "pi-live-"));
   h.project = join(h.root, "project");
   let timer;
+  let streamProbe;
   let phase = "fixture-startup";
   try {
     await mkdir(h.project);
@@ -36,6 +37,10 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
       h.env.PI_REMOTE_PI_DIR = join(h.root, "compact-agent");
       await prepareCompactAgent(process.env.PI_REMOTE_LIVE_AGENT_DIR, h.env.PI_REMOTE_PI_DIR);
       if (scenario === "compact-cancel") await installCompactCancelExtension(h.env.PI_REMOTE_PI_DIR);
+      if (scenario === "compact-cancel-stream") {
+        const { summaryStreamProbe } = await import("./summary-stream-probe.mjs");
+        streamProbe = await summaryStreamProbe(h.env.PI_REMOTE_PI_DIR, process.env.PI_REMOTE_LIVE_PROVIDER);
+      }
     }
     // No raw logs/database evidence from the deterministic harness may be saved.
     assert.ok(!process.env.R16_EVIDENCE_DIR, "unset R16_EVIDENCE_DIR for private live tests");
@@ -60,7 +65,7 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
       const stream = await h.connect();
       if (scenario.startsWith("compact")) {
         const { runLiveCompact, runEmptyCompact, runCompactCancel } = await import("./live-compact.mjs");
-        if (scenario === "compact-cancel") await runCompactCancel(h, record, value => { phase = value; });
+        if (scenario.startsWith("compact-cancel")) await runCompactCancel(h, record, value => { phase = value; }, streamProbe);
         else if (options.compactEmptySession) await runEmptyCompact(h, record);
         else await runLiveCompact(h, record, value => { phase = value; }, options.compactQueuedInputs ?? true);
         return;
@@ -179,6 +184,7 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
         for (const id of ids) h.workers.add(Number(id));
       } catch { /* Fixture has already stopped. */ }
     }
-    await h.close();
+    try { await h.close(); }
+    finally { await streamProbe?.close(); }
   }
 }

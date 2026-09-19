@@ -118,7 +118,7 @@ test("all CLI scopes emit complete blocked reports without credentials or SDK im
   }
 });
 
-for (const scenario of ["compact", "compact-cancel"]) test(`${scenario} refuses insufficient operation budget before loading a runtime`, async t => {
+for (const scenario of ["compact", "compact-cancel", "compact-cancel-stream"]) test(`${scenario} refuses insufficient operation budget before loading a runtime`, async t => {
   const directory = await mkdtemp(join(tmpdir(), "pi-compact-budget-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const env = { ...process.env, PI_REMOTE_LIVE_TESTS: "1", PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR: "",
@@ -130,7 +130,7 @@ for (const scenario of ["compact", "compact-cancel"]) test(`${scenario} refuses 
   const report = JSON.parse(await readFile(join(directory, "live-commands", "report.json"), "utf8"));
   assert.equal(report.status, "blocked");
   assert.ok(report.checks.some(c => c.id === "live-environment" && c.status === "not_run"));
-  report.checks.push({ id: scenario === "compact" ? "AUTO-CMD-compact-native-queue" : "AUTO-CMD-compact-cancel-before-summary", status: "passed", provenance: "automated", evidence: ["synthetic report fixture"] });
+  report.checks.push({ id: scenario === "compact" ? "AUTO-CMD-compact-native-queue" : scenario === "compact-cancel" ? "AUTO-CMD-compact-cancel-before-summary" : "AUTO-CMD-compact-cancel-stream", status: "passed", provenance: "automated", evidence: ["synthetic report fixture"] });
   assert.equal(validateReport(report, "live-commands", report), "blocked");
   assert.equal(report.checks.find(c => c.id === "CMD-compact-queue").status, "not_run");
 });

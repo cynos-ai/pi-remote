@@ -18,13 +18,25 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S04 | passed | SQLite 迁移、事件事务、live projection、快照和历史分页 |
 | S05 | passed | 鉴权、项目和会话 API |
 | S06 | blocked | worker、调度与恢复合同测试通过；原生 TUI / live provider 对照未运行 |
-| S07 | blocked | 合同及 DeepSeek 基础命令、stop/steer/follow-up、compact 队列和生成前取消子集通过；完整 compact/交互及原生 TUI 对照待验收 |
+| S07 | blocked | 合同及 DeepSeek 基础命令、stop/steer/follow-up、compact 队列、生成前及受控摘要流取消子集通过；完整 compact/交互及原生 TUI 对照待验收 |
 | S08 | blocked | 合同及 DeepSeek 真实流/工具、断线继续与持久事件回放子集通过；完整实时矩阵及原生对照待验收 |
 | S09 | blocked | 移动端配对、资源列表、归档、历史与本地缓存实现；真实 Android / iOS 设备未运行 |
 | S10 | blocked | 移动端实时、时间线、命令与表单已实现；真实 Android / iOS 流程未运行 |
 | S11 | blocked | 双设备/弱网合同与实际 server/worker 进程故障集成通过；真实 Android / iOS 设备未运行 |
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
+
+## 2026-09-19 compact 摘要流取消
+
+基于 `24ac04358ed2e8ad34027ef32ae638696aacba49` 工作树继续 S07，环境沿用 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。新增 `--scenario compact-cancel-stream`，要求至少 8 次顶层操作。固定 SDK 没有公开摘要 token 事件，因此测试专用本机 relay 在收到并转发 provider 首个非空 content frame 后暂停后续交付，分别触发原生 `abortCompaction()` 和后端定向 abort。检查两个 HTTP 流关闭、原生取消事件、Run/Command 取消终态、无 compaction 落盘及原上下文可继续写文件。该受控网络窗口不等同于未经延迟的实网时序或交互式 TUI；不改变生产代码、模型配置或摘要默认行为。
+
+relay 仅请求原配置 provider 地址且拒绝重定向，不持久化请求/响应/凭据；临时配置与 relay 随夹具清理。增加空内容反例：即使 HTTP 200 和结束 frame 都到达，没有非空 content 仍不能触发“生成中”断言。`pnpm test:acceptance-backend` 10/10 通过（`test-results/deepseek-live/compact-stream-final-regression.log`），包括原有控制/compact 路径及流取消；该回归使用合成 provider。`pnpm test:acceptance` 23/23 通过（`compact-stream-acceptance.log`），新自动项仍不能将完整 `CMD-compact-queue` 改为 passed。
+
+真实 DeepSeek `node --env-file=.env scripts/test-live.mjs --suite commands --scenario compact-cancel-stream` 的 `AUTO-CMD-compact-cancel-stream` 通过；专用配置为 8 次顶层操作上限、360000 ms 测试时限，不是产品超时或费用上限。证据 `test-results/deepseek-live/compact-stream-live.log`、`compact-stream-passed-report.json`；两侧首个非空摘要 frame、取消断连和后续文件均通过实际断言。完整 suite 仍为 blocked、退出码 1，因为其余 6 个完整命令场景在本次定向运行中 not_run。保留报告的父提交与源码指纹，不合并旧报告或改写历史身份；生产实现没有新增修改，因此不重复上一轮已通过的独立 SIGKILL E2E。
+
+首次 S07 检查发现测试 helper 的 URL / TextDecoder / AbortController 未按仓库 lint 规则显式引用；改为 Node import 和 globalThis 后，定向 lint 通过。此修改晚于真实模型报告，因此原报告只作为上述版本的历史证据；另行生成当前源码的 live/TUI not_run 报告，不将旧证据改绑到新指纹。失败记录保留于 `compact-stream-s07.log`，不为报告指纹重复付费请求。后端回归重新执行于 `compact-stream-imports-regression.log`。
+
+最终后端回归仍为 10/10；`pnpm verify:S07` 为 12 passed / 0 failed / 2 not_run，状态 blocked、退出码 1（`test-results/deepseek-live/compact-stream-final-s07.log`、`test-results/s07/report.json`）。构建、命令/交互、lint、全量 typecheck 与文档检查通过；完整 commands 与原生 TUI 尚未验收。187 个非忽略文件的凭据扫描为 0 匹配，`git diff --check` 通过。下一步补 streaming 模型/思考配置及恢复后的配置一致性，完整应用队列/扩展、原生 TUI 和双端设备仍单独保留待验收。
 
 ## 2026-09-19 compact 原生队列与取消对照
 

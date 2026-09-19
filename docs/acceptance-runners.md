@@ -36,7 +36,7 @@ node scripts/test-parity.mjs tui --target runtime --plan
 | `PI_REMOTE_LIVE_PROVIDER` / `PI_REMOTE_LIVE_MODEL` | 普通模型 |
 | `PI_REMOTE_LIVE_THINKING_PROVIDER` / `PI_REMOTE_LIVE_THINKING_MODEL` | 另一个能实际返回 thinking 的模型，必须与普通模型不同 |
 | `PI_REMOTE_LIVE_SINGLE_MODEL=1` | 显式允许同一模型做普通 / thinking smoke；结果使用独立 AUTO-SDK-thinking-single 项，不能满足 AT03 的第二模型条件 |
-| `PI_REMOTE_LIVE_MAX_OPERATIONS` | 明确允许的顶层模型操作数；sdk 至少 2，commands/realtime 基础场景至少 1，controls 至少 3，compact / compact-cancel 至少 8 |
+| `PI_REMOTE_LIVE_MAX_OPERATIONS` | 明确允许的顶层模型操作数；sdk 至少 2，commands/realtime 基础场景至少 1，controls 至少 3，三个 compact 场景均至少 8 |
 | `PI_REMOTE_LIVE_TIMEOUT_MS` | 每次 SDK 操作或后端测试场景的等待上限，默认 120000，允许 1000–1800000；后端启动另有 90 秒上限 |
 | `PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR` | 私有证据目录；文件名如 `live-commands.json`、`parity-tui-runtime.json` |
 
@@ -58,6 +58,8 @@ commands/realtime 使用生产 server/worker 和真实 HTTPS/WSS，绑定临时�
 `--suite commands --scenario compact` 比较直接 SDK `session.compact()` 与生产后端：双方先建立上下文、在真实 Bash 调用中加入 steer / native followUp，再压缩并继续写文件。至少允许 8 次顶层操作（双方各 seed / gate / compact / 后续 prompt），队列继续执行及工具循环可能产生额外 HTTP 请求。测试将专用 agent 配置复制到临时目录，双方使用相同的 `keepRecentTokens=64` / `reserveTokens=2048` 来验证小上下文压缩；不改动运营者原配置或产品默认值。检查原生输入去向、旧 Run 的真实终态、持久 compaction 和摘要保留的标记。自动结果使用 `AUTO-CMD-compact-native-queue`；它不替代交互式 TUI、压缩取消、所有扩展和应用后续队列的完整对照。无待消费输入和空历史失败恢复另由本地真实进程回归覆盖。
 
 `--suite commands --scenario compact-cancel` 要求至少 8 次顶层操作，双方各执行两轮准备对话 / compact / 后续 prompt。在临时原生 `session_before_compact` 扩展的待答窗口中，分别调用 SDK `abortCompaction()` 和后端定向 abort；检查取消终态、待答关闭、无摘要落盘以及原上下文仍可用于写文件。该场景记为 `AUTO-CMD-compact-cancel-before-summary`，只覆盖摘要生成前的取消，不代表 provider 摘要流中断或交互式 TUI 已验证。
+
+`--suite commands --scenario compact-cancel-stream` 同样至少需要 8 次顶层操作，使用临时本机 HTTP relay 观察已配置 provider 的 OpenAI-compatible 摘要流。双方各在 relay 收到并转发首个非空 content frame 后停止；relay 暂停后续数据交付，形成可重复的取消窗口。检查客户端断开、SDK 取消事件、后端 Run/Command 终态、无摘要落盘及后续对话。这是实际 provider 加受控传输时序的测试，不代表未经延迟的网络时序或交互式 TUI 对照；记为 `AUTO-CMD-compact-cancel-stream`，不替代完整 `CMD-compact-queue`。relay 仅转发到原配置的 provider 地址，拒绝重定向，不落盘请求、响应或凭据；测试结束关闭 relay，生产配置不变。
 
 ## 采集和导入人工对照
 
