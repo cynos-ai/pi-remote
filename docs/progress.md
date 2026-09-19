@@ -26,6 +26,27 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-19 默认配置、空会话回收与扩展错误
+
+本轮基于 `d821ffab211b528a6fff8d59ca780916d165f74e` 工作树，环境为 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。新增 `--scenario defaults`（至少 4 次顶层任务），对照默认值落盘、新会话继承、已加载会话隔离、空历史主动回收恢复，以及两个不同模型间的 model_select hook 错误。测试保存默认 low，再将空会话单独设为 medium，避免把回退到默认值误判为成功恢复；保留“回收前后历史文件均缺失、旧 PID 退出、新 PID 加载、后续真实调用”的断言。
+
+回归发现并修复两个实现问题：
+
+1. SDK 初始化选中了已保存的默认模型，但未通过 session.updated 发布，后端新会话快照仍为 model=null。worker 现于初始化 hook 完成后、ready 之前发布与加载参数不同的实际 model/等级，并刷新可用等级。使用已有事件和 ACK 顺序，不改 schema；相同配置不产生无意义的版本变化。失败证据 `test-results/deepseek-live/defaults-regression.log`。
+2. idle reaper 收到 stopped 后没有关闭 worker stdin，JSONL reader 一直等待输入，进程不能正常退出。现仅在 stopped 确认到达后关闭输入；worker 的 stopped 本身等待先前事件批次 ACK，因此不会提前切断持久化确认。保持默认不自动回收，测试入口才显式启用。失败证据 `defaults-fixed-regression.log`；生命周期回归的 fake worker 也改为真正等待 stdin EOF 后退出，防止合成自动退出掩盖缺陷。
+
+两处修复后的真实后端/合成 provider 回归 12/12 通过（`defaults-reaper-regression.log`）。后续对初始化事件增加“仅发送实际变化”的处理，运行 runtime 与真实 SDK worker 回归 45/45 通过（`defaults-runtime-regression.log`）。双模型合成场景验证：原生 setModel 不因扩展错误 reject，实际模型已改变；后端仍完成命令并保留相同 Operation 的错误提示，不假称回滚。同模型重复选择不会触发 SDK 的 model_select，因此用户的 DeepSeek 单模型配置在此子项记录 not_run，不额外引入第二模型。
+
+`pnpm test:acceptance` 25/25 通过（`test-results/deepseek-live/defaults-acceptance.log`），完整 lint 通过（`defaults-lint.log`）。`pnpm verify:S06` 为 12 passed / 0 failed / 2 not_run，状态 blocked（`defaults-s06.log`、`test-results/s06/report.json`）；构建、运行时合同、lint、全量 typecheck 和文档检查通过，缺失的完整 Bash/TUI 原生对照仍为 not_run。后续文件断言在两会话之间删除旧结果，避免用前一会话的文件冒充新调用成功。
+
+最终构建的后端回归 12/12（`defaults-final-regression.log`），实际进程故障 E2E 9/9（`defaults-e2e.log`）通过；后者包含 SIGKILL、未知命令不重投、stop 草稿、超过 60 秒的初始化交互、原生会话替换。首次 DeepSeek defaults 实测在原生部分断言失败，保留 `defaults-live.log`、`defaults-first-report.json`；原诊断阶段粒度不足，不能事后断定具体 provider 故障或根因。
+
+随后补充单模型合成回归及分阶段安全诊断，后端回归 13/13 通过（`defaults-single-regression.log`）；其中单模型 hook 子项明确 not_run。零生成请求的私有预检确认原配置保存/继承正常（`defaults-preflight.log`），并观察到 DeepSeek 把请求 medium 调整为 high。带细化诊断的真实复验通过 `AUTO-CMD-persist-empty-recovery`：默认 low、邻接会话 off、空会话回收后 high 均符合原生 SDK，实际后续模型和新生成文件通过。证据 `defaults-live-diagnostic.log`、`defaults-passed-report.json`；4 次顶层任务上限，360000 ms 测试时限。`AUTO-CMD-model-select-error` 在真实单模型环境保持 not_run，完整 suite 为 blocked（退出码 1）。
+
+S06 报告早于最后的诊断/单模型测试补充，生产修复代码此后未改变；所有报告保留运行时父提交和工作树指纹，不改绑历史证据。最终发布仍须在发布提交汇总所需验收，不能用本轮子集结果替代完整阶段或 TUI/设备证据。
+
+最终 `pnpm verify:S07` 为 12 passed / 0 failed / 2 not_run，状态 blocked（`test-results/deepseek-live/defaults-s07.log`、`test-results/s07/report.json`）。构建、命令/交互、lint、全量 typecheck、文档检查通过；未运行项为完整 commands（含单模型无法触发的 hook）及原生 TUI。189 个非忽略文件的凭据扫描为 0 匹配，`git diff --check` 通过。下一步补充全阶段扩展交互、原生会话切换与多 Run 的真实 provider 对照；双端设备和完整 TUI 继续独立验收。
+
 ## 2026-09-19 执行中配置与重启恢复
 
 基于 `8419e8bb3c0b660bd241e2d03910ec6669d8c9a1` 的工作树，在 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1 继续 S07。新增 `--scenario configuration`，预算至少 4 次顶层任务。直接 SDK 与生产后端各在 Bash 工具等待期间请求 xhigh、选择目标模型、请求 low，比较 SDK 实际生效等级；后端配置完成时旧 Run 必须仍在 running。随后停止任务，分别重新打开原生会话、SIGKILL 并重启主服务，再验证配置、后续 assistant 的实际 model/provider 与写入文件。配置不改默认值，原始专用 agent 先复制到临时目录；无产品实现改动。

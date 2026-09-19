@@ -118,19 +118,20 @@ test("all CLI scopes emit complete blocked reports without credentials or SDK im
   }
 });
 
-for (const scenario of ["compact", "compact-cancel", "compact-cancel-stream", "configuration"]) test(`${scenario} refuses insufficient operation budget before loading a runtime`, async t => {
+for (const scenario of ["compact", "compact-cancel", "compact-cancel-stream", "configuration", "defaults"]) test(`${scenario} refuses insufficient operation budget before loading a runtime`, async t => {
   const directory = await mkdtemp(join(tmpdir(), "pi-compact-budget-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const env = { ...process.env, PI_REMOTE_LIVE_TESTS: "1", PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR: "",
     PI_REMOTE_ACCEPTANCE_REPORT_DIR: directory, PI_REMOTE_LIVE_AGENT_DIR: join(directory, "not-created"),
     PI_REMOTE_LIVE_PROVIDER: "synthetic", PI_REMOTE_LIVE_MODEL: "one", PI_REMOTE_LIVE_THINKING_PROVIDER: "synthetic",
-    PI_REMOTE_LIVE_THINKING_MODEL: "two", PI_REMOTE_LIVE_MAX_OPERATIONS: scenario === "configuration" ? "3" : "7", PI_REMOTE_LIVE_TIMEOUT_MS: "120000" };
+    PI_REMOTE_LIVE_THINKING_MODEL: "two", PI_REMOTE_LIVE_MAX_OPERATIONS: ["configuration", "defaults"].includes(scenario) ? "3" : "7", PI_REMOTE_LIVE_TIMEOUT_MS: "120000" };
   const result = spawnSync(process.execPath, ["scripts/test-live.mjs", "--suite", "commands", "--scenario", scenario], { cwd: root, env, encoding: "utf8", timeout: 15000 });
   assert.equal(result.status, 1);
   const report = JSON.parse(await readFile(join(directory, "live-commands", "report.json"), "utf8"));
   assert.equal(report.status, "blocked");
   assert.ok(report.checks.some(c => c.id === "live-environment" && c.status === "not_run"));
-  report.checks.push({ id: scenario === "configuration" ? "AUTO-CMD-active-config-recovery" : scenario === "compact" ? "AUTO-CMD-compact-native-queue" : scenario === "compact-cancel" ? "AUTO-CMD-compact-cancel-before-summary" : "AUTO-CMD-compact-cancel-stream", status: "passed", provenance: "automated", evidence: ["synthetic report fixture"] });
+  report.checks.push({ id: scenario === "defaults" ? "AUTO-CMD-persist-empty-recovery" : scenario === "configuration" ? "AUTO-CMD-active-config-recovery" : scenario === "compact" ? "AUTO-CMD-compact-native-queue" : scenario === "compact-cancel" ? "AUTO-CMD-compact-cancel-before-summary" : "AUTO-CMD-compact-cancel-stream", status: "passed", provenance: "automated", evidence: ["synthetic report fixture"] });
+  if (scenario === "defaults") report.checks.push({ id: "AUTO-CMD-model-select-error", status: "passed", provenance: "automated", evidence: ["synthetic report fixture"] });
   assert.equal(validateReport(report, "live-commands", report), "blocked");
-  assert.equal(report.checks.find(c => c.id === (scenario === "configuration" ? "CMD-model-thinking" : "CMD-compact-queue")).status, "not_run");
+  assert.equal(report.checks.find(c => c.id === (["configuration", "defaults"].includes(scenario) ? "CMD-model-thinking" : "CMD-compact-queue")).status, "not_run");
 });

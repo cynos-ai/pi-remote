@@ -653,6 +653,22 @@ export class PiWorker {
             else { this.clearSdkQueue(); void this.handle!.session.abort(); }
           }
         });
+        // Defaults and initialization hooks may select a model without an
+        // explicit configure command. Publish the final SDK state before ready
+        // so snapshots and empty-session reloads retain the effective config.
+        const model = this.handle!.session.model;
+        const thinkingLevel = this.handle!.session.thinkingLevel ?? null;
+        const changes: Record<string, unknown> = {};
+        if ((model?.provider ?? null) !== (payload.model?.provider ?? null) ||
+            (model?.id ?? null) !== (payload.model?.id ?? null)) {
+          changes.model = model ? { provider: model.provider, id: model.id } : null;
+        }
+        if (thinkingLevel !== (payload.thinkingLevel ?? null)) changes.thinkingLevel = thinkingLevel;
+        if (Object.keys(changes).length > 0) {
+          this.emitSessionConfig(changes);
+          this.flushEvents();
+        }
+        await this.sendModels({ requestId: "runtime-state" });
       });
       this.initializationOperationId = null;
       this.send("ready", {

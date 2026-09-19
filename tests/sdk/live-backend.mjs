@@ -42,9 +42,14 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
         streamProbe = await summaryStreamProbe(h.env.PI_REMOTE_PI_DIR, process.env.PI_REMOTE_LIVE_PROVIDER);
       }
     }
-    if (scenario === "configuration") {
+    if (scenario === "configuration" || scenario === "defaults") {
       h.env.PI_REMOTE_PI_DIR = join(h.root, "configuration-agent");
       await cp(process.env.PI_REMOTE_LIVE_AGENT_DIR, h.env.PI_REMOTE_PI_DIR, { recursive: true });
+      if (scenario === "defaults") {
+        const { installModelErrorExtension } = await import("./live-defaults.mjs");
+        await installModelErrorExtension(h.env.PI_REMOTE_PI_DIR);
+        h.env.R16_CONFIG_REAP = "1";
+      }
     }
     // No raw logs/database evidence from the deterministic harness may be saved.
     assert.ok(!process.env.R16_EVIDENCE_DIR, "unset R16_EVIDENCE_DIR for private live tests");
@@ -67,6 +72,11 @@ export async function runLiveBackend(suite, record, scenario = "basic", options 
       const created = await h.http("POST", `/v1/projects/${project.project.id}/sessions`, { title: "synthetic live task", model: ordinary });
       h.sessionId = created.session.id;
       const stream = await h.connect();
+      if (scenario === "defaults") {
+        const { runLiveDefaults } = await import("./live-defaults.mjs");
+        await runLiveDefaults(h, record, value => { phase = value; });
+        return;
+      }
       if (scenario === "configuration") {
         const { runLiveConfiguration } = await import("./live-configuration.mjs");
         await runLiveConfiguration(h, record, value => { phase = value; });

@@ -49,9 +49,9 @@ test("control diagnostics retain delivery structure without private content", as
 
 // Tests the runner against a deterministic transport only. These results never
 // populate a live-* acceptance report or count as external-provider evidence.
-for (const [suite, scenario, compactQueuedInputs = true, compactEmptySession = false] of [["commands", "basic"], ["realtime", "basic"], ["commands", "controls"], ["commands", "configuration"], ["commands", "compact"], ["commands", "compact", false], ["commands", "compact", true, true], ["commands", "compact-cancel"], ["commands", "compact-cancel-stream"]]) {
-  test(`live ${suite}/${scenario} (queued=${compactQueuedInputs}, empty=${compactEmptySession}) runner: real backend and synthetic model transport`, { timeout: 240000 }, async () => {
-    const provider = await localHttpProvider({ toolCopy: scenario === "basic", controls: scenario === "controls", configuration: scenario === "configuration", compact: scenario.startsWith("compact") });
+for (const [suite, scenario, compactQueuedInputs = true, compactEmptySession = false, singleModel = false] of [["commands", "defaults"], ["commands", "defaults", true, false, true], ["commands", "basic"], ["realtime", "basic"], ["commands", "controls"], ["commands", "configuration"], ["commands", "compact"], ["commands", "compact", false], ["commands", "compact", true, true], ["commands", "compact-cancel"], ["commands", "compact-cancel-stream"]]) {
+  test(`live ${suite}/${scenario} (queued=${compactQueuedInputs}, empty=${compactEmptySession}, single=${singleModel}) runner: real backend and synthetic model transport`, { timeout: 240000 }, async () => {
+    const provider = await localHttpProvider({ toolCopy: scenario === "basic", controls: scenario === "controls", configuration: ["configuration", "defaults"].includes(scenario), compact: scenario.startsWith("compact") });
     const agentDir = await mkdtemp(join(tmpdir(), "pi-runner-agent-"));
     const previous = { ...process.env };
     try {
@@ -65,7 +65,8 @@ for (const [suite, scenario, compactQueuedInputs = true, compactEmptySession = f
       await writeFile(join(agentDir, "settings.json"), JSON.stringify({ retry: { enabled: false }, compaction: { enabled: false } }));
       process.env.PI_REMOTE_LIVE_AGENT_DIR = agentDir;
       process.env.PI_REMOTE_LIVE_PROVIDER = "runner-local";
-      process.env.PI_REMOTE_LIVE_MODEL = "ordinary";
+      process.env.PI_REMOTE_LIVE_MODEL = singleModel ? "thinking" : "ordinary";
+      if (singleModel) process.env.PI_REMOTE_LIVE_SINGLE_MODEL = "1";
       process.env.PI_REMOTE_LIVE_THINKING_PROVIDER = "runner-local";
       process.env.PI_REMOTE_LIVE_THINKING_MODEL = "thinking";
       process.env.PI_REMOTE_LIVE_TIMEOUT_MS = "180000";
@@ -77,7 +78,10 @@ for (const [suite, scenario, compactQueuedInputs = true, compactEmptySession = f
         throw new Error(JSON.stringify(checks), { cause: error });
       }
       assert.equal(checks.length, scenario.startsWith("compact") || scenario === "configuration" ? 1 : 2);
-      assert.ok(checks.every(c => c.status === "passed"));
+      if (singleModel) {
+        assert.equal(checks.find(c => c.id === "AUTO-CMD-persist-empty-recovery").status, "passed");
+        assert.equal(checks.find(c => c.id === "AUTO-CMD-model-select-error").status, "not_run");
+      } else assert.ok(checks.every(c => c.status === "passed"));
       if (scenario === "basic") assert.equal(provider.requests.length, 3, "read + write + final answer, no idempotent replay call");
       else assert.ok(provider.requests.every(body => !JSON.stringify(body.messages).includes("UNCONSUMED_DRAFT")), "returned drafts never reach provider");
     } finally {

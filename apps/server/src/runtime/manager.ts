@@ -1211,6 +1211,10 @@ export class WorkerManager {
         return;
       case "stopped":
         worker.phase = "stopping";
+        // The worker sends this only after preceding event batches are ACKed.
+        // Close its input now so the JSONL reader can finish and the idle
+        // process can exit, instead of waiting forever for another command.
+        if (!worker.process.stdin.writableEnded) worker.process.stdin.end();
         return;
     }
   }

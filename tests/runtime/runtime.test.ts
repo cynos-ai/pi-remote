@@ -942,17 +942,24 @@ export default function(pi) { pi.on('session_start', async (_event, ctx) => {
     let clock = NOW;
     let child: FakeChild | undefined;
     const manager = managerFor(fixture.database, fixture.directory, () => {
-      child = new FakeChild(4301, sessionMappingHandler);
+      child = new FakeChild(4301, (message, process) => {
+        if (message.type === "shutdown") outbound(process, "stopped", { reason: "idle_reap" });
+        else sessionMappingHandler(message, process);
+      });
+      const process = child;
+      process.stdin.once("finish", () => process.emit("exit", 0, null));
       return child;
     }, { now: () => clock, workerIdleMs: 50 });
     await manager.load(SESSION_A);
     if (!child) throw new Error("fake worker was not created");
     expect(manager.acceptsEpoch(SESSION_A, "old-epoch")).toBe(false);
     expect(manager.acceptsEpoch(SESSION_A, child.workerEpoch)).toBe(true);
+    expect(child.stdin.writableEnded).toBe(false);
     clock += 100;
     expect(await manager.reapIdleWorkers(clock)).toEqual([SESSION_A]);
     await vi.waitFor(() => expect(manager.activeWorkerCount).toBe(0));
     expect(child.killed).toBe(false);
+    expect(child.stdin.writableEnded).toBe(true);
   });
 
   it("keeps the single-instance lock until the first manager releases it", async () => {
