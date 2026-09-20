@@ -90,6 +90,10 @@ CustomEditor 的 Ctrl+L（app.model.select，可重映射）现可打开原生�
 
 CustomEditor 输入 `/resume` 可打开原生历史菜单，`/new` 新建会话，也可配置 app.session.resume/new 快捷键（SDK 默认无绑定）。菜单保留搜索、作用域、排序/命名过滤、路径展示，以及原生重命名和确认删除；当前历史不能删除。重命名当前会话立即同步手机标题，其他历史标题在后续加载时同步。删除只移除原生历史文件，手机事件记录保留；菜单明确提示这一差异，缺失历史不会被静默重建。取消菜单不停止活动模型；选择后走既有会话映射，旧编辑器按键失效。
 
-`/fork` 与可配置的 app.session.fork 打开原生用户消息选择器，默认选中最新消息；保留原生上下选择、确认和取消。空历史只通知，不创建新会话。确认通过已绑定的 fork 动作执行原生 before-fork hook，复制所选消息之前的路径；映射确认后在目标会话把所选文本恢复为草稿，不自动发给模型。源历史及手机事件归属保留。恢复/分叉共用一个菜单生命周期，重复打开不叠加菜单，编辑器结束或会话替换后旧菜单输入失效。树导航及其摘要流程、终端退出仍待适配，以上仍不等于完整 TUI 或设备验收。
+`/fork` 与可配置的 app.session.fork 打开原生用户消息选择器，默认选中最新消息；保留原生上下选择、确认和取消。空历史只通知，不创建新会话。确认通过已绑定的 fork 动作执行原生 before-fork hook，复制所选消息之前的路径；映射确认后在目标会话把所选文本恢复为草稿，不自动发给模型。源历史及手机事件归属保留。恢复/分叉/树共用一个菜单生命周期，重复打开不叠加菜单，编辑器结束或会话替换后旧菜单输入失效。
+
+`/tree` 与 app.session.tree 使用原生 TreeSelectorComponent，保留搜索、过滤、折叠、标签及当前叶节点无操作行为。复制键在手机打开可长按复制的文本框，不修改消息或草稿；沿既有表单最多显示 32768 个字符，超过时明确提示。树导航使用原生 AgentSession.navigateTree：先询问无摘要/摘要/自定义指令，遵循 branchSummary.skipPrompt；取消摘要选项返回原选中节点，取消自定义指令返回选项。确认后才取回未消费队列并停止活动响应，保持每条 Input 的持久 returned/unknown 状态。摘要有独立取消表单和编辑器 Esc 入口，调用 abortBranchSummary；取消后返回树，不自动发送恢复草稿。原生 before-tree/session-tree 扩展及异步表单保留，已开始的导航不因编辑器关闭而自动撤销。返回的用户文本只填入空白草稿。
+
+导航改变当前模型上下文，不删除历史分支，也不重写手机事件时间线。无摘要导航沿 SDK 只改变内存叶指针，下一次原生追加记录时才固定新分支；摘要路径写入原生 branch_summary。手机菜单明确说明事件记录保留，不把旧事件列表当作当前模型上下文。树画面与编辑器仍是独立虚拟表面；原生 TUI 的聊天重绘、压缩期间 UI 输入队列刷新、完整焦点及终端退出尚未完成，不将本轮树导航当作完整 TUI 或设备验收。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

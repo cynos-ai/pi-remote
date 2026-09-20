@@ -9,6 +9,136 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+async function treeHarness(t, settings = {}) {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  await writeFile(join(h.agent, 'keybindings.json'), JSON.stringify({ 'app.session.tree': 'ctrl+alt+t', 'app.message.copy': 'ctrl+alt+c' }));
+  const settingsPath = join(h.agent, 'settings.json');
+  await writeFile(settingsPath, JSON.stringify({ ...JSON.parse(await readFile(settingsPath, 'utf8')), ...settings }));
+  const command = async (kind, payload) => { const receipt = await h.command(kind, payload); await h.workerPid(); await h.terminal(receipt.commandId); return receipt; };
+  const extension = text => command('extension_command', { text });
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  const used = new Set();
+  const next = title => until(async () => (await snapshot()).pendingInteractions.find(f => f.title === title && !used.has(f.interactionId)), title, 5000);
+  const answer = async (title, response) => {
+    const form = await next(title); used.add(form.interactionId);
+    const payload = { operationId: form.operationId, interactionId: form.interactionId, response };
+    const id = randomUUID(); const receipt = await h.command('respond', payload, id); await h.terminal(receipt.commandId);
+    assert.equal((await h.command('respond', payload, id)).commandId, receipt.commandId);
+    return form;
+  };
+  const key = (title, value) => answer(title, { value });
+  const combo = async (title, inputTitle, value) => { await key(title, '组合键'); await key(inputTitle, value); };
+  const open = async () => { await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+alt+t'); return next('会话树'); };
+  const search = async value => { await key('会话树', '输入文本'); await key('会话树输入', value); };
+  const draft = async () => (await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1)?.details.args[0];
+  const after = async count => until(async () => { const lines = await h.lines('tree-after'); return lines.length >= count ? JSON.parse(lines.at(-1)) : undefined; }, 'native tree event', 5000);
+  return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
+}
+
+test('native tree preserves search, labels, copy, hook cancellation and selected branch context', { timeout: 120000 }, async t => {
+  const { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after } = await treeHarness(t);
+  await command('prompt', { text: 'TREE_FIRST' }); await command('prompt', { text: 'TREE_SECOND' });
+  await extension('/r16-editor');
+  const source = mapping(h), entries = await history(source.pi_session_file);
+  const second = entries.find(e => e.type === 'message' && e.message.role === 'user' && JSON.stringify(e.message).includes('TREE_SECOND'));
+  await open(); await key('会话树', 'Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message === '已在所选节点'), 'current leaf no-op', 5000);
+  assert.equal((await snapshot()).pendingInteractions.filter(f => f.title === '分支摘要选项').length, 0);
+  await open(); await search('TREE_SECOND');
+  await combo('会话树', '会话树输入', 'ctrl+alt+c');
+  assert.equal((await next('复制树节点文本')).prefill, 'TREE_SECOND');
+  await answer('复制树节点文本', { cancelled: true }); assert.equal(await draft(), 'seed');
+  await combo('会话树', '会话树输入', 'shift+l'); await search('branch-label'); await key('会话树', 'Enter');
+  assert.ok((await history(source.pi_session_file)).some(e => e.type === 'label' && e.targetId === second.id && e.label === 'branch-label'));
+  await key('会话树', 'Enter'); await answer('分支摘要选项', { cancelled: true });
+  await next('会话树'); await key('会话树', 'Enter');
+  await key('分支摘要选项', '使用自定义提示生成摘要'); await answer('自定义摘要指令', { cancelled: true });
+  await next('分支摘要选项');
+  await extension('/r16-tree-hooks cancel'); await key('分支摘要选项', '不生成摘要');
+  await until(async () => (await snapshot()).notices.some(n => n.message === '树导航已取消'), 'native tree veto', 5000);
+  assert.equal((await h.lines('tree-after')).length, 0); assert.equal(await draft(), 'seed');
+  await extension('/r16-tree-hooks form');
+  await open(); await search('TREE_SECOND'); await key('会话树', 'Enter');
+  const summary = await next('分支摘要选项'); await key('分支摘要选项', '不生成摘要');
+  assert.equal((await next('tree-hook-confirm')).operationId, summary.operationId);
+  await answer('tree-hook-confirm', { confirmed: true });
+  assert.equal((await after(1)).newLeafId, second.parentId); assert.equal(await draft(), 'seed');
+  await command('prompt', { text: 'TREE_NEW_BRANCH' });
+  assert.ok(JSON.stringify(h.provider.requests.at(-1)).includes('TREE_FIRST'));
+  assert.ok(!JSON.stringify(h.provider.requests.at(-1)).includes('TREE_SECOND'));
+  const bytes = await readFile(source.pi_session_file, 'utf8');
+  assert.ok(bytes.includes('TREE_SECOND'), 'abandoned branch stays in native history');
+  await extension('/r16-tree-hooks off'); await extension('/r16-editor-draft /tree'); await key('扩展编辑器', 'Enter');
+  await search('TREE_SECOND'); await key('会话树', 'Enter'); await key('分支摘要选项', '不生成摘要');
+  await after(2); await until(async () => await draft() === 'TREE_SECOND', 'empty draft restores selected text', 5000);
+  assert.equal(h.provider.requests.length, 3);
+  await open(); const stale = await next('会话树'); await extension('/r16-editor-clear');
+  await until(async () => !(await snapshot()).pendingInteractions.some(f => f.interactionId === stale.interactionId), 'tree closes with editor', 5000);
+  await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+});
+
+test('tree commit returns queued inputs before stopping while cancellation keeps the response running', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, answer, key, open, search, draft, after } = await treeHarness(t);
+  await command('prompt', { text: 'QUEUE_TREE_FIRST' }); await command('prompt', { text: 'QUEUE_TREE_SECOND' });
+  await extension('/r16-editor');
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 3, 'held tree response', 5000);
+  await command('steer', { targetRunId: active.runId, text: 'queued steer' });
+  await command('prompt', { text: 'queued follow', streamingBehavior: 'followUp' });
+  await open(); await search('QUEUE_TREE_SECOND'); await key('会话树', 'Enter');
+  await answer('分支摘要选项', { cancelled: true }); await next('会话树');
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  await key('会话树', 'Enter'); await key('分支摘要选项', '不生成摘要');
+  await after(1); await h.terminal(active.commandId, 'cancelled');
+  assert.equal(await draft(), 'queued steer\n\nqueued follow\n\nseed');
+  const returned = h.query("SELECT payload_json FROM events WHERE type = 'input.updated'").map(r => JSON.parse(r.payload_json)).filter(p => p.state === 'returned');
+  assert.equal(returned.length, 2); assert.equal(h.provider.requests.length, 3);
+  await command('prompt', { text: 'TREE_AFTER_STOP' });
+  assert.ok(!JSON.stringify(h.provider.requests.at(-1)).includes('HOLD_MODEL'));
+});
+
+test('tree summary supports custom instructions, explicit cancellation, return to tree and native summary persistence', { timeout: 120000 }, async t => {
+  const { h, command, extension, snapshot, next, key, open, search, after } = await treeHarness(t);
+  await command('prompt', { text: 'SUMMARY_TREE_FIRST' }); await command('prompt', { text: 'SUMMARY_TREE_SECOND' });
+  await extension('/r16-editor');
+  const source = mapping(h), original = await readFile(source.pi_session_file, 'utf8');
+  await open(); await search('SUMMARY_TREE_FIRST'); await key('会话树', 'Enter');
+  await key('分支摘要选项', '使用自定义提示生成摘要'); await key('自定义摘要指令', 'HOLD_MODEL custom summary');
+  await until(() => h.provider.requests.length === 3, 'native summary stream', 5000);
+  await key('正在生成分支摘要', '取消摘要'); await next('会话树');
+  assert.equal(await readFile(source.pi_session_file, 'utf8'), original);
+  assert.equal((await h.lines('tree-after')).length, 0);
+  await key('会话树', 'Enter'); await key('分支摘要选项', '使用自定义提示生成摘要');
+  await key('自定义摘要指令', 'HOLD_MODEL cancel with Escape');
+  await until(() => h.provider.requests.length === 4, 'second native summary stream', 5000);
+  await key('扩展编辑器', 'Esc'); await next('会话树');
+  assert.equal(await readFile(source.pi_session_file, 'utf8'), original);
+  await key('会话树', 'Enter'); await key('分支摘要选项', '使用自定义提示生成摘要');
+  await key('自定义摘要指令', 'PROVIDER_ERROR');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('deterministic local provider failure')), 'summary error reported', 5000);
+  assert.equal(await readFile(source.pi_session_file, 'utf8'), original);
+  await open(); await search('SUMMARY_TREE_FIRST'); await key('会话树', 'Enter');
+  await key('分支摘要选项', '使用自定义提示生成摘要');
+  await key('自定义摘要指令', 'Keep the synthetic project markers');
+  const expectedSummary = 'The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nlocal-stream-complete';
+  const result = await after(1); assert.equal(result.summary, expectedSummary);
+  assert.ok(JSON.stringify(h.provider.requests.at(-1)).includes('Keep the synthetic project markers'));
+  assert.ok((await history(source.pi_session_file)).some(e => e.type === 'branch_summary' && e.summary === expectedSummary));
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 2, 'summary uses an Operation, not a prompt Run');
+});
+
+test('tree honors the native skip-summary preference without calling a model', { timeout: 120000 }, async t => {
+  const { h, command, extension, snapshot, key, open, search, after } = await treeHarness(t, {
+    branchSummary: { skipPrompt: true }, treeFilterMode: 'user-only'
+  });
+  await command('prompt', { text: 'SKIP_TREE_FIRST' }); await command('prompt', { text: 'SKIP_TREE_SECOND' });
+  await extension('/r16-editor'); await open(); await search('SKIP_TREE_FIRST'); await key('会话树', 'Enter');
+  await after(1);
+  assert.ok(!(await snapshot()).pendingInteractions.some(f => f.title.includes('摘要')));
+  assert.equal(JSON.parse((await h.lines('tree-before')).at(-1)).summarize, false);
+  assert.equal(h.provider.requests.length, 2);
+});
+
 test('native fork menu handles empty history, cancellation and destination draft without resubmission', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   await writeFile(join(h.agent, 'keybindings.json'), JSON.stringify({ 'app.session.fork': 'ctrl+alt+f' }));

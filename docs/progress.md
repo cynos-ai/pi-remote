@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 原生会话树与分支摘要
+
+基于 `059dcc4`，接入固定 SDK TreeSelectorComponent 及 `/tree` / app.session.tree，和恢复/分叉共用菜单生命周期。保留原生搜索、过滤、折叠、标签写入、当前叶节点无操作及 treeFilterMode 设置。复制键使用既有手机 editor 表单呈现文本，不写宿主剪贴板或覆盖对话草稿；超过既有 32768 字符显示配额时明确提示截断。
+
+无 Run 的独立 extension Operation 调用原生 AgentSession.navigateTree。摘要选项遵循 branchSummary.skipPrompt；取消选项回树、取消自定义指令回选项。用户确认后才取回 SDK steer/followUp 队列，持久每条 Input 的 returned/unknown 状态，再停止活动响应。摘要使用独立取消表单和编辑器 Esc 调用 abortBranchSummary，取消后回到原选中节点；原生 before-tree/session-tree hook 及异步表单保留。已有草稿不被返回的用户文本覆盖，恢复文本不自动重发，编辑器关闭不自动撤销已开始的导航。
+
+模型上下文切换到选中路径，原生所有历史及手机事件记录保留；菜单明确说明这一差异，不伪造原生聊天重绘。无摘要导航按 SDK 只改内存 leaf，后续追加才固定分支；摘要生成原生 branch_summary，不新增协议字段或 SQLite schema。
+
+验证环境为 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。首次构建通过（`test-results/tree-menu-build.log`），真实会话进程 23/25（`tree-menu-sessions.log`）：失败来自测试向 follow_up 传入不支持的 targetRunId，以及遗漏 SDK 摘要固定说明文字。按实际协议/原生格式修正。第二次构建通过（`tree-menu-build-final.log`），进程 24/25（`tree-menu-sessions-final.log`）：队列测试错误等待服务端 follow_up 待执行命令完成，已改为 prompt.streamingBehavior=followUp，验证实际运行中的 SDK 输入队列。保留原断言与失败日志。定向 worker/editor/custom/terminal/runtime 66/66（`tree-menu-targeted.log`）。最终 `pnpm verify:S07` 为 14 passed / 2 failed（`tree-menu-s07.log`、`s07/report.json`）：构建、命令合同、五类生命周期表单、26 项会话进程、lint、全量 typecheck 和文档均通过；失败仍是旧 live-commands / parity-tui-commands 源码身份失效。新增进程用例验证原生标签/复制、异步 hook 归属及否决、草稿保护、模型上下文分支、队列完整取回和零重发、摘要表单与 Esc 取消、模型错误时历史不变、原生摘要落盘及 skipPrompt 配置。相关过程证据位于 `test-results/code-review/r16-details/`。最终补录后的文档与差异格式检查通过，S07 保持 blocked，不把本地检查改写为整阶段通过。
+
+未读取模型凭据或调用付费 provider，所有新增进程测试使用临时目录与本地合成模型。真实模型/TUI 对照、Android/iOS 实机、附件/超长消息复制、完整过滤/折叠键位矩阵仍未验收；本轮没有手机代码变更，双端 JS 构建未重跑。原生聊天重绘、压缩期间 UI 队列刷新、共享焦点、空草稿双 Esc 菜单及终端退出仍待适配，不将本轮结果记为完整 TUI 或设备通过。
+
 ## 2026-09-20 原生用户消息分叉菜单
 
 基于 `34edf22`，接入固定 SDK 的 UserMessageSelectorComponent，完整 `/fork` 和可配置 app.session.fork 进入同一流程。原生消息列表、最新消息初选、上下选择和取消由 SDK 处理；空历史只通知。恢复与分叉共用菜单生命周期，重复打开不叠加，编辑器结束或 Session 替换清理旧输入。菜单使用独立 extension Operation，不创建 Run。

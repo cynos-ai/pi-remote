@@ -12,6 +12,7 @@ import { EditorHost } from "./editor-host.js";
 import { createModelSelector, type ModelSelection } from "./model-selector.js";
 import { createSessionSelector } from "./session-selector.js";
 import { createForkSelector } from "./fork-selector.js";
+import { createTreeSelector } from "./tree-selector.js";
 import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
 import { TerminalInputHub } from "./terminal-input.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
@@ -1382,6 +1383,109 @@ export class PiWorker {
     }
   }
 
+  private branchSummary?: { owner: string; session: AgentSession };
+
+  private async treeFromEditor(owner: string, signal: AbortSignal): Promise<void> {
+    if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
+    const context = this.createStandaloneOperation(owner);
+    this.standaloneOperations.delete(context.operationId);
+    this.causalCommands.delete(context.operationId);
+    const session = this.handle.session;
+    const settings = this.handle.services.settingsManager;
+    const valid = () => !signal.aborted && owner === this.currentSessionId;
+    try {
+      await this.uiContextStorage.run(context, async () => {
+        let selected: string | undefined;
+        while (valid()) {
+          if (!session.sessionManager.getTree().length) { this.createUiContext().notify("会话中没有历史节点", "info"); return; }
+          const menu = new AbortController();
+          const close = () => menu.abort();
+          signal.addEventListener("abort", close, { once: true });
+          let copying = false;
+          try {
+            selected = await runCustomUi<string | undefined>((tui, _theme, keys, done) =>
+              createTreeSelector(tui, keys, session, done, text => {
+                if (!text) { this.createUiContext().notify("该节点没有可复制的文本", "info"); return; }
+                if (copying) return;
+                copying = true;
+                // Use the handset's editable text surface; never claim host clipboard access.
+                void this.requestInteraction("editor", "复制树节点文本", {
+                  prefill: text, message: text.length > 32768
+                    ? "文本过长，此框仅展示前 32768 个字符；长按复制，完整内容保留在原生历史中。关闭不会修改消息或对话草稿。"
+                    : "长按文本复制；关闭此框不会修改消息或对话草稿。"
+                }, { signal: menu.signal }).catch(error => {
+                  if (valid()) this.createUiContext().notify(errorMessage(error), "error");
+                }).finally(() => { copying = false; });
+              }, selected, settings.getTreeFilterMode()), {
+              agentDir: this.agentDir, signal: menu.signal, terminalInput: this.terminalInput(owner),
+              publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+              inputError: message => this.createUiContext().notify(message, "error"),
+              ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "会话树" : "会话树输入", {
+                ...(keys ? { options: keys } : {}), message: "切换模型使用的历史分支；手机事件记录保留。支持原生搜索、过滤、折叠和标签；复制键打开可复制文本。"
+              }, { signal: inputSignal })
+            });
+          } finally { signal.removeEventListener("abort", close); menu.abort(); }
+          if (!selected || !valid()) return;
+          if (selected === session.sessionManager.getLeafId()) { this.createUiContext().notify("已在所选节点", "info"); return; }
+          let summarize = false;
+          let customInstructions: string | undefined;
+          let back = false;
+          if (!settings.getBranchSummarySkipPrompt()) {
+            while (valid()) {
+              const choice = await this.requestInteraction("select", "分支摘要选项", {
+                options: ["不生成摘要", "生成摘要", "使用自定义提示生成摘要"]
+              }, { signal });
+              if (typeof choice?.value !== "string") { back = true; break; }
+              summarize = choice.value !== "不生成摘要";
+              if (choice.value === "使用自定义提示生成摘要") {
+                const instructions = await this.requestInteraction("editor", "自定义摘要指令", {}, { signal });
+                if (typeof instructions?.value !== "string") continue;
+                customInstructions = instructions.value;
+              }
+              break;
+            }
+          }
+          if (!valid()) return;
+          if (back) continue;
+          // Match native commit ordering: recover every queued Input before abort.
+          if (session.isStreaming) {
+            const target = this.execution?.runId ? this.execution : this.autonomous;
+            if (target?.runId) await this.abort({ runId: target.runId, restoreEditor: true });
+            else { this.restoreEditorQueue(); await session.abort(); }
+          }
+          if (!valid()) return;
+          const summaryControl = new AbortController();
+          const summary = { owner, session };
+          let cancelControl: Promise<void> | undefined;
+          try {
+            if (summarize) this.branchSummary = summary;
+            // Start the SDK operation before allowing cancellation, so its abort controller exists.
+            const navigation = session.navigateTree(selected, { summarize, customInstructions });
+            if (summarize) {
+              cancelControl = this.requestInteraction("select", "正在生成分支摘要", {
+                options: ["取消摘要"], message: "取消后返回会话树，也可按编辑器 Esc；不会提交对话草稿。"
+              }, { signal: summaryControl.signal }).then(() => {
+                if (!summaryControl.signal.aborted && this.branchSummary === summary) session.abortBranchSummary();
+              });
+            }
+            const result = await navigation;
+            if (owner !== this.currentSessionId) return;
+            if (result.aborted) { this.createUiContext().notify("分支摘要已取消", "info"); continue; }
+            if (result.cancelled) { this.createUiContext().notify("树导航已取消", "info"); return; }
+            if (result.editorText && !this.editorHost.getText().trim()) this.createUiContext().setEditorText(result.editorText);
+            this.createUiContext().notify("已切换到所选历史分支；手机事件记录保留", "info");
+            return;
+          } finally {
+            summaryControl.abort();
+            await cancelControl;
+            if (this.branchSummary === summary) this.branchSummary = undefined;
+          }
+        }
+      });
+      this.emitOperationStatus("completed", context);
+    } catch (error) { this.emitOperationStatus("failed", context); throw error; }
+  }
+
   private async sessionFromEditor(owner: string, action: "new" | "resume" | "fork", signal: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
     const context = this.createStandaloneOperation(owner);
@@ -1450,8 +1554,9 @@ export class PiWorker {
     let lastClear: number | undefined;
     let modelMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
-    const openSessionMenu = (action: "resume" | "fork") => {
-      if (!sessionMenu) sessionMenu = this.sessionFromEditor(owner, action, controller.signal).finally(() => { sessionMenu = undefined; });
+    const openSessionMenu = (action: "resume" | "fork" | "tree") => {
+      if (!sessionMenu) sessionMenu = (action === "tree" ? this.treeFromEditor(owner, controller.signal)
+        : this.sessionFromEditor(owner, action, controller.signal)).finally(() => { sessionMenu = undefined; });
       return sessionMenu;
     };
     const failure = (error: unknown) => this.send("extension_error", {
@@ -1466,6 +1571,7 @@ export class PiWorker {
             ["app.session.new", () => this.sessionFromEditor(owner, "new", controller.signal)],
             ["app.session.resume", () => openSessionMenu("resume")],
             ["app.session.fork", () => openSessionMenu("fork")],
+            ["app.session.tree", () => openSessionMenu("tree")],
             ["app.model.select", () => {
               if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal).finally(() => { modelMenu = undefined; });
               return modelMenu;
@@ -1483,6 +1589,7 @@ export class PiWorker {
             ["app.interrupt", async () => {
               if (owner !== this.currentSessionId || controller.signal.aborted) return;
               const session = this.handle!.session;
+              if (this.branchSummary?.owner === owner) { this.branchSummary.session.abortBranchSummary(); return; }
               if (session.isCompacting) { session.abortCompaction(); return; }
               if (session.isRetrying && !session.isStreaming) { session.abortRetry(); return; }
               if (session.isStreaming) {
@@ -1530,6 +1637,7 @@ export class PiWorker {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
             if (text === "/resume" || text === "/fork") { await openSessionMenu(text === "/fork" ? "fork" : "resume"); return; }
+            if (text === "/tree") { await openSessionMenu("tree"); return; }
             if (text === "/new") { await this.sessionFromEditor(owner, "new", controller.signal); return; }
             if (nativeSlashCommands.BUILTIN_SLASH_COMMANDS.some(command => command.name === name)) {
               throw new Error(`/${name} 的终端菜单尚未接入编辑器；请使用手机对应控制入口，文本已保留`);

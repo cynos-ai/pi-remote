@@ -6,6 +6,16 @@ import { matchesKey } from '@earendil-works/pi-tui';
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  let treeHooks = '';
+  pi.registerCommand('r16-tree-hooks', { description: 'Configure tree hook fixture', handler: async args => { treeHooks = args.trim(); } });
+  pi.on('session_before_tree', async (event, ctx) => {
+    await appendFile(join(ctx.cwd, 'tree-before'), JSON.stringify({ targetId: event.preparation.targetId, oldLeafId: event.preparation.oldLeafId, summarize: event.preparation.userWantsSummary, instructions: event.preparation.customInstructions }) + '\n');
+    if (treeHooks === 'cancel') return { cancel: true };
+    if (treeHooks === 'form' && !await ctx.ui.confirm('tree-hook-confirm', 'Allow navigation?')) return { cancel: true };
+  });
+  pi.on('session_tree', async (event, ctx) => {
+    await appendFile(join(ctx.cwd, 'tree-after'), JSON.stringify({ oldLeafId: event.oldLeafId, newLeafId: event.newLeafId, summary: event.summaryEntry?.summary }) + '\n');
+  });
   let cancelFork = false;
   pi.registerCommand('r16-fork-cancel', { description: 'Veto native fork', handler: async args => { cancelFork = args.trim() === 'on'; } });
   pi.on('session_before_fork', async () => cancelFork ? { cancel: true } : undefined);
