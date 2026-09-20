@@ -52,6 +52,8 @@ SDK 接受之后发生的错误通过 command / run 事件及 GET command 报告
 | PATCH `/v1/projects/:id` | `{expectedVersion,name?,defaultModel?,defaultThinkingLevel?}` | 200 `{project,commandId}`；V1 不改变 rootPath |
 | GET `/v1/projects/:id/sessions` | `archived=exclude\|only\|all,cursor?,limit?` | `{items:SessionSummary[],nextCursor}` |
 | POST `/v1/projects/:id/sessions` | `{title?,model?,thinkingLevel?}` | 201 `{session,commandId}`；空标题由服务生成，不复制历史 |
+| GET `/v1/projects/:id/recoverable-history` | 鉴权 | `{items:[{candidateId,filename,title,modifiedAt,entryCount}]}`；此项目服务管理目录中尚未映射的有效历史 |
+| POST `/v1/projects/:id/history-imports` | `{candidateId}` + Idempotency-Key | 201 `{session,commandId}`；已由同项目认领则 200，不启动 Run 或重放旧输入 |
 | PATCH `/v1/sessions/:id` | `{expectedVersion,title?,archived?}` | 200 `{session,commandId}`；归档仅更新元数据，不停止任务或关闭交互 |
 | GET `/v1/sessions/:id/snapshot` | 鉴权 | Snapshot，见下文 |
 | GET `/v1/sessions/:id/history` | `cursor,limit?` | `{items:TimelineItem[],nextCursor,atSeq}`，固定读边界 |
@@ -64,6 +66,10 @@ SDK 接受之后发生的错误通过 command / run 事件及 GET command 报告
 ProjectSummary：`{id,name,version,lastActivityAt,runningCount,waitingInputCount,blockedReason?}`。项目详情的 rootPath 只对已鉴权 owner 展示。
 
 SessionSummary：`{id,projectId,title,version,model,thinkingLevel,status,phase,activeRunId?,queuedCount,queueState,queueVersion,queuePause,piPersistenceState,historyErrorCode?,lastActivityAt,lastMessagePreview,archivedAt}`。status 取 idle / queued / running / waiting_input / busy / interrupted / failed；它描述当前或最近状态，不是全局命令许可开关。queueState 只控制旧后续项的自动调度；paused 仍可发送新 prompt 和改配置。queuePause 为 null 或 `{runId,reason:"failed"|"aborted"|"interrupted"}`。piPersistenceState 为 uninitialized / unflushed / persisted，不暴露文件路径。
+
+历史找回：candidateId 是服务端按项目、管理目录内相对路径和原生身份生成的 HMAC，不接受客户端文件路径。发现过程只读 `${PI_REMOTE_PI_DIR}/sessions`，不跟随目录项符号链接；完整校验 JSONL，并要求 header.cwd 的真实路径匹配项目。空白、损坏、其他项目、已映射以及重复原生身份的候选不列出。导入时重新扫描校验，找不到返回 404；映射冲突或本项目原生替换仍在进行返回 409。候选 ID 不承诺在服务密钥变更后仍有效。
+
+例如 GET 返回 `{ "items": [{ "candidateId": "<64位小写十六进制>", "filename": "project/orphan.jsonl", "title": "找回的会话 12345678", "modifiedAt": "2026-09-20T00:00:00.000Z", "entryCount": 4 }] }`。选中后 POST `{ "candidateId": "<列表返回值>" }`，手机为同一确认动作保留幂等键。导入仅创建 persisted Session 映射和 completed 的内部 history_import 收据；不复制文件、不打开 SDK、不创建 Run、不重发旧命令。重复键返回原收据；不同键认领同一已映射文件返回已有同项目 Session。后续加载 worker 时再次按持久历史校验。当前不会把原 JSONL 转换为旧手机时间线，手机提示原上下文保留、消息列表从找回后记录。
 
 Snapshot：
 

@@ -19,6 +19,8 @@
 
 pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目录；恢复按应用 sessionId 找指定文件，不使用 continueRecent，也不接收手机传入的 JSONL 路径。
 
+手机历史找回将服务管理目录内、经过完整校验且 cwd 匹配项目的既有 JSONL 认领为新的 persisted Session。沿用 sessions 的 pi_session_id / pi_session_file 映射与 commands 的幂等收据，在同一 SQLite 事务内核对既有映射、创建 Session 和 history_import 内部收据。无需新增表或数据库迁移；model / thinking 初始为空，worker 加载原历史后发布实际配置，不用项目默认值覆盖原上下文。认领不写 JSONL、不重放旧 Command，也不把旧 JSONL 合成为既有手机事件。列表与导入之间发生删除或损坏会重新校验失败；导入后再被外部改坏仍由正常 worker 持久校验保护。
+
 ### 空 Session 与持久历史
 
 固定 SDK 的 `SessionManager.create()` 会分配 ID / 路径，但通常等第一条 assistant 消息才写文件；改名、切模型或等级不保证写文件。`SessionManager.open()` 对缺失或空文件可能初始化新会话，因此应用必须先检查，不能把 open 当成存在性验证。

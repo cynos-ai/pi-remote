@@ -278,6 +278,15 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
     return runMutation(reply, result);
   });
 
+  app.get("/v1/projects/:id/recoverable-history", async (request, reply) => {
+    return reply.send(await context.resources.listRecoverableHistory(authFor(request, context), routeId(request)));
+  });
+  app.post("/v1/projects/:id/history-imports", async (request, reply) => {
+    const actor = authFor(request, context);
+    assertWritable(context);
+    return runMutation(reply, await context.resources.importHistory(actor, routeId(request), request.body, idempotencyKey(request)));
+  });
+
   app.get("/v1/sessions/:id", async (request, reply) => {
     const actor = authFor(request, context);
     return reply.send(context.resources.getSession(actor, routeId(request)));

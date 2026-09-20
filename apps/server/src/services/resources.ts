@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   projectCreateRequestSchema,
+  historyImportRequestSchema,
+  recoverableHistoriesResponseSchema,
   projectMutationResponseSchema,
   projectPatchRequestSchema,
   projectsResponseSchema,
@@ -34,6 +36,7 @@ import {
 import { InvalidCursorError, decodeListCursor, encodeListCursor } from "./cursors.js";
 import { InvalidProjectPathError, ProjectPathService } from "./project-path.js";
 import { SUPPORTED_COMMANDS } from "./commands.js";
+import { discoverNativeHistory } from "./native-history.js";
 
 export interface MutationResult {
   status: number;
@@ -93,11 +96,12 @@ export class ResourceService {
   private readonly pathService: ProjectPathService;
   private readonly now: () => number;
   private readonly manager: WorkerManager | undefined;
+  private readonly nativeHistoryRoot: string | undefined;
 
   constructor(
     private readonly database: DatabaseSync,
     private readonly auth: AuthService,
-    options: { workspaceRoot: string; cursorSecret: string; now?: () => number; manager?: WorkerManager }
+    options: { workspaceRoot: string; cursorSecret: string; now?: () => number; manager?: WorkerManager; nativeHistoryRoot?: string }
   ) {
     this.projects = new ProjectRepository(database);
     this.sessions = new SessionRepository(database);
@@ -106,6 +110,7 @@ export class ResourceService {
     this.cursorSecret = options.cursorSecret;
     this.now = options.now ?? (() => Date.now());
     this.manager = options.manager;
+    this.nativeHistoryRoot = options.nativeHistoryRoot;
   }
 
   private readonly cursorSecret: string;
@@ -295,6 +300,48 @@ export class ResourceService {
       const response = sessionMutationResponseSchema.parse({ session, commandId });
       this.complete(commandId, 201, response);
       return responseStatus(201, response);
+    });
+  }
+
+  async listRecoverableHistory(actor: AuthContext, projectId: string) {
+    const project = this.requireProject(actor.userId, projectId);
+    if (!this.nativeHistoryRoot) return { items: [] };
+    const candidates = await discoverNativeHistory(this.nativeHistoryRoot, project.rootPath, projectId, this.cursorSecret);
+    this.requireProject(actor.userId, projectId);
+    return recoverableHistoriesResponseSchema.parse({ items: candidates.filter(candidate =>
+      !this.database.prepare("SELECT id FROM sessions WHERE pi_session_id = ? OR pi_session_file = ?").get(candidate.nativeId, candidate.path))
+      .map(({ candidateId, filename, title, modifiedAt, entryCount }) => ({ candidateId, filename, title, modifiedAt, entryCount })) });
+  }
+
+  async importHistory(actor: AuthContext, projectId: string, requestBody: unknown, idempotencyKey: string): Promise<MutationResult> {
+    const project = this.requireProject(actor.userId, projectId);
+    const body = historyImportRequestSchema.parse(requestBody);
+    const scope = `POST:/v1/projects/${projectId}/history-imports`;
+    const replay = this.replay(actor, scope, idempotencyKey, body);
+    if (replay) return replay;
+    if (!this.nativeHistoryRoot) throw new ResourceServiceError("NOT_FOUND", "history discovery is unavailable");
+    const candidates = await discoverNativeHistory(this.nativeHistoryRoot, project.rootPath, projectId, this.cursorSecret);
+    const candidate = candidates.find(item => item.candidateId === body.candidateId);
+    if (!candidate) throw new ResourceServiceError("NOT_FOUND", "history is missing, changed, invalid or belongs to another project; refresh the list");
+    return withTransaction(this.database, () => {
+      this.requireProject(actor.userId, projectId);
+      const retry = this.replay(actor, scope, idempotencyKey, body);
+      if (retry) return retry;
+      if (this.manager?.hasPendingNativeReplacement(projectId)) throw new ResourceServiceError("VERSION_CONFLICT", "native session replacement is still in progress; retry after it finishes");
+      const existing = this.database.prepare("SELECT id, project_id, pi_session_id, pi_session_file FROM sessions WHERE pi_session_id = ? OR pi_session_file = ?").all(candidate.nativeId, candidate.path);
+      if (existing.length && (existing.length !== 1 || existing[0]!.project_id !== projectId || existing[0]!.pi_session_id !== candidate.nativeId || existing[0]!.pi_session_file !== candidate.path)) {
+        throw new ResourceServiceError("VERSION_CONFLICT", "history already has another mapping");
+      }
+      const session = existing.length ? this.sessions.get(String(existing[0]!.id))! : this.sessions.create({
+        projectId, title: candidate.title, piSessionId: candidate.nativeId, piSessionFile: candidate.path,
+        piPersistenceState: "persisted", now: this.now()
+      });
+      const commandId = this.createMutationCommand(actor, { scope, idempotencyKey, kind: "history_import", payload: body, sessionId: session.id });
+      this.database.prepare("UPDATE projects SET last_activity_at = MAX(last_activity_at, ?) WHERE id = ?").run(this.now(), projectId);
+      const response = sessionMutationResponseSchema.parse({ session, commandId });
+      const status = existing.length ? 200 : 201;
+      this.complete(commandId, status, response);
+      return responseStatus(status, response);
     });
   }
 

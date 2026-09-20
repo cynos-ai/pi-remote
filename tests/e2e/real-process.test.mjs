@@ -90,8 +90,7 @@ for (const fault of ['worker-executing', 'main-executing', 'main-before-result-p
     const command = await h.command('bash', payload, key);
     const worker = await h.workerPid();
     await until(async () => (await h.lines('effects')).length === 1, 'actual Bash side effect before kill');
-    const accepted = h.query('SELECT state FROM commands WHERE id = ?', command.commandId)[0];
-    assert.equal(accepted.state, 'accepted');
+    await until(() => h.query('SELECT state FROM commands WHERE id = ?', command.commandId)[0]?.state === 'accepted', 'command acceptance persisted before fault injection');
     if (fault === 'worker-executing') {
       process.kill(worker, 'SIGKILL');
     } else {

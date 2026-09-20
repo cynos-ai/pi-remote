@@ -166,6 +166,8 @@
 
 ## S09 — 手机连接、项目和历史
 
+历史找回子集：新增 recoverable-history / history-imports 的 S05 API 与 S09 入口。使用服务管理目录内有效候选和幂等键认领，不自动派发旧任务；API、真实进程续聊与手机客户端分别验证。当前不回填原 JSONL 到手机时间线，必须明确提示；真实设备覆盖继续单独记录。
+
 **产物**：apps/mobile 的导航、API client、安全存储、项目 / Session 列表、归档入口、历史分页；tests/mobile 和初始 Maestro 流程。
 
 **实现**：

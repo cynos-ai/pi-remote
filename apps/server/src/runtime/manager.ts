@@ -164,7 +164,7 @@ interface SessionRuntimeRow {
 interface ManagedWorker {
   envelopeSessionId: string;
   ownedSessionIds: Set<string>;
-  replacementIntents: Map<string, { sourceSessionId: string; kind: "new" | "switch" | "fork"; targetFile?: string; targetPiSessionId?: string; targetCwd?: string; projectId: string; destinationSessionId?: string }>;
+  replacementIntents: Map<string, { sourceSessionId: string; sourceOperationId?: string; kind: "new" | "switch" | "fork"; targetFile?: string; targetPiSessionId?: string; targetCwd?: string; projectId: string; destinationSessionId?: string }>;
   workerId: string;
   sessionId: string;
   workspaceKey: string;
@@ -492,6 +492,16 @@ export class WorkerManager {
 
   get activeWorkerCount(): number {
     return this.workers.size;
+  }
+
+  hasPendingNativeReplacement(projectId: string): boolean {
+    return [...this.workers.values()].some(worker => [...worker.replacementIntents.values()]
+      .some(intent => {
+        if (intent.projectId !== projectId || intent.destinationSessionId !== undefined) return false;
+        if (!intent.sourceOperationId) return true;
+        const operation = loadReducerState(this.database, intent.sourceSessionId, { includeTimeline: false }).operations[intent.sourceOperationId];
+        return !operation || ["queued", "running", "waiting_input"].includes(operation.status);
+      }));
   }
 
   get activeRunCount(): number {
@@ -1302,6 +1312,7 @@ export class WorkerManager {
     });
     worker.replacementIntents.set(payload.requestId, {
       sourceSessionId: worker.sessionId, kind: payload.kind, projectId,
+      ...(payload.sourceOperationId ? { sourceOperationId: payload.sourceOperationId } : {}),
       ...(targetFile ? { targetFile, targetPiSessionId, targetCwd } : {})
     });
     this.send(worker, "session_replace_ack", { requestId: payload.requestId, phase: "intent", appSessionId: worker.sessionId });

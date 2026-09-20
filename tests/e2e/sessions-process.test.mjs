@@ -8,6 +8,40 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('history recovery API discovers an orphan, imports once and resumes its original context', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t);
+  const initial = await h.command('prompt', { text: 'RECOVER_ORIGINAL_CONTEXT' });
+  await h.workerPid();
+  await h.terminal(initial.commandId);
+  const source = mapping(h);
+  const projectId = h.query('SELECT project_id FROM sessions WHERE id = ?', h.sessionId)[0].project_id;
+  const rows = await history(source.pi_session_file);
+  rows[0].id = randomUUID();
+  const orphan = join(h.agent, 'sessions/recovery-orphan.jsonl');
+  const original = rows.map(row => JSON.stringify(row)).join('\n') + '\n';
+  await writeFile(orphan, original);
+  const listed = await h.http('GET', `/v1/projects/${projectId}/recoverable-history`);
+  assert.equal(listed.items.length, 1);
+  const payload = { candidateId: listed.items[0].candidateId };
+  const key = randomUUID();
+  const [first, replay] = await Promise.all([
+    h.http('POST', `/v1/projects/${projectId}/history-imports`, payload, key),
+    h.http('POST', `/v1/projects/${projectId}/history-imports`, payload, key)
+  ]);
+  assert.deepEqual(first, replay);
+  assert.equal(h.provider.requests.length, 1, 'import never dispatches a model task');
+  assert.equal(await readFile(orphan, 'utf8'), original);
+  assert.equal((await h.http('GET', `/v1/projects/${projectId}/recoverable-history`)).items.length, 0);
+  h.sessionId = first.session.id;
+  const resumed = await h.command('prompt', { text: 'RECOVER_CONTINUE' });
+  await h.workerPid();
+  await h.terminal(resumed.commandId);
+  assert.equal(mapping(h).pi_session_id, rows[0].id);
+  assert.equal(h.provider.requests.length, 2);
+  assert.ok(JSON.stringify(h.provider.requests.at(-1).messages).includes('RECOVER_ORIGINAL_CONTEXT'));
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM sessions')[0].count, 2);
+});
+
 async function armFault(h, point) {
   await writeFile(join(h.root, 'state/fault-arm'), point);
 }

@@ -1,5 +1,7 @@
 import {
   artifactSchema,
+  recoverableHistoriesResponseSchema,
+  historyImportRequestSchema,
   errorResponseSchema,
   capabilityResponseSchema,
   commandDetailResponseSchema,
@@ -256,6 +258,16 @@ export class PiRemoteApi {
 
   async createSession(projectId: string, body: SessionCreateRequest = {}, idempotencyKey = makeIdempotencyKey()): Promise<SessionMutationResponse> {
     return this.request(`/v1/projects/${encodeURIComponent(projectId)}/sessions`, { method: "POST", body, idempotencyKey }, sessionMutationResponseSchema);
+  }
+
+  async listRecoverableHistory(projectId: string) {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/recoverable-history`, {}, recoverableHistoriesResponseSchema);
+  }
+
+  async importHistory(projectId: string, candidateId: string, idempotencyKey = makeIdempotencyKey()): Promise<SessionMutationResponse> {
+    return this.request(`/v1/projects/${encodeURIComponent(projectId)}/history-imports`, {
+      method: "POST", body: historyImportRequestSchema.parse({ candidateId }), idempotencyKey
+    }, sessionMutationResponseSchema);
   }
 
   async patchSession(sessionId: string, body: SessionPatchRequest, idempotencyKey = makeIdempotencyKey()): Promise<SessionMutationResponse> {

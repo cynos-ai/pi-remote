@@ -21,6 +21,7 @@ import type {
   ModelInfo,
   ModelRef,
   ProjectSummary,
+  RecoverableHistory,
   ReducerState,
   SessionSummary,
   Snapshot,
@@ -31,6 +32,7 @@ import {
   MobileApiError,
   PiRemoteApi,
   normalizeServerUrl,
+  makeIdempotencyKey,
   type DeviceCredentials,
   type ProjectCreateRequest,
   type SessionCreateRequest
@@ -471,6 +473,33 @@ function SessionsScreen({
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [recoverable, setRecoverable] = useState<RecoverableHistory[] | null>(null);
+  const [selectedHistory, setSelectedHistory] = useState<RecoverableHistory | null>(null);
+  const [findingHistory, setFindingHistory] = useState(false);
+  const importKeys = useRef(new Map<string, string>());
+  const findHistory = async () => {
+    setFindingHistory(true);
+    setError(null);
+    setSelectedHistory(null);
+    try { setRecoverable((await api.listRecoverableHistory(project.id)).items); }
+    catch (caught) { setError(errorText(caught)); }
+    finally { setFindingHistory(false); }
+  };
+  const recoverHistory = async () => {
+    if (!selectedHistory || saving) return;
+    const keyId = `${project.id}:${selectedHistory.candidateId}`;
+    const key = importKeys.current.get(keyId) ?? makeIdempotencyKey();
+    importKeys.current.set(keyId, key);
+    setSaving(true);
+    setError(null);
+    try {
+      const response = await api.importHistory(project.id, selectedHistory.candidateId, key);
+      setRecoverable(null);
+      setSelectedHistory(null);
+      onOpenSession(response.session);
+    } catch (caught) { setError(errorText(caught)); }
+    finally { setSaving(false); }
+  };
 
   const loadFirst = useCallback(async () => {
     setLoading(true);
@@ -599,6 +628,27 @@ function SessionsScreen({
         ) : (
           <ActionButton onPress={() => setShowCreate(true)} testID="session-create" title="＋ 新建 Session" />
         )}
+        <ActionButton disabled={saving || findingHistory} kind="secondary" onPress={() => void findHistory()} testID="history-discover" title={findingHistory ? "正在查找…" : "找回历史会话"} />
+        {recoverable !== null ? (
+          <View style={styles.formCard}>
+            <Text style={styles.cardTitle}>可找回的历史</Text>
+            <Text style={styles.cardMeta}>仅显示此项目尚未关联的有效历史。找回不会重发旧命令；继续对话时会保留原有上下文。消息列表从找回后开始记录。</Text>
+            {recoverable.length === 0 ? <Text>没有找到可恢复的历史。</Text> : null}
+            <ScrollView style={{ maxHeight: 200 }}>
+              {recoverable.map(candidate => (
+                <Pressable accessibilityRole="button" accessibilityLabel={`选择 ${candidate.title}`} disabled={saving} key={candidate.candidateId} onPress={() => setSelectedHistory(candidate)} style={styles.card}>
+                  <Text style={styles.cardTitle}>{candidate.title}{selectedHistory?.candidateId === candidate.candidateId ? " · 已选择" : ""}</Text>
+                  <Text style={styles.cardMeta}>{formatRelativeTime(candidate.modifiedAt)} · {candidate.entryCount} 条历史记录</Text>
+                  <Text numberOfLines={2} style={styles.cardMeta}>{candidate.filename}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            <View style={styles.buttonRow}>
+              <ActionButton disabled={saving || !selectedHistory} onPress={() => void recoverHistory()} testID="history-import" title={saving ? "正在找回…" : "确认找回并打开"} />
+              <ActionButton disabled={saving} kind="secondary" onPress={() => { setRecoverable(null); setSelectedHistory(null); }} title="取消" />
+            </View>
+          </View>
+        ) : null}
         {loading && items.length === 0 ? <LoadingScreen message="正在加载 Session" /> : null}
         <FlatList
           contentContainerStyle={items.length === 0 ? styles.emptyList : styles.list}

@@ -1,6 +1,6 @@
 # 开发进度与验证证据
 
-最后更新：2026-09-19。
+最后更新：2026-09-20。
 
 ## 当前状态
 
@@ -25,6 +25,20 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S11 | blocked | 双设备/弱网合同与实际 server/worker 进程故障集成通过；真实 Android / iOS 设备未运行 |
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
+
+## 2026-09-20 手机历史找回入口
+
+基于 `aa625d0`，新增项目级 recoverable-history / history-imports API、公共 Zod DTO、手机 API 方法及 Session 列表的选择/确认/取消入口。服务只读管理目录 `${PI_REMOTE_PI_DIR}/sessions`，通过 agent-pi 的完整 JSONL 检查和真实 cwd 核对发现历史；跳过符号链接、空白/损坏、重复原生身份、其他项目或已有映射。候选 HMAC 绑定项目、相对路径和原生 ID，手机不传任意路径。导入重新扫描，在事务中核对映射、创建 persisted Session 与幂等收据；同键重放原收据、不同键返回已有同项目映射，活跃原生替换期间拒绝抢占。没有新增数据表或迁移，没有修改 Bash/模型能力边界。
+
+导入不写 JSONL、不创建 Run、不自动派发旧任务；模型/等级由后续原生加载发布，原上下文可继续。手机对同一确认动作保留幂等键，网络失败可重试；候选失效提示刷新。原 JSONL 还没有转换为手机旧时间线，界面明确提示消息列表从找回后记录。历史找回限于服务管理目录，不代表完整通用文件导入或 terminal custom UI 已完成。
+
+验证环境：WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。新增 API 正常/异常检查：鉴权、项目归属、header-only、损坏/空白/链接/重复身份排除、列表后损坏/删除、活跃替换拒绝、同键/异键幂等与文件不变；手机验证 DTO 与重试键。新增真实 HTTPS/server/worker 流程：并发导入同一候选只有一份映射、不调用模型、不写历史，继续后模型请求包含原历史上下文。只调用本地合成 provider，不使用付费凭据。
+
+首轮手机测试夹具缺少协议必需 requestId，修正后按真实错误 DTO 验证；首轮完整 E2E 另暴露既有故障夹具的时序竞态：Bash 副作用可先于 accepted 投影持久化，改为等待 accepted 落库后再故障注入，保留原有故障状态断言。失败证据保留于 `test-results/history-s05.log`、`history-s09.log`、`history-e2e.log`；最终验证分别写入 `history-s05-final.log`、`history-s09-final.log`、`history-e2e-final.log` 和阶段 report.json，不改写旧证据身份。
+
+最终结果：`pnpm verify:S05` 为 passed（12/12）；`pnpm verify:S09` 为 blocked（22 passed / 0 failed / 2 not_run），Android/iOS JS bundle、lint、全量 typecheck 与文档通过，两个 not_run 为真实设备。`node scripts/test-real-process-e2e.mjs --no-build` 为 22/22 通过；最后补充边界后定向执行 `pnpm exec vitest run --config vitest.config.mjs tests/api/api.test.ts tests/mobile/api.test.ts tests/runtime/runtime.test.ts` 为 48/48，通过证据另存 `test-results/history-targeted-final.log`。`python3 scripts/check_docs.py` 与 `git diff --check` 通过。
+
+决策已同步 README、设计、协议示例、数据/无迁移说明、开发计划及 AT12/AT21/AT22/AT32 补充验收。当前无 Android/iOS 设备证据，不能把 JS bundle 当成真机已通过；原有真实 provider / TUI 矩阵、终端专用 UI 适配和旧时间线回填仍待完成。
 
 ## 2026-09-19 标题竞争与 fork 映射崩溃窗口
 

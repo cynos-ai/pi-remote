@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -82,6 +82,71 @@ afterEach(async () => {
 });
 
 describe("S05 device, project, and Session API", () => {
+  it("discovers only valid unmapped project histories and imports idempotently without opening the SDK", async () => {
+    const f = await createFixture();
+    const project = new ProjectRepository(f.database).create({ userId: "owner-a", name: "Recovery", rootPath: f.workspace, workspaceKey: "recovery", rootIdentity: "recovery" });
+    const root = join(f.root, "pi/sessions");
+    await mkdir(root, { recursive: true });
+    const header = (id: string, cwd = f.workspace) => JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd }) + "\n";
+    const original = header("orphan-native");
+    await writeFile(join(root, "orphan.jsonl"), original);
+    await writeFile(join(root, "broken.jsonl"), "broken");
+    await writeFile(join(root, "empty.jsonl"), "");
+    await writeFile(join(root, "foreign.jsonl"), header("foreign", f.root));
+    await writeFile(join(root, "duplicate-a.jsonl"), header("duplicate"));
+    await writeFile(join(root, "duplicate-b.jsonl"), header("duplicate"));
+    await writeFile(join(root, "mapped.jsonl"), header("mapped"));
+    new SessionRepository(f.database).create({ projectId: project.id, title: "Mapped", piSessionId: "mapped", piSessionFile: join(root, "mapped.jsonl"), piPersistenceState: "persisted" });
+    await writeFile(join(f.root, "outside.jsonl"), header("outside"));
+    await symlink(join(f.root, "outside.jsonl"), join(root, "linked.jsonl"));
+    const url = `/v1/projects/${project.id}/recoverable-history`;
+    expect((await f.app.inject({ method: "GET", url })).statusCode).toBe(401);
+    const listed = await f.app.inject({ method: "GET", url, headers: authHeader(f.deviceToken) });
+    expect(listed.statusCode).toBe(200);
+    const items = listed.json().items as Array<{ candidateId: string; filename: string; entryCount: number }>;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ filename: "orphan.jsonl", entryCount: 0 });
+    const importUrl = `/v1/projects/${project.id}/history-imports`;
+    const request = { method: "POST" as const, url: importUrl, headers: { ...authHeader(f.deviceToken), ...idempotencyHeader("11000000-0000-4000-8000-000000000001") }, payload: { candidateId: items[0]!.candidateId } };
+    const replacing = vi.spyOn(WorkerManager.prototype, "hasPendingNativeReplacement").mockReturnValue(true);
+    try {
+      expect((await f.app.inject(request)).statusCode).toBe(409);
+      expect(f.database.prepare("SELECT COUNT(*) AS count FROM sessions").get()?.count).toBe(1);
+    } finally { replacing.mockRestore(); }
+    const first = await f.app.inject(request);
+    expect(first.statusCode).toBe(201);
+    expect(first.json().session.piPersistenceState).toBe("persisted");
+    expect((await f.app.inject(request)).json()).toEqual(first.json());
+    const duplicate = await f.app.inject({ ...request, headers: { ...authHeader(f.deviceToken), ...idempotencyHeader("11000000-0000-4000-8000-000000000002") } });
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json().session.id).toBe(first.json().session.id);
+    expect((await f.app.inject({ method: "GET", url, headers: authHeader(f.deviceToken) })).json().items).toEqual([]);
+    expect(await readFile(join(root, "orphan.jsonl"), "utf8")).toBe(original);
+    expect(f.database.prepare("SELECT COUNT(*) AS count FROM runs").get()?.count).toBe(0);
+    expect((await f.app.inject({ ...request, payload: { candidateId: "../../outside.jsonl" } })).statusCode).toBe(400);
+  });
+
+  it("revalidates deleted/corrupt candidates and rejects histories belonging to another owner", async () => {
+    const f = await createFixture();
+    const projects = new ProjectRepository(f.database);
+    const project = projects.create({ userId: "owner-a", name: "Recovery", rootPath: f.workspace, workspaceKey: "recover2", rootIdentity: "recover2" });
+    const root = join(f.root, "pi/sessions");
+    await mkdir(root, { recursive: true });
+    const path = join(root, "changed.jsonl");
+    await writeFile(path, JSON.stringify({ type: "session", version: 3, id: "changed", timestamp: new Date().toISOString(), cwd: f.workspace }) + "\n");
+    const list = await f.app.inject({ method: "GET", url: `/v1/projects/${project.id}/recoverable-history`, headers: authHeader(f.deviceToken) });
+    const candidateId = list.json().items[0].candidateId as string;
+    await writeFile(path, "corrupted after listing");
+    const imported = await f.app.inject({ method: "POST", url: `/v1/projects/${project.id}/history-imports`, headers: { ...authHeader(f.deviceToken), ...idempotencyHeader("11000000-0000-4000-8000-000000000003") }, payload: { candidateId } });
+    expect(imported.statusCode).toBe(404);
+    expect(await readFile(path, "utf8")).toBe("corrupted after listing");
+    await rm(path);
+    expect((await f.app.inject({ method: "POST", url: `/v1/projects/${project.id}/history-imports`, headers: { ...authHeader(f.deviceToken), ...idempotencyHeader("11000000-0000-4000-8000-000000000003") }, payload: { candidateId } })).statusCode).toBe(404);
+    new OwnerRepository(f.database).ensure({ id: "owner-b", displayName: "Other" });
+    const other = projects.create({ userId: "owner-b", name: "Other", rootPath: f.root, workspaceKey: "other", rootIdentity: "other" });
+    expect((await f.app.inject({ method: "GET", url: `/v1/projects/${other.id}/recoverable-history`, headers: authHeader(f.deviceToken) })).statusCode).toBe(404);
+    expect(f.database.prepare("SELECT COUNT(*) AS count FROM sessions").get()?.count).toBe(0);
+  });
   it("authenticates editor handoff and returns 204 only after the worker ACK", async () => {
     const fixture = await createFixture();
     const project = new ProjectRepository(fixture.database).create({ userId: "owner-a", name: "Editor", rootPath: fixture.workspace, workspaceKey: "editor-workspace", rootIdentity: "editor-root" });

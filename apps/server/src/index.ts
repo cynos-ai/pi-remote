@@ -59,6 +59,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const resources = new ResourceService(database, auth, {
     workspaceRoot: env.PI_REMOTE_WORKSPACE_ROOT,
     cursorSecret: env.PI_REMOTE_CURSOR_SECRET,
+    nativeHistoryRoot: join(env.PI_REMOTE_PI_DIR, "sessions"),
     manager: workerManager
   });
   const commands = new CommandService(database, workerManager, {

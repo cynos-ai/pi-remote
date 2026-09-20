@@ -679,10 +679,12 @@ export default function(pi) { pi.on('session_start', async (_event, ctx) => {
     outbound(child!, "session_replace_intent", { requestId: "replace-one", kind: "new", piSessionId: String(original.pi_session_id), piSessionFile: String(original.pi_session_file) });
     await vi.waitFor(() => expect(acknowledgements).toHaveLength(1));
     expect(acknowledgements[0]?.payload).toEqual({ requestId: "replace-one", phase: "intent", appSessionId: SESSION_A });
+    expect(manager.hasPendingNativeReplacement(String(original.project_id))).toBe(true);
     expect(fixture.database.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'runtime.notice'").get()?.n).toBe(1);
     outbound(child!, "session_replaced", { requestId: "replace-one", piSessionId: "replacement-pi", piSessionFile: "/replacement.jsonl", persistenceState: "unflushed" });
     await vi.waitFor(() => expect(acknowledgements).toHaveLength(2));
     const destination = acknowledgements[1]!.payload.appSessionId;
+    expect(manager.hasPendingNativeReplacement(String(original.project_id))).toBe(false);
     expect(destination).not.toBe(SESSION_A);
     expect(new SessionRepository(fixture.database).getRow(SESSION_A)?.pi_session_id).toBe(original.pi_session_id);
     expect(new SessionRepository(fixture.database).getRow(destination)?.pi_session_id).toBe("replacement-pi");

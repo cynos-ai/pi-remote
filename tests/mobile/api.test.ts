@@ -33,6 +33,25 @@ function projectSummary(id = "project-a") {
 }
 
 describe("S09 mobile API client", () => {
+  it("validates recovery candidates and preserves the import key across explicit retries", async () => {
+    const candidateId = "a".repeat(64);
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const api = new PiRemoteApi(credentials, { fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("recoverable-history")) return jsonResponse({ items: [{ candidateId, filename: "orphan.jsonl", title: "Recovered", modifiedAt: new Date().toISOString(), entryCount: 0 }] });
+      return jsonResponse({ error: { code: "NOT_FOUND", message: "Refresh candidates", requestId: "recovery-test" } }, 404);
+    } });
+    expect((await api.listRecoverableHistory("project-a")).items[0]?.candidateId).toBe(candidateId);
+    for (let retry = 0; retry < 2; retry++) await expect(api.importHistory("project-a", candidateId, "recovery-key")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const imports = calls.filter(call => call.url.endsWith("history-imports"));
+    expect(imports).toHaveLength(2);
+    for (const call of imports) {
+      expect(new Headers(call.init?.headers).get("idempotency-key")).toBe("recovery-key");
+      expect(JSON.parse(String(call.init?.body))).toEqual({ candidateId });
+    }
+    await expect(api.importHistory("project-a", "../../auth.json")).rejects.toThrow();
+    expect(calls).toHaveLength(3);
+  });
   const clients: Array<{ calls: Array<{ input: string; init?: RequestInit }> }> = [];
 
   afterEach(() => {

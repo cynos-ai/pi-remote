@@ -167,6 +167,17 @@ export const projectMutationResponseSchema = z
   .strict();
 
 export const sessionSummarySchema = sessionProjectionSchema;
+
+export const recoverableHistorySchema = z.object({
+  candidateId: z.string().regex(/^[a-f0-9]{64}$/),
+  filename: z.string().min(1).max(4096),
+  title: z.string().min(1).max(200),
+  modifiedAt: timestampSchema,
+  entryCount: z.number().int().nonnegative()
+}).strict();
+export type RecoverableHistory = z.infer<typeof recoverableHistorySchema>;
+export const recoverableHistoriesResponseSchema = z.object({ items: z.array(recoverableHistorySchema) }).strict();
+export const historyImportRequestSchema = z.object({ candidateId: recoverableHistorySchema.shape.candidateId }).strict();
 export type SessionSummary = SessionProjection;
 export const archivedFilterSchema = z.enum(["exclude", "only", "all"]);
 export const sessionsResponseSchema = z
