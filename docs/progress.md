@@ -26,6 +26,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 原生用户消息分叉菜单
+
+基于 `34edf22`，接入固定 SDK 的 UserMessageSelectorComponent，完整 `/fork` 和可配置 app.session.fork 进入同一流程。原生消息列表、最新消息初选、上下选择和取消由 SDK 处理；空历史只通知。恢复与分叉共用菜单生命周期，重复打开不叠加，编辑器结束或 Session 替换清理旧输入。菜单使用独立 extension Operation，不创建 Run。
+
+确认使用 extensionRunner.createCommandContext 的已绑定 fork，保留原生 session_before_fork 取消、持久 intent、替换串行及映射 ACK。所选消息之前的路径复制到新会话；withSession 在目标映射确认后恢复所选文本为草稿，不自动提交，也不写回源历史。源/目标操作与手机事件沿既有归属处理；本轮未改公共 schema、手机代码或树导航。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：生产构建通过（`test-results/fork-menu-build.log`）；SDK/editor/custom/terminal/runtime 定向回归 66/66（`fork-menu-targeted.log`）。首次真实进程为 21/22（`fork-menu-sessions.log`）：分叉、目标草稿、历史及零重发断言已通过，测试末尾误查不存在的 operations 表。改为读取持久 operation.updated 事件，保留完成状态断言，并增加原生扩展取消分叉验证。最终 `pnpm verify:S07` 为 14 passed / 2 failed（`fork-menu-s07.log`、`s07/report.json`）：构建、命令合同、五类生命周期表单、22 项会话进程、lint、全量 typecheck 和文档通过；失败仍是旧 live-commands / parity-tui-commands 源码身份失效。分叉过程证据见 `test-results/code-review/r16-details/native-fork-menu-handles-empty-history-cancellation-and-destination-draft-without-resubmission.json`。最终补录后的文档和差异格式检查通过；S07 保持 blocked，不将本地验证标为整阶段通过。
+
+未读取模型凭据或调用付费 provider；测试仅使用临时目录和本地合成模型。真实 provider、交互式 TUI、Android/iOS 实机未运行，双端 JS 构建未重跑。树导航的摘要/取消、共享焦点与终端退出仍待适配；本轮分叉菜单未覆盖活动流中确认分叉、附件消息及完整自定义键位矩阵，不替代这些验收。
+
 ## 2026-09-20 原生历史恢复菜单与新建会话
 
 基于 `0c9d6f4`，接入 SessionSelectorComponent：沿 SDK current/all 列表、搜索、排序、命名过滤、路径显示、重命名、删除确认和当前历史保护。app.session.resume/new 沿原生默认保持无键位，可自定义绑定；CustomEditor 的完整 `/resume` 和 `/new` 也进入同一流程，不作为 prompt 发给模型。选择/新建使用 extensionRunner.createCommandContext 的已绑定动作，保留现有持久 intent、历史校验、替换串行和映射 ACK，不另开未经保护的 runtime 路径。菜单是独立 extension Operation，原生退出入口仍明确提示待适配。

@@ -11,6 +11,7 @@ import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
 import { createModelSelector, type ModelSelection } from "./model-selector.js";
 import { createSessionSelector } from "./session-selector.js";
+import { createForkSelector } from "./fork-selector.js";
 import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
 import { TerminalInputHub } from "./terminal-input.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
@@ -1381,13 +1382,32 @@ export class PiWorker {
     }
   }
 
-  private async sessionFromEditor(owner: string, action: "new" | "resume", signal: AbortSignal): Promise<void> {
+  private async sessionFromEditor(owner: string, action: "new" | "resume" | "fork", signal: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
     const context = this.createStandaloneOperation(owner);
     this.standaloneOperations.delete(context.operationId);
     this.causalCommands.delete(context.operationId);
     try {
       await this.uiContextStorage.run(context, async () => {
+        if (action === "fork") {
+          const messages = this.handle!.session.getUserMessagesForForking();
+          if (!messages.length) { this.createUiContext().notify("没有可分叉的用户消息", "info"); return; }
+          const selected = await runCustomUi<typeof messages[number] | undefined>((_tui, _theme, keys, done) =>
+            createForkSelector(keys, messages, done), {
+            agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
+            publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+            inputError: message => this.createUiContext().notify(message, "error"),
+            ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "分叉会话" : "分叉菜单输入", {
+              ...(keys ? { options: keys } : {}), message: "选择用户消息，将此前历史复制到新会话；所选消息恢复为草稿，不自动发送。"
+            }, { signal: inputSignal })
+          });
+          if (!selected || signal.aborted || owner !== this.currentSessionId) return;
+          await this.handle!.session.extensionRunner.createCommandContext().fork(selected.entryId, {
+            // The bound continuation runs only after the destination mapping ACK.
+            withSession: async ctx => { ctx.ui.setEditorText(selected.text); }
+          });
+          return;
+        }
         let path: string | undefined;
         if (action === "resume") {
           path = await runCustomUi<string | undefined>((tui, _theme, keys, done) =>
@@ -1430,8 +1450,8 @@ export class PiWorker {
     let lastClear: number | undefined;
     let modelMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
-    const resumeSession = () => {
-      if (!sessionMenu) sessionMenu = this.sessionFromEditor(owner, "resume", controller.signal).finally(() => { sessionMenu = undefined; });
+    const openSessionMenu = (action: "resume" | "fork") => {
+      if (!sessionMenu) sessionMenu = this.sessionFromEditor(owner, action, controller.signal).finally(() => { sessionMenu = undefined; });
       return sessionMenu;
     };
     const failure = (error: unknown) => this.send("extension_error", {
@@ -1444,7 +1464,8 @@ export class PiWorker {
           terminalInput: this.terminalInput(owner), inputError: failure,
           actions: new Map<string, () => void | Promise<void>>([
             ["app.session.new", () => this.sessionFromEditor(owner, "new", controller.signal)],
-            ["app.session.resume", resumeSession],
+            ["app.session.resume", () => openSessionMenu("resume")],
+            ["app.session.fork", () => openSessionMenu("fork")],
             ["app.model.select", () => {
               if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal).finally(() => { modelMenu = undefined; });
               return modelMenu;
@@ -1508,7 +1529,7 @@ export class PiWorker {
           submit: async text => {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
-            if (text === "/resume") { await resumeSession(); return; }
+            if (text === "/resume" || text === "/fork") { await openSessionMenu(text === "/fork" ? "fork" : "resume"); return; }
             if (text === "/new") { await this.sessionFromEditor(owner, "new", controller.signal); return; }
             if (nativeSlashCommands.BUILTIN_SLASH_COMMANDS.some(command => command.name === name)) {
               throw new Error(`/${name} 的终端菜单尚未接入编辑器；请使用手机对应控制入口，文本已保留`);

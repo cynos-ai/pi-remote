@@ -6,6 +6,9 @@ import { matchesKey } from '@earendil-works/pi-tui';
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  let cancelFork = false;
+  pi.registerCommand('r16-fork-cancel', { description: 'Veto native fork', handler: async args => { cancelFork = args.trim() === 'on'; } });
+  pi.on('session_before_fork', async () => cancelFork ? { cancel: true } : undefined);
   let configurationHooks = '';
   pi.registerCommand('r16-config-hooks', { description: 'Enable native configuration forms', handler: async (args) => { configurationHooks = args.trim(); } });
   pi.on('model_select', async (event, ctx) => {
