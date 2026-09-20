@@ -9,6 +9,7 @@ import { WidgetHost, type WidgetFactory } from "./widget-host.js";
 import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
+import { createModelSelector, type ModelSelection } from "./model-selector.js";
 import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
 import { TerminalInputHub } from "./terminal-input.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
@@ -1328,7 +1329,7 @@ export class PiWorker {
     return hub;
   }
 
-  private async cycleEditorConfiguration(owner: string, action: "thinking" | "forward" | "backward"): Promise<void> {
+  private async configureFromEditor(owner: string, action: "thinking" | "forward" | "backward" | "select", signal?: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle) return;
     const context = this.createStandaloneOperation(owner, "configure");
     this.standaloneOperations.delete(context.operationId);
@@ -1337,7 +1338,23 @@ export class PiWorker {
       await this.uiContextStorage.run(context, async () => {
         const session = this.handle!.session;
         let message: string;
-        if (action === "thinking") {
+        if (action === "select") {
+          const settings = this.handle!.services.settingsManager;
+          const provider = settings.getDefaultProvider(), id = settings.getDefaultModel();
+          const selection = await runCustomUi<ModelSelection | undefined>((tui, _theme, keys, done) =>
+            createModelSelector(tui, keys, session, provider && id ? { provider, id } : undefined, done), {
+            agentDir: this.agentDir, signal: signal!, terminalInput: this.terminalInput(owner),
+            publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+            inputError: message => this.createUiContext().notify(message, "error"),
+            ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "模型选择" : "模型选择输入", {
+              ...(keys ? { options: keys } : {}), message: "原生模型菜单：输入文本搜索，Enter 选择，Ctrl+S 设为默认，Esc 取消；遵循自定义键位。"
+            }, { signal: inputSignal })
+          });
+          if (!selection || signal?.aborted || owner !== this.currentSessionId) return;
+          await session.setModel(selection.model, { persist: selection.persist });
+          if (selection.persist) await settings.flush();
+          message = selection.persist ? `默认模型：${selection.model.provider}/${selection.model.id}` : `模型：${selection.model.id}`;
+        } else if (action === "thinking") {
           const level = session.cycleThinkingLevel();
           message = level === undefined ? "当前模型不支持思考等级" : `思考等级：${level}`;
         } else {
@@ -1378,6 +1395,7 @@ export class PiWorker {
     const controller = new AbortController();
     this.customControllers.add(controller);
     let lastClear: number | undefined;
+    let modelMenu: Promise<void> | undefined;
     const failure = (error: unknown) => this.send("extension_error", {
       sessionId: owner, operationId: context.operationId, extensionPath: "editor", event: "input", error: bounded(errorMessage(error), 2000)
     });
@@ -1387,9 +1405,13 @@ export class PiWorker {
           agentDir: this.agentDir, signal: controller.signal,
           terminalInput: this.terminalInput(owner), inputError: failure,
           actions: new Map<string, () => void | Promise<void>>([
-            ["app.thinking.cycle", () => this.cycleEditorConfiguration(owner, "thinking")],
-            ["app.model.cycleForward", () => this.cycleEditorConfiguration(owner, "forward")],
-            ["app.model.cycleBackward", () => this.cycleEditorConfiguration(owner, "backward")],
+            ["app.model.select", () => {
+              if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal).finally(() => { modelMenu = undefined; });
+              return modelMenu;
+            }],
+            ["app.thinking.cycle", () => this.configureFromEditor(owner, "thinking")],
+            ["app.model.cycleForward", () => this.configureFromEditor(owner, "forward")],
+            ["app.model.cycleBackward", () => this.configureFromEditor(owner, "backward")],
             ["app.clear", () => {
               const now = Date.now();
               if (lastClear !== undefined && now - lastClear < 500) throw new Error("终端退出尚未接入；会话继续运行");
@@ -1467,7 +1489,7 @@ export class PiWorker {
       } catch (error) {
         failure(error);
         this.emitOperationStatus("failed", context);
-      } finally { this.customControllers.delete(controller); }
+      } finally { controller.abort(); this.customControllers.delete(controller); }
     });
   }
 

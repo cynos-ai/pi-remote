@@ -26,6 +26,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 原生模型选择菜单
+
+基于 `93cf24e`，Ctrl+L / app.model.select 接入固定 SDK 的 ModelSelectorComponent；内部模块加载集中在 agent-pi，新模块不向公共协议暴露 SDK 对象。直接保留原生搜索、后台目录刷新、空结果、上下选择、作用域 Tab、取消及保存默认键，菜单使用既有固定文本主题与该 worker 的原生 TUI keybindings。菜单沿 custom.render/select/input 持久表单提供控制和回放，重复打开不创建第二个菜单。
+
+菜单占独立 configure Operation，不阻塞编辑器或活动 Run；选中后先关闭菜单表面，再在同一操作执行 setModel，model_select 表单仍可回答。普通选择 persist=false；原生保存默认键 persist=true，并等待 SettingsManager.flush。取消保留当前模型、草稿和执行状态；编辑器结束、替换或原生 Session 替换会中止尚未选择的菜单，旧响应拒绝处理。已选择并进入 SDK hook 的配置不因编辑器关闭而撤销。没有修改公共事件、schema 或手机代码。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：首轮生产构建与真实会话进程 20/20 通过（`test-results/model-menu-build.log`、`model-menu-sessions.log`）。新增用例验证运行中搜索、空结果、取消不停止模型/不清草稿、重复打开、重连画面回放、选择后的同 Operation 扩展表单、默认值只在显式保存时修改、自定义保存键、编辑器关闭及 Session 替换清理旧菜单。内部方法命名整理后的定向 SDK/editor/custom/terminal/runtime 回归 66/66（`model-menu-targeted.log`）。最终 `pnpm verify:S07` 为 14 passed / 2 failed（`model-menu-s07.log`、`s07/report.json`）：构建、命令合同、五类表单及 20 项真实会话进程、lint、全量 typecheck、文档均通过；失败仍为旧 live-commands / parity-tui-commands 源码身份失效。最终文档及差异格式检查通过，S07 保持 blocked，不把本地结果改写为整阶段通过。
+
+当前菜单和编辑器仍是独立虚拟表面，不宣称原生终端共享焦点；`/model` slash 解析、其他会话菜单、思考块显示和退出生命周期仍待适配。未读取本地模型凭据或调用付费模型，未运行真实 provider 目录刷新/作用域矩阵、交互式 TUI 或手机实机；合成模型进程测试不能替代这些验收，双端 JS 构建未重跑。
+
 ## 2026-09-20 编辑器模型与思考等级循环
 
 基于 `b233dc7`，接入 app.model.cycleForward/cycleBackward 与 app.thinking.cycle，直接使用固定 SDK 的 cycleModel/cycleThinkingLevel，不另写模型顺序或思考等级列表、不加空闲门槛。原生匹配保留默认 Linux Ctrl+P / Ctrl+Shift+P / Shift+Tab、用户 keybindings 和显式历史键优先级。只更新当前会话，persist 保持原生默认 false；已有全局配置不变。单模型或不支持思考等级时显示原因通知。

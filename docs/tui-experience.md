@@ -82,8 +82,10 @@ ctx.ui.onTerminalInput 已接入当前 Session 的 custom/editor 虚拟终端，
 
 控制表单新增“组合键”输入，支持 ctrl/alt/shift 与字符、方向/导航键及 F1–F12，例如 ctrl+k、ctrl+alt+j、shift+enter。无效键名提示后回到控件，不关闭组件或向模型发送文本。固定 SDK 0.85.1 的 matchesKey 对带修饰键的 F1–F12 恒返回 false；适配仍传递标准终端字节供原始监听/组件处理，但不声称它们能通过原生扩展快捷键匹配。
 
-CustomEditor 默认应用动作已接入 Esc、Ctrl+C 和 Ctrl+O，并沿用用户 keybindings 配置：Esc 先取消补全，再按当前阶段停止模型/Bash 或取消压缩/重试；模型停止时未消费文本恢复到编辑器且不自动重发。Ctrl+C 清草稿，不停止模型；Ctrl+O 切换既有工具展开状态。退出 Ctrl+D 和 500ms 内双 Ctrl+C 显示“终端退出尚未接入”，不终止服务。空草稿双 Esc 会话菜单、退出/挂起、模型选择菜单和其他会话动作仍待适配；压缩/重试热键真实路径及真机按键仍需验收，不能把当前子集当成完整应用热键已通过。
+CustomEditor 默认应用动作已接入 Esc、Ctrl+C 和 Ctrl+O，并沿用用户 keybindings 配置：Esc 先取消补全，再按当前阶段停止模型/Bash 或取消压缩/重试；模型停止时未消费文本恢复到编辑器且不自动重发。Ctrl+C 清草稿，不停止模型；Ctrl+O 切换既有工具展开状态。退出 Ctrl+D 和 500ms 内双 Ctrl+C 显示“终端退出尚未接入”，不终止服务。空草稿双 Esc 会话菜单、退出/挂起和其他会话动作仍待适配；压缩/重试热键真实路径及真机按键仍需验收，不能把当前子集当成完整应用热键已通过。
 
-模型循环现已接入原生 app.model.cycleForward/cycleBackward（Linux 默认 Ctrl+P / Ctrl+Shift+P），思考等级循环接入 app.thinking.cycle（默认 Shift+Tab）；用户 keybindings 和显式历史键优先级保留。支持运行中切换，配置同步到手机并由 SDK 写入当前会话历史，不改全局默认值，也不重启当前模型请求。只有一个可用模型或当前模型不支持思考等级时提示原因。配置 hook 的表单独立于编辑器控制表单和模型 Run，可正常作答/取消；模型选择菜单、思考块显示切换和会话菜单仍待适配。
+模型循环现已接入原生 app.model.cycleForward/cycleBackward（Linux 默认 Ctrl+P / Ctrl+Shift+P），思考等级循环接入 app.thinking.cycle（默认 Shift+Tab）；用户 keybindings 和显式历史键优先级保留。支持运行中切换，配置同步到手机并由 SDK 写入当前会话历史，不改全局默认值，也不重启当前模型请求。只有一个可用模型或当前模型不支持思考等级时提示原因。配置 hook 的表单独立于编辑器控制表单和模型 Run，可正常作答/取消；思考块显示切换和会话菜单仍待适配。
+
+CustomEditor 的 Ctrl+L（app.model.select，可重映射）现可打开原生模型菜单，沿现有文本画面和输入表单使用搜索、目录刷新、上下选择、作用域 Tab、Enter 选择及 Ctrl+S 保存默认值；具体键位以原生菜单提示和用户配置为准。普通选择只改当前会话，保存默认值才更新全局配置。Esc/表单取消保留编辑器草稿与当前模型，不停止执行；关闭编辑器或切换 Session 后旧菜单失效。菜单已选中时先收起画面，再展示 model_select 扩展表单。当前菜单和编辑器分属独立虚拟表面，不宣称共享终端焦点；内置 slash `/model` 解析入口仍未接入。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。
