@@ -1,9 +1,42 @@
-import { appendFile } from 'node:fs/promises';
+import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  pi.registerCommand('r16-surface', {
+    description: 'Native header/footer factories and footer data',
+    handler: async (args, ctx) => {
+      if (args.trim() === 'clear') { ctx.ui.setHeader(undefined); ctx.ui.setFooter(undefined); return; }
+      if (args.trim() === 'status') { ctx.ui.setStatus('surface', 'updated'); return; }
+      if (args.trim() === 'fail') { ctx.ui.setHeader(() => { throw new Error('surface factory failed'); }); return; }
+      const disposedPath = join(ctx.cwd, 'surface-disposed');
+      const refreshPath = join(ctx.cwd, 'surface-refresh');
+      ctx.ui.setStatus('surface', 'ready');
+      ctx.ui.setHeader((tui, theme) => {
+        let count = 0;
+        let expanded = false;
+        const timer = setInterval(async () => {
+          try {
+            const next = Number(await readFile(refreshPath, 'utf8'));
+            if (next !== count) { count = next; tui.requestRender(); }
+          } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        }, 50);
+        return {
+          render: width => [theme.fg('accent', `header:${width}:${count}:${expanded}`)],
+          invalidate() {}, setExpanded(value) { expanded = value; },
+          dispose() { clearInterval(timer); void appendFile(disposedPath, 'header\n'); }
+        };
+      });
+      ctx.ui.setFooter((tui, theme, data) => {
+        const unsubscribe = data.onBranchChange(() => tui.requestRender());
+        return {
+          render: width => [theme.fg('accent', `footer:${width}:${data.getGitBranch()}:${data.getExtensionStatuses().get('surface')}:${data.getAvailableProviderCount()}`)],
+          invalidate() {}, dispose() { unsubscribe(); void appendFile(disposedPath, 'footer\n'); }
+        };
+      });
+    }
+  });
   let overlayHandle;
   pi.registerCommand('r16-overlay-show', {
     description: 'Restore a pending native overlay',

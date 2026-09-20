@@ -40,6 +40,7 @@ export function renderTextComponent(component: Component): string[] {
 
 /** Non-focused native widgets rendered as plain text at an explicit 80-column viewport. */
 export class WidgetHost {
+  private readonly refreshers = new Map<string, () => void>();
   private readonly entries = new Map<string, { component?: Widget; active: boolean; queued: boolean; last?: string; failure: (error: unknown) => void }>();
 
   set(key: string, factory: WidgetFactory, publish: (lines: string[]) => void, failure: (error: unknown) => void): void {
@@ -62,6 +63,7 @@ export class WidgetHost {
     // Widgets have no keyboard focus; the native TUI supplies layout utilities,
     // while render requests project the widget, never writing terminal bytes to IPC.
     const tui = createTextTui(render);
+    this.refreshers.set(key, render);
     try {
       entry.component = factory(tui, nativeTextTheme());
       if (!entry.active) { entry.component.dispose?.(); return; }
@@ -74,8 +76,11 @@ export class WidgetHost {
     if (!entry) return;
     entry.active = false;
     this.entries.delete(key);
+    this.refreshers.delete(key);
     try { entry.component?.dispose?.(); } catch (error) { entry.failure(error); }
   }
+
+  refresh(key: string): void { this.refreshers.get(key)?.(); }
 
   dispose(): void {
     for (const key of this.entries.keys()) this.remove(key);

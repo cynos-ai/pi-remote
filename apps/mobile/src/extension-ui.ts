@@ -3,6 +3,8 @@ export interface ExtensionUiState {
   statuses: Record<string, string>;
   widgets: Record<string, string[]>;
   customFrames: Record<string, string[]>;
+  header: string[] | null;
+  footer: string[] | null;
   widgetPlacements: Record<string, "aboveEditor" | "belowEditor">;
   workingMessage: string;
   workingVisible: boolean;
@@ -17,7 +19,7 @@ export interface ExtensionUiState {
 }
 
 export const emptyExtensionUi = (): ExtensionUiState => ({
-  seq: 0, statuses: {}, widgets: {}, customFrames: {}, widgetPlacements: {}, workingMessage: "", workingVisible: true,
+  seq: 0, statuses: {}, widgets: {}, customFrames: {}, header: null, footer: null, widgetPlacements: {}, workingMessage: "", workingVisible: true,
   workingIndicator: null, hiddenThinkingLabel: "思考内容已隐藏", windowTitle: "",
   toolsExpanded: false, toolsExpansionSeq: 0, editorText: "", unsupported: null
 });
@@ -36,6 +38,15 @@ export function applyExtensionNotice(state: ExtensionUiState, notice: ExtensionN
   if (!Array.isArray(args)) return { ...next, unsupported: "扩展 UI 参数无法读取" };
   const [key, value] = args;
   switch (method) {
+    case "setHeader":
+    case "setFooter": {
+      const slot = method === "setHeader" ? "header" : "footer";
+      const failurePrefix = `扩展 ${slot} 渲染失败：`;
+      if (next.unsupported?.startsWith(failurePrefix)) next.unsupported = null;
+      next[slot] = Array.isArray(key) && key.every(line => typeof line === "string") ? [...key] : null;
+      if (key != null && next[slot] === null) next.unsupported = `${failurePrefix}${typeof key?.rendererError === "string" ? key.rendererError : "内容无法读取"}`;
+      break;
+    }
     case "custom.render":
       if (typeof key === "string") {
         next.customFrames = { ...state.customFrames };

@@ -3,10 +3,52 @@ import { test } from 'node:test';
 import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { RealProcessHarness, until } from './real-process-harness.mjs';
 
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
+
+test('native header/footer render, watch Git, replay and keep original Session ownership', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  execFileSync('git', ['init', '-q', '-b', 'surface-main', h.project]);
+  const receipt = await h.command('extension_command', { text: '/r16-surface' });
+  await h.workerPid(); await h.terminal(receipt.commandId);
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  const frame = (value, method) => value.notices.filter(n => n.details?.method === method).at(-1)?.details.args[0];
+  const first = await snapshot();
+  assert.deepEqual(frame(first, 'setHeader'), ['header:80:0:false']);
+  assert.match(frame(first, 'setFooter')[0], /^footer:80:surface-main:ready:\d+$/);
+  const change = await h.command('extension_command', { text: '/r16-surface status' });
+  await h.terminal(change.commandId);
+  execFileSync('git', ['-C', h.project, 'symbolic-ref', 'HEAD', 'refs/heads/surface-next']);
+  await until(async () => frame(await snapshot(), 'setFooter')?.[0]?.includes(':surface-next:updated:'), 'native footer branch update');
+  const replay = await h.connect();
+  assert.ok(replay.events().some(e => e.type === 'runtime.notice' && e.payload.details?.method === 'setFooter' && e.payload.details.args[0]?.[0]?.includes(':surface-next:updated:')));
+  assert.equal(h.provider.requests.length, 0);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  const failed = await h.command('extension_command', { text: '/r16-surface fail' });
+  await h.terminal(failed.commandId);
+  assert.deepEqual(frame(await snapshot(), 'setHeader'), { rendererError: 'surface factory failed' });
+  const clear = await h.command('extension_command', { text: '/r16-surface clear' });
+  await h.terminal(clear.commandId);
+  assert.equal(frame(await snapshot(), 'setHeader'), null);
+  assert.equal(frame(await snapshot(), 'setFooter'), null);
+  await until(async () => (await h.lines('surface-disposed')).length === 2, 'both surfaces disposed');
+  const reinstalled = await h.command('extension_command', { text: '/r16-surface' });
+  await h.terminal(reinstalled.commandId);
+  const sourceId = h.sessionId;
+  const replace = await h.command('extension_command', { text: '/r16-new' });
+  await h.terminal(replace.commandId);
+  h.sessionId = h.query('SELECT id FROM sessions WHERE id != ?', sourceId)[0].id;
+  await writeFile(join(h.project, 'surface-refresh'), '1');
+  const source = await until(async () => {
+    const value = await h.http('GET', `/v1/sessions/${sourceId}/snapshot`);
+    return frame(value, 'setHeader')?.[0] === 'header:80:1:false' ? value : null;
+  }, 'original surface async refresh after replacement');
+  assert.deepEqual(frame(source, 'setHeader'), ['header:80:1:false']);
+  assert.equal(frame(await snapshot(), 'setHeader'), undefined);
+});
 
 test('native overlay hides input, restores focus and replays its composited frame', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });

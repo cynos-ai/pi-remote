@@ -1485,6 +1485,7 @@ function ExecutionScreen({
       ))}
       {Object.entries(extensionUi.statuses).map(([key, value]) => <Text key={key} style={styles.infoText}>{key} · {value}</Text>)}
       {extensionUi.windowTitle ? <Text style={styles.infoText}>{extensionUi.windowTitle}</Text> : null}
+      {extensionUi.header != null ? <View style={styles.formCard} testID="extension-header"><Text style={styles.codeText}>{extensionUi.header.join("\n")}</Text></View> : null}
       <ExtensionWorkingRow ui={extensionUi} active={state?.session.activeRunId != null} />
       <NoticeBanner message={extensionUi.unsupported} />
       {lastCommandId ? <Text style={styles.commandReceipt}>最近收据 · {lastCommandId}</Text> : null}
@@ -1659,6 +1660,7 @@ function ExecutionScreen({
         </View>
       </View>
       <ExtensionWidgets ui={extensionUi} placement="belowEditor" />
+      {extensionUi.footer != null ? <View style={styles.formCard} testID="extension-footer"><Text style={styles.codeText}>{extensionUi.footer.join("\n")}</Text></View> : null}
     </View>
   );
 

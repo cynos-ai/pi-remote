@@ -266,6 +266,8 @@ heartbeat 每 5 秒；主失联 15 秒进入当前调用的停止流程。主端
 
 本节记录已落地的增量契约，验证范围见[修复记录](reviews/2026-09-15-code-review-fixes.md)。公共 protocolVersion 仍为 1；新增可选字段必须由更新后的严格 schema 识别，前后端一起发布。
 
+header/footer 复用 `extension_ui`：`{method:"setHeader"|"setFooter",args:[lines|null|{rendererError:string}]}`。例如 `{method:"setFooter",args:[["branch: main"]]}`。文本数组替换对应区域，null 恢复普通布局，rendererError 清除旧画面并显示错误；空数组是合法空画面。工厂、FooterDataProvider、Git watcher 和 dispose 回调不进入公共 DTO；无需迁移数据库。快照和 WSS 使用同一序号投影，重复通知不重复修改 UI。
+
 - Snapshot 增加 `notices`（旧记录缺省为空数组），每项为 `{seq,kind,message,details?}`。`runtime.notice.kind` 增加 `extension_ui`，details 为 `{method,args}`；标准状态、widget、工作提示、编辑器变更通过此事件保存和恢复。只支持终端函数渲染的能力明确显示差异，不返回伪成功。
 - widget 投影沿用 `setWidget`：args 为 `[key, lines | null, {placement?}?]`；省略 placement 等于 aboveEditor，belowEditor 表示输入区下方。工厂在 worker 渲染后只发送文本数组，失败发送 `[key,{rendererError:string},options?]`，手机清除该键旧内容并展示错误；null 删除 widget 及 placement。函数和 SDK 类型不进入公共协议，不新增数据库 schema；显示副本按既有通知持久化和重放。
 - custom 普通组件及 overlay 合成画面均使用 `extension_ui` 通知 `{method:"custom.render",args:[operationId,lines|null]}`，例如 `{method:"custom.render",args:["custom-operation",["当前选项：第二项"]]}`。只在同 Operation 的待答控件内展示，null 清除；重启后已取消的控件不能因旧画面重现。控件输入复用 select/input 与 respond：↑/↓/←/→、Enter、Esc、Tab、Backspace、Home/End、Page Up/Down 映射原生终端序列，输入文本原样交给组件、不隐含 Enter。每次按键消耗一个 interactionId；同幂等键重试不重复送入，新键回答已关闭控件被拒绝。无需新增核心事件、Interaction kind 或数据库迁移。

@@ -10,6 +10,8 @@ custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异�
 
 每个 custom 使用独立 80×24 虚拟 TUI。overlay 合成、onHandle、隐藏/恢复及焦点输入由原生 TuiMainScreen 实现；输入经过原生 addInputListener 和当前焦点组件，不直接绕过路由调用根组件。overlayOptions 回调按固定 SDK 在安装时求值一次，普通 custom 忽略 overlay 配置。应用级 onTerminalInput 和跨实例共享焦点仍未接入。
 
+header/footer 为无焦点组件，工厂及 FooterDataProvider 留在 worker，以安装时 Session 为归属。异步刷新若原 Operation 已关闭，创建同 Session 的新 Operation；不能沿用后来目标会话的归属。替换/清除销毁旧组件，worker 退出清理 provider 的 Git watcher。footer 状态数据来自 setStatus，可用 provider 数量按原生 scopedModels 或 available snapshot 计算，不为渲染额外发起模型请求。
+
 会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
 
 Run 只记录实际 prompt / compact 生命周期。每个 Run 有唯一 operationId、source（command / extension / runtime）及可空 commandId。commandId 是外部请求的因果来源：一次扩展命令可产生多个顺序 Run，后台扩展也可没有手机请求。不得伪造设备、HTTP 命令或模型 Run 来凑表约束。同 Session 最多一个活动模型 Run，独立 Bash / 扩展内容不占此槽。

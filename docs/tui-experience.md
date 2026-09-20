@@ -62,7 +62,9 @@ S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制�
 
 widget 工厂现在由固定版本 `pi-tui@0.85.1` 的 `TuiMainScreen` 对象及 SDK dark 主题承载，在 80 列视口调用原生组件 `render()`，向手机发布去除 ANSI 控制序列后的文本。`requestRender()` 支持异步刷新、相同内容去重；同名替换、移除和 worker 退出调用 dispose，过期刷新不再覆盖新内容。编辑器上下 placement 对文本及工厂 widget 都生效。异步刷新在原 Operation 已终态时创建归属原 Session 的独立 Operation。
 
-这属于无焦点文本 widget 适配；颜色、自定义主题、终端图片、动态视口、overlay、header/footer/editor 工厂仍待完成。终端图片和渲染异常显式报告，不能用上次成功内容冒充新结果。宿主不启动本地终端或占用 worker 的 stdin/stdout，组件输出不会混入 IPC。
+这属于无焦点文本 widget 适配；颜色、自定义主题、终端图片、动态视口及 editor 工厂仍待完成。终端图片和渲染异常显式报告，不能用上次成功内容冒充新结果。宿主不启动本地终端或占用 worker 的 stdin/stdout，组件输出不会混入 IPC。
+
+`setHeader` / `setFooter` 工厂复用 80 列文本宿主，手机分别在会话内容顶部和输入区下方显示；undefined 清除扩展画面并恢复普通布局。footer 使用原生 FooterDataProvider，提供真实工作目录的 Git 分支、分支变化订阅、扩展状态和当前可用 provider 数量。状态变更刷新画面；header 的 setExpanded 跟随扩展工具展开设置。替换、清除时销毁组件，worker 退出再清理 Git watcher；异步刷新归属安装时 Session，不转移到后来切换的 Session。渲染失败清除旧画面并提示错误，原始工厂不传到手机。编辑器输入、提交、自动补全和快捷键仍需单独适配，不把 header/footer 文本显示当成编辑器支持。
 
 非 overlay 的 `custom()` 已接入根组件 handleInput 与 done 回调：使用同一 80 列文本宿主及当前 agentDir 的原生 KeybindingsManager，每个实例有独立子 Operation、画面及控制表单。手机方向键等按钮发送终端序列，也可输入文本；画面随 requestRender 刷新。Esc 由组件自行解释，取消文本输入返回控制面板，用户明确取消控制面板返回 undefined 并销毁组件。done 的原始对象留在 worker 返回给扩展，不做 JSON 往返；同步/异步工厂和异步 done 均可结束，迟到工厂只销毁、不重开控件。
 

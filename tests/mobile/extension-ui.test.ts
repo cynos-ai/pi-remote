@@ -4,6 +4,23 @@ import { createInitialState, toSnapshot, snapshotSchema } from "../../packages/p
 import { stateFromSnapshot } from "../../apps/mobile/src/session-model";
 
 describe("R10 extension UI", () => {
+  it("replays header/footer, clears failed frames and restores the default layout", () => {
+    const notices = [
+      { seq: 1, kind: "extension_ui", details: { method: "setHeader", args: [["heading"]] } },
+      { seq: 2, kind: "extension_ui", details: { method: "setFooter", args: [["branch:main"]] } }
+    ];
+    const ui = notices.reduce(applyExtensionNotice, emptyExtensionUi());
+    expect(ui.header).toEqual(["heading"]);
+    expect(ui.footer).toEqual(["branch:main"]);
+    expect(notices.reduce(applyExtensionNotice, ui)).toEqual(ui);
+    const failed = applyExtensionNotice(ui, { seq: 3, kind: "extension_ui", details: { method: "setFooter", args: [{ rendererError: "broken" }] } });
+    expect(failed.footer).toBeNull();
+    expect(failed.header).toEqual(["heading"]);
+    expect(failed.unsupported).toContain("broken");
+    const cleared = applyExtensionNotice(failed, { seq: 4, kind: "extension_ui", details: { method: "setFooter", args: [null] } });
+    expect(cleared.footer).toBeNull();
+    expect(cleared.unsupported).toBeNull();
+  });
   it("replays custom frames independently of widgets and closes only the owning frame", () => {
     const notice = (seq: number, owner: string, lines: string[] | null) => ({ seq, kind: "extension_ui", message: "custom.render", details: { method: "custom.render", args: [owner, lines] } });
     const source = createInitialState("session");

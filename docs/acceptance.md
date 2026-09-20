@@ -4,6 +4,8 @@
 
 ## 环境与证据
 
+header/footer 工厂补充 AT21 / AT22 / AT32：原生工厂及主题、真实 Git 分支/订阅、状态和 provider 数量、header 展开、异步刷新、同名替换/清除/dispose、工厂及渲染异常。真实进程验证 HTTPS/WSS 持久化重放、无模型 Run、清除恢复默认布局及会话替换后的源归属。手机 reducer 检查异常清除和幂等回放；JS 构建不替代真机显示验收。
+
 - contract：不依赖模型的协议与 reducer 测试。
 - linux：真实 Linux 文件、SQLite、Node 子进程及网络客户端。
 - live：固定 pi SDK 与实际可用模型，临时工作区，受限请求预算。

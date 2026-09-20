@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 header/footer 工厂与原生 footer 数据
+
+基于 `b6c630c`，接入 header/footer 工厂的 80 列文本渲染、异步刷新、去重、替换/清除/dispose 和错误清除。footer 使用 SDK 0.85.1 的实际 FooterDataProvider：Git 分支及订阅、扩展状态、按 scopedModels / available snapshot 计算的 provider 数量；header 的 setExpanded 跟随展开设置。SDK 内部模块引用仅在 agent-pi，升级版本需重验。手机独立显示顶部和输入区下方画面，复用既有 runtime.notice 持久化及快照/WSS 重放，无新增公共类型或数据库迁移。
+
+每个 Session 保留独立 surface 数据，异步更新在安装时源 Session 创建 Operation，避免原生会话替换后误写目标。替换/清除调用组件 dispose，worker 退出清理全部组件与 Git watcher。定向测试在真实临时 Git 仓库检查分支变化通知、状态/provider 数量、展开更新、迟到刷新及工厂/render/dispose 异常；手机验证重放、清除及失败时移除旧内容。首轮 12/12 与全量 typecheck 通过，日志 `test-results/surface-targeted.log`、`surface-typecheck.log`。
+
+首次真实进程测试 13/14（`surface-sessions.log`），失败为夹具以扩展命令闭包触发旧画面刷新，但原生会话替换重新加载扩展，闭包已重置。已改用原组件定时读取临时测试文件触发自身刷新，仍断言源画面更新、目标无画面，不绕过原生扩展重新加载或放宽归属断言。
+
+最终 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1 验证：SDK/widget/surface/mobile/runtime 定向 44/44（`surface-targeted-final.log`）；`pnpm verify:S07` 为 14 passed / 2 failed（`surface-s07.log`、`s07/report.json`），构建、合同、真实表单和 14 项会话进程测试、lint/typecheck/docs 通过，失败仅为旧 live-commands / parity-tui-commands 身份失效。`pnpm verify:S10` 为 17 passed / 2 not_run（`surface-s10.log`、`s10/report.json`），移动端合同及 Android/iOS JS 构建通过，真机未运行。保留原始失败日志和各报告源码身份，不将整个阶段改写为 passed。最终文档检查和 diff 格式检查通过。
+
+本轮只完成 header/footer 的无焦点文本适配；editor 工厂还需输入、提交、自动补全及快捷键契约，未把静态显示当成交互支持。未运行付费模型、本地交互式 TUI 或 Android/iOS 真机验收。
+
 ## 2026-09-20 custom overlay 与原生焦点路由
 
 基于已推送的 `389ebe1`，custom 改用独立 80×24 虚拟 Terminal 和原生 TuiMainScreen。普通组件及 overlay 均经原生输入监听和当前焦点接收按键；保留 overlay 合成、几何、onHandle、隐藏/恢复、nonCapturing、永久移除及焦点切换。overlayOptions 函数按 SDK 0.85.1 实际实现在安装时求值一次，缺省配置保留组件 width 回退。终端输出为空实现，不占用 worker stdin/stdout；画面复用 custom.render，未改变公共协议类型或数据库 schema。

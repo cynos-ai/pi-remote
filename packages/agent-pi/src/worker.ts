@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventBacklog } from "./event-backlog.js";
 import { WidgetHost, type WidgetFactory } from "./widget-host.js";
+import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
 import { fileURLToPath } from "node:url";
@@ -376,6 +377,7 @@ export class PiWorker {
   private editorText = "";
   private toolsExpanded = false;
   private readonly widgetHost = new WidgetHost();
+  private readonly surfaceHosts = new Map<string, SurfaceHost>();
   private agentDir?: string;
   private readonly customControllers = new Set<AbortController>();
   private currentSessionId: string;
@@ -512,6 +514,8 @@ export class PiWorker {
   dispose(): void {
     for (const controller of this.customControllers) controller.abort();
     this.widgetHost.dispose();
+    for (const host of this.surfaceHosts.values()) host.dispose();
+    this.surfaceHosts.clear();
     this.cancelPendingInteractions("worker_disposed");
     clearInterval(this.heartbeatTimer);
     this.handle?.dispose();
@@ -1081,6 +1085,8 @@ export class PiWorker {
     }
     if (typeof runtime.getModels !== "function" || typeof this.handle.session.getAvailableThinkingLevels !== "function") return;
     const models = runtime.getModels();
+    const surface = this.surfaceHosts.get(this.currentSessionId);
+    if (surface) this.updateSurfaceData(surface);
     const session = this.handle.session;
     const availableThinkingLevels = session.getAvailableThinkingLevels();
     const items: ModelInfo[] = models.map((model) => ({
@@ -1289,7 +1295,37 @@ export class PiWorker {
     this.acceptControl(payload.commandId);
   }
 
+  private updateSurfaceData(host: SurfaceHost): void {
+    const session = this.handle?.session;
+    const models = session?.scopedModels?.length ? session.scopedModels.map(item => item.model)
+      : this.handle?.services.modelRuntime.getAvailableSnapshot?.() ?? [];
+    host.update(new Set(models.map(model => model.provider)).size, this.toolsExpanded);
+  }
+
   private createUiContext(): ExtensionUIContext {
+    const owner = () => {
+      const context = this.operationContext();
+      return context ? this.operationSessions.get(context.operationId) ?? this.currentSessionId : this.currentSessionId;
+    };
+    const surfaces = () => {
+      const sessionId = owner();
+      let host = this.surfaceHosts.get(sessionId);
+      if (!host) {
+        host = new SurfaceHost(this.handle?.services.cwd ?? process.cwd());
+        this.surfaceHosts.set(sessionId, host);
+      }
+      this.updateSurfaceData(host);
+      return host;
+    };
+    const setSurface = (method: SurfaceMethod, factory: Parameters<ExtensionUIContext["setFooter"]>[0]) => {
+      const parent = this.operationContext();
+      const sessionId = owner();
+      surfaces().set(method, factory, value => {
+        const context = parent && !this.closedOperations.has(parent.operationId) ? parent : this.createStandaloneOperation(sessionId);
+        this.uiContextStorage.run(context, () => this.emitUi(method, [value]));
+        if (context !== parent) { this.standaloneOperations.delete(context.operationId); this.emitOperationStatus("completed", context); }
+      });
+    };
     const request = (
       kind: PendingInteraction["kind"],
       title: string,
@@ -1331,7 +1367,7 @@ export class PiWorker {
         });
       },
       onTerminalInput: () => () => undefined,
-      setStatus: (...args: unknown[]) => this.emitUi("setStatus", args),
+      setStatus: (key: string, text: string | undefined) => { surfaces().setStatus(key, text); this.emitUi("setStatus", [key, text]); },
       setWorkingMessage: (...args: unknown[]) => this.emitUi("setWorkingMessage", args),
       setWorkingVisible: (...args: unknown[]) => this.emitUi("setWorkingVisible", args),
       setWorkingIndicator: (...args: unknown[]) => this.emitUi("setWorkingIndicator", args),
@@ -1351,8 +1387,8 @@ export class PiWorker {
           this.widgetHost.set(identity, content, lines => publish(argsFor(lines)), error => publish(argsFor({ rendererError: errorMessage(error) })));
         } else { this.widgetHost.remove(identity); publish(argsFor(content)); }
       },
-      setFooter: (...args: unknown[]) => this.emitUi("setFooter", args),
-      setHeader: (...args: unknown[]) => this.emitUi("setHeader", args),
+      setFooter: (factory: Parameters<ExtensionUIContext["setFooter"]>[0]) => setSurface("setFooter", factory),
+      setHeader: (factory: Parameters<ExtensionUIContext["setHeader"]>[0]) => setSurface("setHeader", factory),
       setTitle: (...args: unknown[]) => this.emitUi("setTitle", args),
       custom: async <T>(factory: Parameters<ExtensionUIContext["custom"]>[0], options?: Parameters<ExtensionUIContext["custom"]>[1]): Promise<T> => {
         const context = this.createStandaloneOperation();
@@ -1387,7 +1423,7 @@ export class PiWorker {
       getTheme: () => undefined,
       setTheme: () => ({ success: false, error: "themes are not available in the RPC bridge" }),
       getToolsExpanded: () => this.toolsExpanded,
-      setToolsExpanded: (expanded: boolean) => { this.toolsExpanded = expanded; this.emitUi("setToolsExpanded", [expanded]); }
+      setToolsExpanded: (expanded: boolean) => { this.toolsExpanded = expanded; surfaces(); this.emitUi("setToolsExpanded", [expanded]); }
     } as unknown as ExtensionUIContext;
   }
 
@@ -1578,6 +1614,8 @@ export class PiWorker {
     } finally {
       this.stopped = true;
       this.widgetHost.dispose();
+      for (const host of this.surfaceHosts.values()) host.dispose();
+      this.surfaceHosts.clear();
       clearInterval(this.heartbeatTimer);
       this.mappingAckRejecter?.(new Error(reason));
       this.mappingAckResolver = undefined;
