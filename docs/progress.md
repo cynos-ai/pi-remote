@@ -26,6 +26,20 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 非 overlay custom 输入与完成回调
+
+基于 `3dac602`，接入 custom 根组件的原生 TUI/主题/KeybindingsManager、80 列文本画面、requestRender、handleInput 和 done 原值返回。手机在匹配 Operation 的控制卡片中显示画面，使用现有 select/input/respond 发送方向键、Enter/Esc 等或文本；取消文本输入回到控制面板，明确取消控制面板关闭组件并返回 undefined，Esc 保留扩展自己的处理。没有新核心事件、Interaction kind 或数据库迁移，custom.render 沿用持久化 notice，原始组件和回调结果留在 worker。
+
+每个实例有独立子 Operation，跨连续按键保持存活，不因单个表单完成而提前终态；同步/异步工厂、同步/异步 done、取消慢工厂、迟到组件销毁、输入/渲染异常和 worker 退出均清理生命周期。画面不单独作为普通 widget 展示，避免失效旧交互留下可操作的假象。协议、设计、数据模型、开发计划、原生契约和验收说明同步更新。
+
+跨会话验证首轮失败来自夹具在 custom 返回后读取已失效的原生 ctx.cwd；改为等待前保存测试记录路径，保留原值返回、dispose 和源/目标隔离断言，不绕过 SDK 失效检查。排查还发现实际 extension_error 诊断此前落到 worker 当前目标 Session；修正为传递原 Operation 的 Session，主服务验证 ownedSessionIds 后持久化。真实测试进一步在返回后主动抛错，验证错误只写源会话。首轮测试 this.focused 的 TypeScript 类型错误亦已修正；失败日志保留，不把 Command completed 等同于扩展成功。
+
+补跑 runtime 回归还发现既有握手夹具只确认 mapping、不确认新增初始化 UI 事件批次而超时；已按真实主服务协议确认 batch_ack，继续断言 mapping/ready 顺序和默认展开通知，不修改超时或削弱断言。最终定向 runtime/SDK/custom/widget/mobile 57/57 通过，日志 `test-results/custom-targeted-verified.log`。首轮类型错误、原生 stale ctx 夹具及未 ACK 超时日志分别保留在 `custom-s07.log`、`custom-sessions-final.log`、`custom-routing-targeted-final.log`，没有改写为成功。
+
+最终验证环境为 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。最终构建的完整 `node scripts/test-real-process-e2e.mjs --no-build` 为 26/26（`test-results/custom-e2e-verified.log`），包含成功回调、同键重复响应、源/目标画面及错误隔离。最终 `pnpm verify:S07` 为 14 passed / 2 failed（`custom-s07-verified.log`、`s07/report.json`）；构建、合同、真实进程、lint、全量 typecheck 和文档通过，失败仍是旧 live-commands / parity-tui-commands 证据未匹配当前源码。`pnpm verify:S10` 执行为 17 passed / 2 not_run（`custom-s10.log`、`s10/report.json`），双端 JS 构建及手机检查通过，设备未运行；最后服务端诊断路由修复另经最终 S07、57 项定向与完整进程验证。报告保留各自执行时源码身份，不改写旧证据。`python3 scripts/check_docs.py` 与 `git diff --check` 通过。
+
+当前仍是非 overlay 根组件的文本/按键子集。overlay/onHandle、全局输入监听与完整焦点路由、任意组合键、颜色/图片/动态视口及 Android/iOS 真机触控验收未完成。本轮只调用本地合成 provider，不读取或调用付费模型凭据。
+
 ## 2026-09-20 原生 widget 工厂文本适配
 
 基于 `6ab762a`，新增 `WidgetHost`，固定直接依赖 pi-tui 0.85.1，与 SDK 保持同版。用实际 TuiMainScreen 和 SDK dark 主题执行 widget 工厂，以 80 列渲染文本；通过现有 setWidget 通知持久化、快照和 WSS 重放。手机按 aboveEditor/belowEditor 显示，旧缓存默认 aboveEditor。未新增公共 SDK 类型、数据库表或迁移，协议文档补充现有通知的 placement 和 rendererError 形状。

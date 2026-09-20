@@ -8,8 +8,32 @@ const themes = await import(new URL("./modes/interactive/theme/theme.js", import
   getThemeByName(name: string): ExtensionUIContext["theme"] | undefined;
 };
 
-type Widget = Component & { dispose?(): void };
+export type Widget = Component & { dispose?(): void };
 export type WidgetFactory = (tui: TUI, theme: ExtensionUIContext["theme"]) => Widget;
+
+export function createTextTui(render: () => void): TuiMainScreen {
+  const terminal: Terminal = {
+    columns: 80, rows: 24, kittyProtocolActive: false,
+    start: () => {}, stop: () => {}, drainInput: async () => {}, write: () => {},
+    moveBy: () => {}, hideCursor: () => {}, showCursor: () => {}, clearLine: () => {},
+    clearFromCursor: () => {}, clearScreen: () => {}, setTitle: () => {}, setProgress: () => {}
+  };
+  const tui = new TuiMainScreen(terminal);
+  tui.requestRender = render;
+  return tui;
+}
+
+export function nativeTextTheme(): ExtensionUIContext["theme"] {
+  const theme = themes.getThemeByName("dark");
+  if (!theme) throw new Error("Pinned SDK dark theme is unavailable");
+  return theme;
+}
+
+export function renderTextComponent(component: Component): string[] {
+  const raw = component.render(80);
+  if (raw.some(line => line.includes("\u001b_G") || line.includes("\u001b]1337;File="))) throw new Error("Terminal image widgets need a mobile image adapter");
+  return raw.map(line => stripVTControlCharacters(line));
+}
 
 /** Non-focused native widgets rendered as plain text at an explicit 80-column viewport. */
 export class WidgetHost {
@@ -26,28 +50,17 @@ export class WidgetHost {
         entry.queued = false;
         if (!entry.active || !entry.component) return;
         try {
-          const raw = entry.component.render(80);
-          if (raw.some(line => line.includes("\u001b_G") || line.includes("\u001b]1337;File="))) throw new Error("Terminal image widgets need a mobile image adapter");
-          const lines = raw.map(line => stripVTControlCharacters(line));
+          const lines = renderTextComponent(entry.component);
           const encoded = JSON.stringify(lines);
           if (entry.active && encoded !== entry.last) { entry.last = encoded; publish(lines); }
         } catch (error) { entry.last = undefined; failure(error); }
       });
     };
-    const terminal: Terminal = {
-      columns: 80, rows: 24, kittyProtocolActive: false,
-      start: () => {}, stop: () => {}, drainInput: async () => {}, write: () => {},
-      moveBy: () => {}, hideCursor: () => {}, showCursor: () => {}, clearLine: () => {},
-      clearFromCursor: () => {}, clearScreen: () => {}, setTitle: () => {}, setProgress: () => {}
-    };
-    const tui = new TuiMainScreen(terminal);
     // Widgets have no keyboard focus; the native TUI supplies layout utilities,
     // while render requests project the widget, never writing terminal bytes to IPC.
-    tui.requestRender = render;
+    const tui = createTextTui(render);
     try {
-      const theme = themes.getThemeByName("dark");
-      if (!theme) throw new Error("Pinned SDK dark theme is unavailable");
-      entry.component = factory(tui, theme);
+      entry.component = factory(tui, nativeTextTheme());
       if (!entry.active) { entry.component.dispose?.(); return; }
       render();
     } catch (error) { this.remove(key); failure(error); }

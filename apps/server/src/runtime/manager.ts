@@ -1584,7 +1584,9 @@ export class WorkerManager {
     worker: ManagedWorker,
     payload: Extract<WorkerOutboundMessage, { type: "extension_error" }>["payload"]
   ): Promise<void> {
-    const state = loadReducerState(this.database, worker.sessionId);
+    const sessionId = payload.sessionId ?? worker.sessionId;
+    if (!worker.ownedSessionIds.has(sessionId)) throw new WorkerManagerError("WORKER_PROTOCOL_ERROR", "extension error targets an unowned Session");
+    const state = loadReducerState(this.database, sessionId);
     const notice = event(state, state.lastSeq + 1, null, payload.operationId ?? null, "runtime.notice", {
       kind: "generic",
       message: `extension ${payload.event} failed: ${payload.error}`.slice(0, 32768),
@@ -1596,7 +1598,7 @@ export class WorkerManager {
     }, this.now());
     withTransaction(this.database, () => {
       this.eventStore.appendBatchWithinTransaction({
-        sessionId: worker.sessionId,
+        sessionId,
         workerEpoch: worker.epoch,
         batchNo: worker.managerBatchNo++,
         events: [notice]

@@ -788,6 +788,8 @@ export default function(pi) { pi.on('session_start', async (_event, ctx) => {
     await manager.sendControl(SESSION_A, "respond", { operationId: "old-form-operation", interactionId: "old-form", response: { confirmed: true } }, { waitForReady: false });
     expect(seen.find(({ message }) => message.type === "respond")?.child).toBe(original);
     expect(original.killed).toBe(false);
+    outbound(original, "extension_error", { sessionId: SESSION_A, operationId: "old-form-operation", extensionPath: "synthetic", event: "command", error: "source callback error" });
+    await vi.waitFor(() => expect(loadReducerState(fixture.database, SESSION_A).notices.some(notice => notice.message.includes("source callback error"))).toBe(true));
   });
 
   it("does not overwrite heartbeat-reported native activity with an empty model lease set during reap", async () => {
@@ -989,6 +991,9 @@ describe("S06 PiWorker ACK boundary", () => {
     const output = new PassThrough();
     const lines: string[] = [];
     let pending = "";
+    let mappingAcknowledged = false;
+    let ending = false;
+    const acknowledgedBatches = new Set<number>();
     output.on("data", (chunk: Buffer | string) => {
       pending += typeof chunk === "string" ? chunk : chunk.toString("utf8");
       let newline = pending.indexOf("\n");
@@ -999,13 +1004,24 @@ describe("S06 PiWorker ACK boundary", () => {
       }
       const mapping = lines.map((line) => JSON.parse(line) as WorkerOutboundMessage)
         .find((message) => message.type === "session_mapping");
-      if (mapping) {
+      if (mapping && !mappingAcknowledged) {
+        mappingAcknowledged = true;
         input.write(`${JSON.stringify(makeIpcEnvelope(SESSION_A, "process-epoch", "session_mapping_ack", {
           piSessionId: "pi-process-session",
           piSessionFile: "/tmp/process-session.jsonl"
         }))}\n`);
       }
-      if (lines.some((line) => (JSON.parse(line) as WorkerOutboundMessage).type === "ready")) input.end();
+      for (const line of lines) {
+        const message = JSON.parse(line) as WorkerOutboundMessage;
+        if (message.type === "event_batch" && !acknowledgedBatches.has(message.payload.batchNo)) {
+          acknowledgedBatches.add(message.payload.batchNo);
+          input.write(`${JSON.stringify(makeIpcEnvelope(SESSION_A, "process-epoch", "batch_ack", { batchNo: message.payload.batchNo }))}\n`);
+        }
+      }
+      if (!ending && lines.some((line) => (JSON.parse(line) as WorkerOutboundMessage).type === "ready")) {
+        ending = true;
+        setImmediate(() => input.end());
+      }
     });
     const handle = {
       session: {
@@ -1041,10 +1057,13 @@ describe("S06 PiWorker ACK boundary", () => {
       sessionDir: "/tmp/sessions"
     }))}\n`);
     await expect(running).resolves.toBeUndefined();
-    expect(lines.map((line) => JSON.parse(line) as WorkerOutboundMessage).map((message) => message.type)).toEqual([
+    const messages = lines.map((line) => JSON.parse(line) as WorkerOutboundMessage);
+    expect(messages.filter(message => message.type !== "event_batch").map(message => message.type)).toEqual([
       "session_mapping",
       "ready"
     ]);
+    expect(messages.filter(message => message.type === "event_batch").flatMap(message => message.payload.events))
+      .toContainEqual(expect.objectContaining({ type: "runtime.notice", payload: expect.objectContaining({ details: { method: "setToolsExpanded", args: [false] } }) }));
   });
 
   it("does not deadlock mapping ACK and ACKs event batches after emitting SDK events", async () => {

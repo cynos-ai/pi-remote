@@ -143,6 +143,7 @@
 3. stop / ctx.abort 先捕获并 clearQueue，再 abort；完整未消费输入变可取回草稿，不靠返回字符串猜附件或去重。测试迟到旧输入、停止窗口 crash 与 unknown。compact 按 S02 的原生队列行为等待旧执行实际结束后创建压缩 Run，不额外 clearQueue，不预设旧 Run 必然 aborted。
 4. initialize / configure / run / bash / extension 各自支持四类表单、CAS、取消、到期及重连。setThinkingLevel 返回后异步 hook 的子 Operation 继续有效；Run 结束不误关独立表单。操作锁不跨 UI 等待，worker 退出只关闭失效回调。
 5. 实现原生资源与 UI 适配、无 Run custom / 用户 Bash / user_bash hook 及 Session 级 abortBash；延迟 custom 交付保持独立 Operation。自主扩展可无 Command，一条命令可顺序产生多个 Run；GET command 返回完整 runs 列表，跨 Session 因果关联只限同 owner。接通 S06 的原生 new / switch / fork / import 回调及后续执行，源时间线不改绑。其他附件 / 导出等按 S02 核实 API 补齐 DTO，不用任意方法反射。
+6. custom UI 与 custom 消息分别验收：非 overlay 根组件通过现有标准表单接收按键/文本，done 原值留在 worker；覆盖连续输入、同键重试、旧控件失效、异步工厂/完成、用户取消和退出清理。手机以匹配 Operation 的待答控件承载画面，overlay/组合键/完整焦点路由后续单独适配。
 
 **验证**：`pnpm verify:S07`、`pnpm test:live -- --suite commands` 和 `pnpm test:tui-parity -- --target commands`；AT04、AT05、AT11、AT14、AT15、AT16 及 AT32 控制子集。运行时 steer、切模型 / 等级、扩展命令与 targeted abort；旧 runId 不得停新任务。覆盖旧队列暂停、新 prompt 可用但不恢复旧项、取消最后一项变 ready、过期版本及重启。并发重复 prompt / follow_up / respond 同收据且仅生效一次，复用 S05 竞态 harness。压缩的先停止 / 保留上下文、默认值显式持久化分别验证。session_start / model_select 的表单真正等待、回答后完成；另测 hook 抛错后实际配置校准。
 

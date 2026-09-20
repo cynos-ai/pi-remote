@@ -4,6 +4,15 @@ import { createInitialState, toSnapshot, snapshotSchema } from "../../packages/p
 import { stateFromSnapshot } from "../../apps/mobile/src/session-model";
 
 describe("R10 extension UI", () => {
+  it("replays custom frames independently of widgets and closes only the owning frame", () => {
+    const notice = (seq: number, owner: string, lines: string[] | null) => ({ seq, kind: "extension_ui", message: "custom.render", details: { method: "custom.render", args: [owner, lines] } });
+    const source = createInitialState("session");
+    source.notices = [notice(1, "first", ["one"]), notice(2, "second", ["two"]), notice(3, "first", null)];
+    const ui = snapshotSchema.parse(toSnapshot(source)).notices.reduce(applyExtensionNotice, emptyExtensionUi());
+    expect(ui.customFrames).toEqual({ second: ["two"] });
+    expect(ui.widgets).toEqual({});
+    expect(source.notices.reduce(applyExtensionNotice, ui)).toEqual(ui);
+  });
   it("preserves widget placement and clears stale content on renderer failure", () => {
     const set = (state: ReturnType<typeof emptyExtensionUi>, seq: number, args: unknown[]) => applyExtensionNotice(state, { seq, kind: "extension_ui", details: { method: "setWidget", args } });
     const below = set(emptyExtensionUi(), 1, ["native", ["rendered"], { placement: "belowEditor" }]);

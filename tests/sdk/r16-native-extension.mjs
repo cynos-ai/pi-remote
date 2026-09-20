@@ -4,6 +4,33 @@ import { join } from 'node:path';
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  pi.registerCommand('r16-custom', {
+    description: 'Custom keyboard component returns its own done value',
+    handler: async (_args, ctx) => {
+      // Native ctx getters become stale on replacement. Capture the fixture's
+      // output destination before awaiting UI; do not reuse the old ctx later.
+      const resultPath = join(ctx.cwd, 'custom-results');
+      let disposed = false;
+      const result = await ctx.ui.custom((tui, theme, _keys, done) => {
+        let down = 0;
+        let text = '';
+        return {
+          render: () => [theme.fg('accent', `custom:${down}:${text}`)],
+          invalidate() {},
+          handleInput(data) {
+            if (data === '\u001b[B') down++;
+            else if (data === '\r') done({ down, text });
+            else if (data === '\u001b') done({ escaped: true });
+            else text += data;
+            tui.requestRender();
+          },
+          dispose() { disposed = true; }
+        };
+      });
+      await appendFile(resultPath, JSON.stringify({ result: result ?? null, disposed }) + '\n');
+      if (_args.trim() === 'error') throw new Error('custom source callback failure');
+    }
+  });
   pi.registerCommand('r16-widget', {
     description: 'Native widget factory with delayed refresh and disposal',
     handler: async (args, ctx) => {

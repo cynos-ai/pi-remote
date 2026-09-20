@@ -955,10 +955,12 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
 
 function InteractionCard({
   interaction,
+  customLines,
   busy,
   onRespond
 }: {
   interaction: InteractionProjection;
+  customLines?: string[];
   busy: boolean;
   onRespond: (interaction: InteractionProjection, response: InteractionResponse) => Promise<void>;
 }) {
@@ -977,6 +979,7 @@ function InteractionCard({
         {interactionOriginLabel(interaction.origin)} · {interactionKindLabel(interaction.kind)} · Operation {interaction.operationId}
       </Text>
       {interaction.message ? <Text style={styles.timelineText}>{interaction.message}</Text> : null}
+      {customLines ? <Text selectable style={styles.codeText}>{customLines.join("\n")}</Text> : null}
       {interaction.kind === "select" ? (
         <View style={styles.optionList}>
           {(interaction.options ?? []).map((option) => (
@@ -1597,6 +1600,7 @@ function ExecutionScreen({
       ) : null}
       {interactions.map((interaction) => (
         <InteractionCard
+          customLines={extensionUi.customFrames[interaction.operationId]}
           busy={actionBusy || respondingId === interaction.interactionId}
           interaction={interaction}
           key={interaction.interactionId}

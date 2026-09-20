@@ -190,6 +190,7 @@ pi JSONL 与业务数据库分别持久化。Session 显式保存 uninitialized 
 | 压缩 | compact、abortCompaction；沿用 compact 先 abort 的原生行为，正确区分被停止 Run 与压缩 Run |
 | 显示名 | setSessionName 与 session_info_changed 双向同步；记录来源、顺序、回声及恢复水位 |
 | 扩展交互 | bindExtensions(uiContext 等)；使用 operationId 将全阶段标准表单映射到手机，包括无 Run 的请求 |
+| custom UI 文本/按键适配 | 非 overlay 工厂保留在 worker，以独立子 Operation 的画面通知和连续 select/input 表单承载根组件输入、done 与取消；画面仅在对应待答控件内展示；不把自定义 UI 与 custom 消息或模型 Run 混淆 |
 | 完成 | agent_settled、prompt / compact Promise、最终 stopReason 与重试状态综合判断 |
 
 SDK 的 prompt preflight 接受、HTTP 命令接收、完整执行结束是不同边界。SDK / provider 的最终消息与工具结果校准显示。SDK 与 CLI RPC JSON 的类型不同，不能直接混用。

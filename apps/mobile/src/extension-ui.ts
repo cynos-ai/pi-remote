@@ -2,6 +2,7 @@ export interface ExtensionUiState {
   seq: number;
   statuses: Record<string, string>;
   widgets: Record<string, string[]>;
+  customFrames: Record<string, string[]>;
   widgetPlacements: Record<string, "aboveEditor" | "belowEditor">;
   workingMessage: string;
   workingVisible: boolean;
@@ -16,7 +17,7 @@ export interface ExtensionUiState {
 }
 
 export const emptyExtensionUi = (): ExtensionUiState => ({
-  seq: 0, statuses: {}, widgets: {}, widgetPlacements: {}, workingMessage: "", workingVisible: true,
+  seq: 0, statuses: {}, widgets: {}, customFrames: {}, widgetPlacements: {}, workingMessage: "", workingVisible: true,
   workingIndicator: null, hiddenThinkingLabel: "思考内容已隐藏", windowTitle: "",
   toolsExpanded: false, toolsExpansionSeq: 0, editorText: "", unsupported: null
 });
@@ -35,6 +36,13 @@ export function applyExtensionNotice(state: ExtensionUiState, notice: ExtensionN
   if (!Array.isArray(args)) return { ...next, unsupported: "扩展 UI 参数无法读取" };
   const [key, value] = args;
   switch (method) {
+    case "custom.render":
+      if (typeof key === "string") {
+        next.customFrames = { ...state.customFrames };
+        if (Array.isArray(value) && value.every(line => typeof line === "string")) next.customFrames[key] = [...value];
+        else delete next.customFrames[key];
+      }
+      break;
     case "setStatus":
       if (typeof key === "string") {
         if (typeof value === "string") next.statuses[key] = value;

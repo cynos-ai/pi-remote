@@ -8,6 +8,72 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('custom component keys/text survive reconnect, return native done results and cancel explicitly', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const receipt = await h.command('extension_command', { text: '/r16-custom' });
+  await h.workerPid();
+  let previous;
+  const next = () => until(async () => {
+    const snapshot = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+    return snapshot.pendingInteractions.find(item => item.interactionId !== previous);
+  }, 'next custom control form');
+  const answer = async (form, response, key = randomUUID()) => {
+    previous = form.interactionId;
+    const payload = { operationId: form.operationId, interactionId: form.interactionId, response };
+    const accepted = await h.command('respond', payload, key);
+    await h.terminal(accepted.commandId);
+    assert.equal((await h.command('respond', payload, key)).commandId, accepted.commandId);
+    await assert.rejects(h.command('respond', payload), /INTERACTION_CLOSED/);
+  };
+  const first = await next();
+  assert.equal(first.kind, 'select');
+  await answer(first, { value: '↓' });
+  const second = await next();
+  const replay = await h.connect();
+  assert.ok(replay.events().some(e => e.type === 'runtime.notice' && e.payload.details?.method === 'custom.render' && e.payload.details.args[1]?.[0] === 'custom:1:'));
+  replay.socket.terminate();
+  await answer(second, { value: '输入文本' });
+  const text = await next();
+  assert.equal(text.kind, 'input');
+  await answer(text, { value: 'phone中文' });
+  await answer(await next(), { value: 'Enter' });
+  await h.terminal(receipt.commandId);
+  assert.deepEqual(JSON.parse((await h.lines('custom-results'))[0]), { result: { down: 1, text: 'phone中文' }, disposed: true });
+  const cancelled = await h.command('extension_command', { text: '/r16-custom' });
+  await answer(await next(), { cancelled: true });
+  await h.terminal(cancelled.commandId);
+  assert.deepEqual(JSON.parse((await h.lines('custom-results'))[1]), { result: null, disposed: true });
+  const final = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  assert.equal(final.pendingInteractions.length, 0);
+  assert.equal(final.notices.filter(n => n.details?.method === 'custom.render').at(-1).details.args[1], null);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  assert.equal(h.provider.requests.length, 0);
+});
+
+test('pending custom controls keep source ownership across native session replacement', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const sourceId = h.sessionId;
+  const custom = await h.command('extension_command', { text: '/r16-custom error' });
+  await h.workerPid();
+  const form = await until(async () => (await h.http('GET', `/v1/sessions/${sourceId}/snapshot`)).pendingInteractions[0], 'source custom form');
+  const replace = await h.command('extension_command', { text: '/r16-new' });
+  await h.terminal(replace.commandId);
+  const targetId = h.query('SELECT id FROM sessions WHERE id != ?', sourceId)[0].id;
+  const target = await h.http('GET', `/v1/sessions/${targetId}/snapshot`);
+  assert.equal(target.pendingInteractions.length, 0);
+  assert.ok(!target.notices.some(n => n.details?.method === 'custom.render'));
+  const answer = await h.command('respond', { operationId: form.operationId, interactionId: form.interactionId, response: { value: 'Enter' } });
+  await h.terminal(answer.commandId);
+  await h.terminal(custom.commandId);
+  assert.deepEqual(JSON.parse((await h.lines('custom-results'))[0]), { result: { down: 0, text: '' }, disposed: true });
+  const source = await h.http('GET', `/v1/sessions/${sourceId}/snapshot`);
+  assert.equal(source.pendingInteractions.length, 0);
+  assert.equal(source.notices.filter(n => n.details?.method === 'custom.render').at(-1).details.args[1], null);
+  assert.ok(source.notices.some(n => n.message.includes('custom source callback failure')));
+  const after = await h.http('GET', `/v1/sessions/${targetId}/snapshot`);
+  assert.ok(!after.notices.some(n => n.message.includes('custom source callback failure')));
+});
+
 test('native widget factory refreshes after command completion and replays before explicit removal', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   const receipt = await h.command('extension_command', { text: '/r16-widget' });

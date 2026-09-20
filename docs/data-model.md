@@ -70,6 +70,8 @@ queue_version 独立于 Session version：队列增删、暂停、恢复均递�
 
 Operation 覆盖 initialize / configure / run / bash / extension；持久事件维护 activeOperations，不另设操作调度表。无模型内容和表单可以独立存在；延迟 custom 交付由独立子 Operation 承载，父操作结束不取消子操作。interactions.operation_id 非空、origin 明确；origin=run 必须关联同 Session Run，应用层校验操作、epoch 和 Run 对应关系。
 
+custom UI 工厂使用独立 extension 子 Operation 跨多次 select/input 控件存活，done/明确取消/异常后封存其生命周期。画面保存在既有 runtime.notice 与 snapshot.notices，按 Operation 投影；原始 done 对象和组件只留在 worker 内存，不建表、不迁移数据库。重启照常取消旧交互，客户端不单独展示失去待答控件的旧画面。
+
 Run / Interaction 的 command_id 是因果来源，允许多个 Run 共用一条 Command，也允许没有外部 Command。原生替换后 S1 的 Command 可产生 S2 的执行；存储事务必须沿 projects.user_id 验证同 owner，不要求来源同 Session。target_run_id 与 response_command_id 是定向控制，仍由复合 FK 要求同执行 Session。参考 SQL 不独立保证跨表 owner 校验，S04 必须测试允许的同 owner 路径和被拒绝的跨 owner 路径。
 
 SDK 内输入按 inputId 保存到 live_state 的 pendingInputs / recoveredInputs，完整内容含附件引用。input.updated 区分 queued / consumed / returned / unknown；stop 返回未消费草稿，不自动重发。该投影与应用 queue.updated 后续 Run 队列分开；clearQueue 仅返回文本，不能据此丢掉附件。compact 的原生队列行为单独验证。

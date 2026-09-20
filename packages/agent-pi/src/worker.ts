@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventBacklog } from "./event-backlog.js";
 import { WidgetHost, type WidgetFactory } from "./widget-host.js";
+import { runCustomUi } from "./custom-ui.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
 import { fileURLToPath } from "node:url";
 import {
@@ -131,6 +132,7 @@ export interface WorkerRespondPayload {
 }
 
 export interface WorkerExtensionErrorPayload {
+  sessionId?: string;
   operationId?: string;
   extensionPath: string;
   event: string;
@@ -374,6 +376,8 @@ export class PiWorker {
   private editorText = "";
   private toolsExpanded = false;
   private readonly widgetHost = new WidgetHost();
+  private agentDir?: string;
+  private readonly customControllers = new Set<AbortController>();
   private currentSessionId: string;
   private readonly persistedMappings = new Set<string>();
   private readonly replacementRequests = new WeakMap<PiSessionReplacementRequest, string>();
@@ -506,6 +510,7 @@ export class PiWorker {
   }
 
   dispose(): void {
+    for (const controller of this.customControllers) controller.abort();
     this.widgetHost.dispose();
     this.cancelPendingInteractions("worker_disposed");
     clearInterval(this.heartbeatTimer);
@@ -596,6 +601,7 @@ export class PiWorker {
   }
 
   private async initialize(payload: WorkerInitializePayload): Promise<void> {
+    this.agentDir = payload.agentDir;
     if (this.initialized || this.stopped) {
       this.fatal("WORKER_ALREADY_INITIALIZED", "worker was initialized more than once");
       return;
@@ -1352,7 +1358,29 @@ export class PiWorker {
       setFooter: (...args: unknown[]) => this.emitUi("setFooter", args),
       setHeader: (...args: unknown[]) => this.emitUi("setHeader", args),
       setTitle: (...args: unknown[]) => this.emitUi("setTitle", args),
-      custom: async () => unsupported("custom"),
+      custom: async <T>(factory: Parameters<ExtensionUIContext["custom"]>[0], options?: Parameters<ExtensionUIContext["custom"]>[1]): Promise<T> => {
+        if (options?.overlay || options?.overlayOptions || options?.onHandle) return unsupported("custom overlay");
+        const context = this.createStandaloneOperation();
+        // Keep the factory/controls alive across one-shot form completions.
+        this.standaloneOperations.delete(context.operationId);
+        const controller = new AbortController();
+        this.customControllers.add(controller);
+        return this.uiContextStorage.run(context, async () => {
+          try {
+            const result = await runCustomUi<T>(factory, {
+              agentDir: this.agentDir, signal: controller.signal,
+              publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+              ask: (kind, keys, signal) => this.requestInteraction(kind, kind === "select" ? "自定义组件控制" : "自定义组件输入文本", {
+                ...(keys ? { options: keys } : {}),
+                message: "Esc 交给扩展处理；取消控制面板会关闭组件。输入文本不自动发送 Enter。"
+              }, { signal })
+            });
+            this.emitOperationStatus("completed", context);
+            return result;
+          } catch (error) { this.emitOperationStatus("failed", context); throw error; }
+          finally { this.customControllers.delete(controller); }
+        });
+      },
       pasteToEditor: (text: string) => { this.editorText += text; this.emitUi("setEditorText", [this.editorText]); },
       setEditorText: (text: string) => { this.editorText = text; this.emitUi("setEditorText", [text]); },
       getEditorText: () => this.editorText,
@@ -1371,6 +1399,7 @@ export class PiWorker {
   private onExtensionError(error: ExtensionError): void {
     const context = this.operationContext();
     this.send("extension_error", {
+      sessionId: context ? this.operationSessions.get(context.operationId) ?? this.currentSessionId : this.currentSessionId,
       ...(context ? { operationId: context.operationId } : {}),
       extensionPath: bounded(error.extensionPath, 4096),
       event: bounded(error.event, 160),
@@ -1546,6 +1575,7 @@ export class PiWorker {
     if (this.stopped) return;
     try {
       if (this.execution) this.execution.abortRequested = true;
+      for (const controller of this.customControllers) controller.abort();
       this.cancelPendingInteractions(reason);
       const handle = this.handle;
       if (handle && "shutdown" in handle && typeof handle.shutdown === "function") await handle.shutdown();

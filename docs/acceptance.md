@@ -94,6 +94,8 @@ S13 检查所有 required IDs 和平台，遇到 missing / failed / not_run 非�
 
 ## Live / parity 报告入口
 
+非 overlay custom UI 补充 AT21 / AT22 / AT32：实际 SDK 工厂接收原生 TUI/主题/快捷键；验证按键、文本、原始 done 返回值、取消与 dispose、同步/异步工厂、异步 done、慢工厂退出和渲染/输入异常。真实 HTTPS/WSS 验证画面重放、同键重试不重复按键、失效旧控件拒绝、无 Run/无模型调用。手机只在匹配 Operation 的 pending 控件内显示画面；overlay、组合键、全局焦点路由和真机触控效果另验。
+
 widget 工厂补充 AT21 / AT22 / AT32：使用实际 SDK 发现的工厂及 TuiMainScreen，验证首次渲染、命令结束后异步刷新、无 Run、归属原 Session、WSS 重放、显式移除和 dispose。定向测试覆盖相同输出去重、替换后旧刷新、工厂/render/dispose 异常及手机 placement/失败清除。颜色、图片、overlay、动态宽度与真机布局独立记录，不用文本投影代替完整终端对照。
 
 具体执行与人工采集规范见[验收入口说明](acceptance-runners.md)。完整报告须含当前 commit / 源码 SHA-256、非空必需 case 集、真实来源及采集摘要。确定性 smoke、部署子集与完整验收分开输出；S13 不接受空 checks、缺项、旧源码或用子集代替完整矩阵。人工记录必须复核原生端与应用端的实际采集，文件摘要校验本身不证明行为正确。

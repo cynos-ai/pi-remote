@@ -289,6 +289,7 @@ function parseOutboundPayload(type: string, value: unknown): unknown {
       };
     case "extension_error":
       return {
+        ...(payload.sessionId === undefined ? {} : { sessionId: requiredString(payload.sessionId, "sessionId") }),
         ...(payload.operationId === undefined ? {} : { operationId: requiredString(payload.operationId, "operationId") }),
         extensionPath: payloadText(payload.extensionPath, "extensionPath"),
         event: requiredString(payload.event, "event"),

@@ -6,6 +6,10 @@
 
 Operation 标识一次初始化、配置、模型执行、用户 Bash 或扩展回调，kind 为 initialize / configure / run / bash / extension。由持久事件维护活动投影；无须增加操作调度表。异步后续操作可用 parentOperationId 标明来源，父操作完成不自动结束子操作。
 
+非 overlay custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异步 done 共享该归属，单个按键表单结束不关闭整个组件。done 关闭当时仍待答的控制表单并返回原值，用户明确取消返回 undefined；扩展自己的 Esc 语义不由适配器替代。异常向上报告并清理组件，worker 退出中止回调，迟到工厂不重新打开控件。此 UI 生命周期不是模型 Run，也不同于下文 custom 消息内容。
+
+会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
+
 Run 只记录实际 prompt / compact 生命周期。每个 Run 有唯一 operationId、source（command / extension / runtime）及可空 commandId。commandId 是外部请求的因果来源：一次扩展命令可产生多个顺序 Run，后台扩展也可没有手机请求。不得伪造设备、HTTP 命令或模型 Run 来凑表约束。同 Session 最多一个活动模型 Run，独立 Bash / 扩展内容不占此槽。
 
 外部 Command 的初始收据不变；接收时已分配的直接 prompt / compact 可返回 runId。GET command 及后续 command.updated 用 `runs:[{runId,sessionId}]` 表达全部关联，不能用单个 runId 覆盖前一次结果。扩展命令的 completed 表示其调用本身结束，关联模型 Run 的状态单独显示；不会因为父命令返回就把其后续执行报成完成。
