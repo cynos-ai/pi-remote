@@ -52,7 +52,8 @@ export class RealProcessHarness {
     h.provider = await localHttpProvider();
     await writeFile(join(h.agent, 'models.json'), JSON.stringify({ providers: { 'r16-local': {
       baseUrl: h.provider.baseUrl, api: 'openai-completions', apiKey: 'local-placeholder-not-a-secret',
-      models: [{ id: 'deterministic', contextWindow: 128000, maxTokens: 4096, ...(options.formsPhase === 'configure' ? { reasoning: true } : {}) }]
+      models: [{ id: 'deterministic', contextWindow: 128000, maxTokens: 4096, ...(options.formsPhase === 'configure' ? { reasoning: true } : {}) },
+        ...(options.editorModels ? [{ id: 'reasoned', contextWindow: 128000, maxTokens: 4096, reasoning: true }] : [])]
     } } }));
     await writeFile(join(h.agent, 'settings.json'), JSON.stringify({
       defaultProvider: 'r16-local', defaultModel: 'deterministic',

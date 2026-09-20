@@ -6,6 +6,22 @@ import { matchesKey } from '@earendil-works/pi-tui';
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  let configurationHooks = '';
+  pi.registerCommand('r16-config-hooks', { description: 'Enable native configuration forms', handler: async (args) => { configurationHooks = args.trim(); } });
+  pi.on('model_select', async (event, ctx) => {
+    if (configurationHooks !== 'model') return;
+    const first = await ctx.ui.confirm('editor-model-first', 'First model hook');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const second = await ctx.ui.input('editor-model-second', 'Second model hook');
+    await appendFile(join(ctx.cwd, 'editor-model-hooks'), JSON.stringify({ source: event.source, first, second }) + '\n');
+  });
+  pi.on('thinking_level_select', async (_event, ctx) => {
+    if (configurationHooks !== 'thinking') return;
+    const first = await ctx.ui.confirm('editor-thinking-first', 'First thinking hook');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const second = await ctx.ui.input('editor-thinking-second', 'Second thinking hook');
+    await appendFile(join(ctx.cwd, 'editor-thinking-hooks'), JSON.stringify({ first, second }) + '\n');
+  });
   let removeKeys = [];
   pi.registerShortcut('ctrl+alt+k', {
     description: 'Native shortcut test',

@@ -9,6 +9,99 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('editor cycles native models and thinking while streaming, with independent configuration hooks', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true, editorModels: true });
+  const defaults = await readFile(join(h.agent, 'settings.json'), 'utf8');
+  const extension = async text => { const cmd = await h.command('extension_command', { text }); await h.workerPid(); await h.terminal(cmd.commandId); };
+  await extension('/r16-editor');
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  let previous;
+  const next = () => until(async () => (await snapshot()).pendingInteractions.find(form => form.interactionId !== previous && form.title.startsWith('扩展编辑器')), 'configuration editor control', 5000);
+  const respond = async (form, response) => {
+    const payload = { operationId: form.operationId, interactionId: form.interactionId, response };
+    const key = randomUUID(); const cmd = await h.command('respond', payload, key); await h.terminal(cmd.commandId);
+    assert.equal((await h.command('respond', payload, key)).commandId, cmd.commandId);
+  };
+  const key = async value => { const form = await next(); previous = form.interactionId; await respond(form, { value }); await next(); };
+  const combo = async value => { await key('组合键'); await key(value); };
+  const model = async id => until(async () => (await snapshot()).session.model?.id === id, `model ${id}`, 5000);
+  await combo('shift+tab');
+  assert.ok((await snapshot()).notices.some(n => n.message === '当前模型不支持思考等级'));
+  await combo('ctrl+p'); await model('reasoned');
+  const before = (await snapshot()).session.thinkingLevel;
+  await combo('shift+tab');
+  assert.notEqual((await snapshot()).session.thinkingLevel, before);
+  await combo('ctrl+shift+p'); await model('deterministic');
+  assert.equal((await snapshot()).session.thinkingLevel, 'off');
+  assert.equal(h.provider.requests.length, 0);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  const stream = await h.connect();
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => stream.events().some(e => e.type === 'content.delta'), 'model is streaming');
+  await combo('ctrl+p'); await model('reasoned');
+  await extension('/r16-config-hooks model');
+  await combo('ctrl+shift+p');
+  const form = title => until(async () => (await snapshot()).pendingInteractions.find(item => item.title === title), title, 5000);
+  const first = await form('editor-model-first');
+  assert.equal(first.origin, 'configure'); assert.equal(first.runId, null);
+  await respond(first, { confirmed: true });
+  const second = await form('editor-model-second');
+  assert.equal(second.operationId, first.operationId, 'awaited model hook keeps its operation across delayed forms');
+  assert.ok(!h.query("SELECT seq FROM events WHERE operation_id = ? AND type = 'operation.updated' AND json_extract(payload_json, '$.status') = 'completed'", first.operationId).length);
+  await respond(second, { value: 'model done' });
+  await model('deterministic');
+  assert.deepEqual(JSON.parse((await h.lines('editor-model-hooks'))[0]), { source: 'cycle', first: true, second: 'model done' });
+  await extension('/r16-config-hooks off');
+  await combo('ctrl+p'); await model('reasoned');
+  await extension('/r16-config-hooks thinking');
+  await combo('shift+tab');
+  const thinkingFirst = await form('editor-thinking-first');
+  assert.equal(thinkingFirst.origin, 'configure'); assert.equal(thinkingFirst.runId, null);
+  await respond(thinkingFirst, { cancelled: true });
+  const thinkingSecond = await form('editor-thinking-second');
+  assert.equal(thinkingSecond.runId, null, 'late thinking hook must not adopt the unrelated streaming Run');
+  assert.notEqual(thinkingSecond.operationId, active.operationId);
+  await respond(thinkingSecond, { value: 'thinking done' });
+  await until(async () => (await h.lines('editor-thinking-hooks')).length === 1, 'thinking hook result');
+  assert.deepEqual(JSON.parse((await h.lines('editor-thinking-hooks'))[0]), { first: false, second: 'thinking done' });
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  assert.equal(h.provider.requests.length, 1, 'configuration keys never prompt or restart the model');
+  await extension('/r16-config-hooks off');
+  await key('Esc'); await h.terminal(active.commandId, 'cancelled');
+  assert.equal(await readFile(join(h.agent, 'settings.json'), 'utf8'), defaults, 'cycles do not overwrite global defaults');
+  const native = await history(mapping(h).pi_session_file);
+  assert.equal(native.filter(e => e.type === 'model_change').at(-1).modelId, 'reasoned');
+  assert.equal(native.filter(e => e.type === 'thinking_level_change').at(-1).thinkingLevel, (await snapshot()).session.thinkingLevel);
+});
+
+test('editor cycles respect configured keys, explicit history priority and a single available model', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  await writeFile(join(h.agent, 'keybindings.json'), JSON.stringify({
+    'app.model.cycleForward': ['ctrl+p', 'ctrl+alt+m'], 'tui.editor.historyPrevious': 'ctrl+p',
+    'app.thinking.cycle': 'alt+t'
+  }));
+  const install = await h.command('extension_command', { text: '/r16-editor' });
+  await h.workerPid(); await h.terminal(install.commandId);
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  let previous;
+  const next = () => until(async () => (await snapshot()).pendingInteractions.find(form => form.interactionId !== previous && form.title.startsWith('扩展编辑器')), 'custom key control', 5000);
+  const answer = async value => {
+    const form = await next(); previous = form.interactionId;
+    const cmd = await h.command('respond', { operationId: form.operationId, interactionId: form.interactionId, response: { value } });
+    await h.terminal(cmd.commandId); await next();
+  };
+  const combo = async value => { await answer('组合键'); await answer(value); };
+  await combo('ctrl+p');
+  assert.ok(!(await snapshot()).notices.some(n => n.message === '只有一个可用模型'), 'explicit history binding wins over the app action');
+  await combo('ctrl+alt+m');
+  assert.ok((await snapshot()).notices.some(n => n.message === '只有一个可用模型'));
+  await combo('alt+t');
+  assert.ok((await snapshot()).notices.some(n => n.message === '当前模型不支持思考等级'));
+  assert.equal((await snapshot()).session.model.id, 'deterministic');
+  assert.equal(h.provider.requests.length, 0);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+});
+
 test('native editor actions clear, expand, dismiss completion and restore queued text before stop', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   const install = await h.command('extension_command', { text: '/r16-editor' });

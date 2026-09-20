@@ -18,6 +18,8 @@ onTerminalInput 订阅按 Session 隔离，直接注册到各原生交互 TUI；
 
 默认应用动作通过 CustomEditor.actionHandlers 绑定，保留自定义 onEscape/onCtrlD，不在原生匹配前截获字节。已绑定清草稿、工具展开及中断：补全取消优先于中断，streaming 停止先取回 SDK 队列并发布 Input 状态，再将 steering/followUp/当前草稿按原生顺序合并到编辑器，最后 abort；不自动提交。压缩/重试取消走各自 SDK API，不清普通队列。取消 Bash 不清草稿。旧编辑器动作回调在替换后失效。退出/双 Ctrl+C 当前明确提示待适配，不能关闭整个服务来假冒终端退出；其他应用动作与完整生命周期迁移另验。
 
+模型前后循环与思考等级循环调用 SDK cycleModel/cycleThinkingLevel，遵循原生可用模型/作用域、能力约束和默认 persist=false，不另加空闲条件。每个动作有独立 configure Operation、无外部 Command 和 Run；model_select 的 awaited 表单全部结束后才完成动作，thinking_level_select 的 fire-and-forget 表单沿用异步子操作规则。已关闭的 AsyncLocalStorage 来源不回退到其他活动 Run，迟到表单保留原配置父操作及 Session 归属。模型 hook 替换会话后不把目标配置发布到源会话。无可循环模型或不支持思考等级时显示通知，键位冲突仍由原生 CustomEditor 处理。
+
 会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
 
 Run 只记录实际 prompt / compact 生命周期。每个 Run 有唯一 operationId、source（command / extension / runtime）及可空 commandId。commandId 是外部请求的因果来源：一次扩展命令可产生多个顺序 Run，后台扩展也可没有手机请求。不得伪造设备、HTTP 命令或模型 Run 来凑表约束。同 Session 最多一个活动模型 Run，独立 Bash / 扩展内容不占此槽。

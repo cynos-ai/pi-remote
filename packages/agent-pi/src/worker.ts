@@ -924,7 +924,9 @@ export class PiWorker {
     // ownership boundary: always prefer the context captured at the SDK call
     // site over mutable "current execution" fields.
     const scoped = this.uiContextStorage.getStore();
-    if (scoped && !this.closedOperations.has(scoped.operationId)) return scoped;
+    // A delayed hook from a closed operation is still causally scoped. Let
+    // callers create a child operation instead of borrowing an unrelated Run.
+    if (scoped) return this.closedOperations.has(scoped.operationId) ? null : scoped;
     if (this.autonomous) return this.autonomous;
     if (this.execution) {
       return {
@@ -1326,6 +1328,41 @@ export class PiWorker {
     return hub;
   }
 
+  private async cycleEditorConfiguration(owner: string, action: "thinking" | "forward" | "backward"): Promise<void> {
+    if (owner !== this.currentSessionId || !this.handle) return;
+    const context = this.createStandaloneOperation(owner, "configure");
+    this.standaloneOperations.delete(context.operationId);
+    this.causalCommands.delete(context.operationId);
+    try {
+      await this.uiContextStorage.run(context, async () => {
+        const session = this.handle!.session;
+        let message: string;
+        if (action === "thinking") {
+          const level = session.cycleThinkingLevel();
+          message = level === undefined ? "当前模型不支持思考等级" : `思考等级：${level}`;
+        } else {
+          const result = await session.cycleModel(action);
+          message = result === undefined ? (session.scopedModels.length ? "作用域内只有一个可用模型" : "只有一个可用模型")
+            : `已切换至 ${result.model.name || result.model.id}`;
+        }
+        // A model hook can replace the native session while the action awaits it.
+        if (owner !== this.currentSessionId) return;
+        if (action !== "thinking" && session.model) this.emitSessionConfig({
+          model: { provider: session.model.provider, id: session.model.id }, thinkingLevel: session.thinkingLevel
+        });
+        await this.sendModels({ requestId: "runtime-state" });
+        this.createUiContext().notify(message, "info");
+      });
+      // Model hooks are awaited; thinking hooks are fire-and-forget. Only hand
+      // completion to the form lifecycle after the awaited mutation has ended.
+      this.controlOperations.set(context.operationId, { operationId: context.operationId, commandId: "", kind: "configure" });
+      this.completeControlOperation(context.operationId);
+    } catch (error) {
+      this.emitOperationStatus("failed", context);
+      throw error;
+    }
+  }
+
   private setEditor(factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0]): void {
     if (!factory) {
       this.editorHost.stop();
@@ -1350,6 +1387,9 @@ export class PiWorker {
           agentDir: this.agentDir, signal: controller.signal,
           terminalInput: this.terminalInput(owner), inputError: failure,
           actions: new Map<string, () => void | Promise<void>>([
+            ["app.thinking.cycle", () => this.cycleEditorConfiguration(owner, "thinking")],
+            ["app.model.cycleForward", () => this.cycleEditorConfiguration(owner, "forward")],
+            ["app.model.cycleBackward", () => this.cycleEditorConfiguration(owner, "backward")],
             ["app.clear", () => {
               const now = Date.now();
               if (lastClear !== undefined && now - lastClear < 500) throw new Error("终端退出尚未接入；会话继续运行");
@@ -1909,7 +1949,7 @@ export class PiWorker {
     }
   }
 
-  private createStandaloneOperation(owner?: string, kind: "extension" | "bash" = "extension"): OperationContext {
+  private createStandaloneOperation(owner?: string, kind: "extension" | "bash" | "configure" = "extension"): OperationContext {
     const parent = this.uiContextStorage.getStore();
     const context: OperationContext = { operationId: randomUUID(), runId: null, kind };
     this.standaloneOperations.add(context.operationId);

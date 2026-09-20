@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 编辑器模型与思考等级循环
+
+基于 `b233dc7`，接入 app.model.cycleForward/cycleBackward 与 app.thinking.cycle，直接使用固定 SDK 的 cycleModel/cycleThinkingLevel，不另写模型顺序或思考等级列表、不加空闲门槛。原生匹配保留默认 Linux Ctrl+P / Ctrl+Shift+P / Shift+Tab、用户 keybindings 和显式历史键优先级。只更新当前会话，persist 保持原生默认 false；已有全局配置不变。单模型或不支持思考等级时显示原因通知。
+
+每个按键配置动作创建独立 configure Operation，清除安装编辑器的命令因果，不新建 Run。model_select 被 await，延迟多表单期间保持同一配置 Operation；thinking_level_select 返回后仍可在子 Operation 继续。循环模型的 hook 若替换 Session，不将目标配置发布到源 Session。
+
+首次真实会话进程为 17/18（`test-results/cycle-sessions-initial.log`），新增运行中思考 hook 的迟到表单错误借用了模型 Run。用既有 R10 测试增加 streaming 分支再次复现：SDK 回归 13/14，空闲通过、运行中失败（`cycle-late-hook-initial.log`）。修复 operationContext：已有但已关闭的 AsyncLocalStorage 来源返回空上下文，由请求路径创建保留原父操作的子 Operation，不回退到另一个活动 Run。未削弱断言。修复后的 SDK/editor/runtime 定向回归 53/53（`cycle-targeted.log`），运行中与空闲分支均通过。
+
+验证环境为 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。最终 `pnpm verify:S07` 为 14 passed / 2 failed（`test-results/cycle-s07.log`、`s07/report.json`）：构建、命令合同、5 类生命周期表单和 19 项真实会话进程、lint、全量 typecheck、文档通过；失败仍为旧 live-commands / parity-tui-commands 源码身份失效。新增进程用例验证双向循环、能力约束、运行中切换、hook 表单回答/取消与延迟归属、幂等按键、会话 JSONL/手机配置一致、全局默认值不变、单模型提示、键位重映射及历史键优先。最终文档与差异格式检查通过，S07 保持 blocked，不改写为整体通过。
+
+测试只使用临时目录与本地合成模型接口，未读取模型凭据或调用付费 provider，不代表两个真实 provider 的切换验收。交互式 TUI、手机实机和模型作用域实测仍未运行；未修改手机或协议 schema，未重跑双端 JS 构建。下一步仍包括模型选择菜单、会话菜单和退出生命周期。
+
 ## 2026-09-20 编辑器默认动作：清草稿、工具展开与停止
 
 基于 `5dd06fb`，在原生 CustomEditor.actionHandlers 绑定默认清草稿、工具展开和中断动作；不自行抢占输入匹配，沿用 SDK 的扩展快捷键、补全和显式历史键优先级及用户 keybindings 配置。已有 onEscape/onCtrlD 保持有效，缺省走原生 actionHandlers 回退；替换或重复安装同一组件后，旧默认动作回调失效，新动作正常。回调异常通知原编辑器且不关闭输入循环。

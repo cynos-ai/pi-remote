@@ -414,7 +414,7 @@ export default function(pi) {
     expect(h.sent.filter((message) => message.type === "extension_error")).toEqual([]);
   });
 
-  it("R10 delayed native thinking hook opens a child Operation after the configure method has returned", async () => {
+  it.each([false, true])("R10 delayed native thinking hook opens a child Operation after configure returned (streaming=%s)", async (streaming) => {
     const h = await harness({ extensionSource: (root) => `
 import { existsSync } from "node:fs";
 export default function(pi) {
@@ -437,6 +437,12 @@ export default function(pi) {
     const levels = h.handle.session.getAvailableThinkingLevels();
     const level = levels.find((candidate) => candidate !== h.handle.session.thinkingLevel);
     expect(level, "real SDK model supports a different thinking level").toBeDefined();
+    const gate = deferred();
+    if (streaming) {
+      deterministicStream(h.handle, [{ gate }]);
+      await h.execute(prompt());
+      await waitFor(() => h.state().runs["prompt-command-run"]?.status === "running", "unrelated Run active");
+    }
     const envelope = { schemaVersion: 1, sessionId, seq: 1, operationId: "thinking-op", runId: null, timestamp: new Date().toISOString() };
     new EventStore(h.database).appendBatch({ sessionId, workerEpoch: "thinking-seed", batchNo: 1, events: [
       { ...envelope, type: "command.updated", payload: { commandId: "thinking-command", kind: "set_thinking", state: "queued" } },
@@ -463,6 +469,11 @@ export default function(pi) {
     expect(h.events().filter((event) => event.type === "interaction.resolved")).toHaveLength(1);
     expect(snapshotSchema.parse(toSnapshot(state)).notices).toContainEqual(expect.objectContaining({ details: { method: "setStatus", args: ["delayed-thinking-result", "true"] } }));
     expect(h.sent.filter((message) => message.type === "extension_error")).toEqual([]);
+    if (streaming) {
+      expect(h.state().runs["prompt-command-run"]?.status).toBe("running");
+      gate.resolve();
+      expect(await h.completed("prompt-command")).toMatchObject({ payload: { status: "completed" } });
+    }
   });
 
   it("R15 retains output beyond 256 held ACKs, then drains ordered bounded batches without fatal backpressure", async () => {
