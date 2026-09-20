@@ -44,6 +44,33 @@ function editor() {
   return { component, history, disposed: () => disposed };
 }
 describe("native extension editor host", () => {
+  it("binds default actions, preserves special overrides and ignores stale actions", async () => {
+    const h = setup(), e = editor();
+    const calls: string[] = [];
+    const onEscape = () => { calls.push("override"); };
+    const component = { ...e.component, actionHandlers: new Map<string, () => void>([["app.clear", () => { calls.push("old"); }]]), onEscape };
+    h.bridge.actions = new Map([
+      ["app.clear", () => { calls.push("clear"); }],
+      ["app.interrupt", () => { calls.push("stop"); }],
+      ["app.tools.expand", async () => { throw new Error("action failed"); }]
+    ]);
+    const result = h.host.run(() => component, h.bridge); await tick();
+    expect(component.onEscape).toBe(onEscape);
+    component.onEscape(); component.actionHandlers.get("app.clear")!();
+    component.actionHandlers.get("app.tools.expand")!(); await tick();
+    expect(calls).toEqual(["override", "clear"]);
+    expect(h.failures).toHaveLength(1);
+    expect(h.host.getFactory()).toBeDefined();
+    const staleClear = component.actionHandlers.get("app.clear")!;
+    h.host.stop(); await result;
+    component.actionHandlers.get("app.clear")!();
+    component.actionHandlers.get("app.interrupt")!();
+    expect(calls).toEqual(["override", "clear"]);
+    const reinstalled = h.host.run(() => component, h.bridge); await tick();
+    staleClear(); component.actionHandlers.get("app.clear")!();
+    expect(calls).toEqual(["override", "clear", "clear"]);
+    h.host.stop(); await reinstalled;
+  });
   it("installs shortcuts only on native CustomEditor-shaped components and preserves overrides", async () => {
     const h = setup(), e = editor();
     const handler = () => true;

@@ -40,7 +40,9 @@ export default function extension(pi) {
         ...base,
         getSuggestions: async (lines, line, col, options) => lines[line]?.startsWith('com')
           ? { prefix: 'com', items: [{ value: 'EDITOR_NATIVE_SUBMIT', label: 'EDITOR_NATIVE_SUBMIT' }] }
-          : base.getSuggestions(lines, line, col, options),
+          : lines[line]?.startsWith('cho')
+            ? { prefix: 'cho', items: [{ value: 'choice-one', label: 'choice-one' }, { value: 'choice-two', label: 'choice-two' }] }
+            : base.getSuggestions(lines, line, col, options),
         applyCompletion: (lines, line, col, item, prefix) => item.value === 'EDITOR_NATIVE_SUBMIT'
           ? { lines: ['EDITOR_NATIVE_SUBMIT'], cursorLine: 0, cursorCol: 20 }
           : base.applyCompletion(lines, line, col, item, prefix)

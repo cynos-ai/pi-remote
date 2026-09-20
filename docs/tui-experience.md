@@ -80,6 +80,8 @@ ctx.ui.onTerminalInput 已接入当前 Session 的 custom/editor 虚拟终端，
 
 应用输入监听按注册顺序安装到原生 TUI，支持 consume、data 改写、晚注册和取消订阅；组件自身的 tui.addInputListener 保持原生相对顺序。会话替换清理旧应用监听，仍待答的源 custom 组件保留自己的局部监听和按键能力；新 Session 不继承旧监听。worker 退出释放全部订阅。扩展 registerShortcut 使用原生 getShortcuts 的冲突处理及 matchesKey，绑定到具有 actionHandlers 的 CustomEditor；保留扩展自定义 onExtensionShortcut。快捷键回调使用 SDK createContext，异步不阻塞输入，错误归属原编辑器 Session，不能把快捷键注册套到所有普通 custom 组件。
 
-控制表单新增“组合键”输入，支持 ctrl/alt/shift 与字符、方向/导航键及 F1–F12，例如 ctrl+k、ctrl+alt+j、shift+enter。无效键名提示后回到控件，不关闭组件或向模型发送文本。固定 SDK 0.85.1 的 matchesKey 对带修饰键的 F1–F12 恒返回 false；适配仍传递标准终端字节供原始监听/组件处理，但不声称它们能通过原生扩展快捷键匹配。默认应用动作（退出/挂起、切模型、会话选择等）尚未完整绑定，不能把扩展快捷键已通过当成完整应用热键已通过。
+控制表单新增“组合键”输入，支持 ctrl/alt/shift 与字符、方向/导航键及 F1–F12，例如 ctrl+k、ctrl+alt+j、shift+enter。无效键名提示后回到控件，不关闭组件或向模型发送文本。固定 SDK 0.85.1 的 matchesKey 对带修饰键的 F1–F12 恒返回 false；适配仍传递标准终端字节供原始监听/组件处理，但不声称它们能通过原生扩展快捷键匹配。
+
+CustomEditor 默认应用动作已接入 Esc、Ctrl+C 和 Ctrl+O，并沿用用户 keybindings 配置：Esc 先取消补全，再按当前阶段停止模型/Bash 或取消压缩/重试；模型停止时未消费文本恢复到编辑器且不自动重发。Ctrl+C 清草稿，不停止模型；Ctrl+O 切换既有工具展开状态。退出 Ctrl+D 和 500ms 内双 Ctrl+C 显示“终端退出尚未接入”，不终止服务。空草稿双 Esc 会话菜单、退出/挂起、切模型、其他会话动作仍待适配；压缩/重试热键真实路径及真机按键仍需验收，不能把当前子集当成完整应用热键已通过。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

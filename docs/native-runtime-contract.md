@@ -14,7 +14,9 @@ header/footer 为无焦点组件，工厂及 FooterDataProvider 留在 worker，
 
 editor 工厂用独立 extension Operation 跨连续按键存活；安装立即返回，不阻塞扩展命令或初始化。替换、取消、会话替换和退出使旧控件失效，迟到 onSubmit / onChange 不操作新组件。后续用户提交清除安装时的命令因果关系，创建独立操作，SDK 产生的 Run 可无外部 Command。onSubmit 异常只保留草稿、不自动重试；已开始的 SDK 任务不因编辑器被替换而停止。异步失败明确携带安装时 Session 归属。相同 editor_state 文本不调用组件 setText，避免重置原生光标。
 
-onTerminalInput 订阅按 Session 隔离，直接注册到各原生交互 TUI；消费/改写及局部监听顺序由 SDK 负责。移除控件解除其绑定但保留有效应用订阅供之后组件使用；原生会话替换清除旧应用订阅，不能将新会话监听绑定到源会话仍待答的 custom。扩展快捷键只接入原生 CustomEditor 的 onExtensionShortcut，沿用 getShortcuts 和原上下文；已有回调不覆盖，异常通知不关闭编辑器。默认应用 actionHandlers 的完整迁移另验。
+onTerminalInput 订阅按 Session 隔离，直接注册到各原生交互 TUI；消费/改写及局部监听顺序由 SDK 负责。移除控件解除其绑定但保留有效应用订阅供之后组件使用；原生会话替换清除旧应用订阅，不能将新会话监听绑定到源会话仍待答的 custom。扩展快捷键只接入原生 CustomEditor 的 onExtensionShortcut，沿用 getShortcuts 和原上下文；已有回调不覆盖，异常通知不关闭编辑器。
+
+默认应用动作通过 CustomEditor.actionHandlers 绑定，保留自定义 onEscape/onCtrlD，不在原生匹配前截获字节。已绑定清草稿、工具展开及中断：补全取消优先于中断，streaming 停止先取回 SDK 队列并发布 Input 状态，再将 steering/followUp/当前草稿按原生顺序合并到编辑器，最后 abort；不自动提交。压缩/重试取消走各自 SDK API，不清普通队列。取消 Bash 不清草稿。旧编辑器动作回调在替换后失效。退出/双 Ctrl+C 当前明确提示待适配，不能关闭整个服务来假冒终端退出；其他应用动作与完整生命周期迁移另验。
 
 会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
 

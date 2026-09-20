@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 编辑器默认动作：清草稿、工具展开与停止
+
+基于 `5dd06fb`，在原生 CustomEditor.actionHandlers 绑定默认清草稿、工具展开和中断动作；不自行抢占输入匹配，沿用 SDK 的扩展快捷键、补全和显式历史键优先级及用户 keybindings 配置。已有 onEscape/onCtrlD 保持有效，缺省走原生 actionHandlers 回退；替换或重复安装同一组件后，旧默认动作回调失效，新动作正常。回调异常通知原编辑器且不关闭输入循环。
+
+Ctrl+C 清草稿而不停止模型；Ctrl+O 复用持久化工具展开通知，刷新 header/footer，不创建 Run。Esc 首先取消补全；streaming 时先取回 SDK 队列、发布每条完整 Input 的 returned/unknown 状态，再将未消费文本按 steering/followUp/当前草稿顺序恢复到编辑器，最后停止对应 Run，不自动重发。Bash 走 abortBash，压缩/重试走各自 SDK 取消 API，不混用普通 stop 清队列。退出 Ctrl+D 和 500ms 内双 Ctrl+C 明确提示待适配，非空 Ctrl+D 保留原生向前删除；空稿双 Esc 菜单、退出/挂起、其他模型和会话动作仍未完成。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：初次与最终定向 SDK/editor/custom/terminal 回归均 33/33（`test-results/actions-targeted.log`、`actions-targeted-final.log`），覆盖自定义特殊回调、动作覆盖、异步错误和重复安装隔离，既有完整队列/partial 回归通过。首轮 S07 构建发现目标 Run ID 可空，已修复为优先选实际活动 Run；保留 `actions-s07.log` 和 `actions-s07-initial-report.json`，不改写失败。
+
+第二次 `pnpm verify:S07` 为 14 passed / 2 failed（`actions-s07-final.log`、`s07/report.json`）：构建、命令合同、真实生命周期表单/会话、lint、全量 typecheck 和文档通过；两项失败仍为旧 live-commands / parity-tui-commands 证据失效。该轮构建后又简化特殊键处理为原生回退，最终源文件的定向测试及阶段静态检查已通过；随后重新执行 `pnpm build:server` 和 `node scripts/test-real-process-e2e.mjs --no-build --sessions-only`，构建通过、真实会话进程 17/17（`actions-build-final.log`、`actions-sessions-final.log`）。新用例通过 HTTPS 幂等响应操作真实 CustomEditor，验证清草稿不停止、补全 Esc 优先、重复文本队列完整恢复且零重发、Bash 取消、工具展开持久回放及非空 Ctrl+D 删除。保留阶段原始报告与补充证据，不改写为整阶段 passed。
+
+本轮未读取模型凭据或调用付费模型，未执行交互式原生 TUI、压缩/重试热键实际流程或 Android/iOS 真机验收。手机沿用既有表单/通知协议，没有 schema 迁移或手机代码变更；未重跑双端 JS 构建。S07 继续保持 blocked。
+
 ## 2026-09-20 终端监听、组合键与扩展快捷键
 
 基于 `ee66346`，接入按 Session 隔离的 TerminalInputHub，将 onTerminalInput 直接绑定到 custom/editor 的原生 TUI，保留注册顺序、消费/改写、组件局部监听相对顺序、晚注册和取消订阅。控件关闭解除绑定；原生会话替换清除旧应用监听，源 custom 控件自身仍可继续完成；worker 退出清理订阅。普通手机草稿同步不伪造终端按键，跨表面共享焦点仍未接入。

@@ -1010,7 +1010,7 @@ export class PiWorker {
     }
   }
 
-  private clearSdkQueue(): void {
+  private clearSdkQueue(): { steering: string[]; followUp: string[] } | undefined {
     if (!this.handle) return;
     let cleared: { steering: string[]; followUp: string[] };
     try {
@@ -1028,6 +1028,14 @@ export class PiWorker {
     }
     this.persistClearedInputs("steer", cleared.steering);
     this.persistClearedInputs("followUp", cleared.followUp);
+    return cleared;
+  }
+
+  private restoreEditorQueue(): void {
+    const cleared = this.clearSdkQueue();
+    if (!cleared) return;
+    const queued = [...cleared.steering, ...cleared.followUp];
+    if (queued.length) this.editorHost.setText([queued.join("\n\n"), this.editorHost.getText()].filter(text => text.trim()).join("\n\n"));
   }
 
   private persistClearedInputs(delivery: "steer" | "followUp", returned: readonly string[]): void {
@@ -1332,6 +1340,7 @@ export class PiWorker {
     this.causalCommands.delete(context.operationId);
     const controller = new AbortController();
     this.customControllers.add(controller);
+    let lastClear: number | undefined;
     const failure = (error: unknown) => this.send("extension_error", {
       sessionId: owner, operationId: context.operationId, extensionPath: "editor", event: "input", error: bounded(errorMessage(error), 2000)
     });
@@ -1340,6 +1349,27 @@ export class PiWorker {
         await this.editorHost.run(factory, {
           agentDir: this.agentDir, signal: controller.signal,
           terminalInput: this.terminalInput(owner), inputError: failure,
+          actions: new Map<string, () => void | Promise<void>>([
+            ["app.clear", () => {
+              const now = Date.now();
+              if (lastClear !== undefined && now - lastClear < 500) throw new Error("终端退出尚未接入；会话继续运行");
+              this.editorHost.setText(""); lastClear = now;
+            }],
+            ["app.exit", () => { throw new Error("终端退出尚未接入；会话继续运行"); }],
+            ["app.tools.expand", () => this.createUiContext().setToolsExpanded(!this.toolsExpanded)],
+            ["app.interrupt", async () => {
+              if (owner !== this.currentSessionId || controller.signal.aborted) return;
+              const session = this.handle!.session;
+              if (session.isCompacting) { session.abortCompaction(); return; }
+              if (session.isRetrying && !session.isStreaming) { session.abortRetry(); return; }
+              if (session.isStreaming) {
+                const target = this.execution?.runId ? this.execution : this.autonomous;
+                if (target?.runId) await this.abort({ runId: target.runId, restoreEditor: true });
+                else { this.restoreEditorQueue(); await session.abort(); }
+              } else if (session.isBashRunning) this.abortBash({});
+              else if (this.editorHost.getText().trimStart().startsWith("!")) this.editorHost.setText("");
+            }]
+          ]),
           shortcuts: keys => {
             const runner = this.handle!.session.extensionRunner;
             const shortcuts = runner.getShortcuts(keys.getEffectiveConfig());
@@ -1585,7 +1615,7 @@ export class PiWorker {
     }
   }
 
-  private async abort(payload: { commandId?: string; runId: string; preserveQueue?: boolean }): Promise<void> {
+  private async abort(payload: { commandId?: string; runId: string; preserveQueue?: boolean; restoreEditor?: boolean }): Promise<void> {
     if (!this.readyForControl()) {
       this.rejectCommand(payload.commandId, "WORKER_NOT_READY", "worker is not ready");
       return;
@@ -1607,7 +1637,10 @@ export class PiWorker {
     try {
       // Match the native TUI stop order: take the SDK queue first, persist
       // every known input with its original metadata, and only then abort.
-      if (!payload.preserveQueue) this.clearSdkQueue();
+      if (!payload.preserveQueue) {
+        if (payload.restoreEditor) this.restoreEditorQueue();
+        else this.clearSdkQueue();
+      }
       await this.uiContextStorage.run({
         operationId: target.operationId,
         runId: target.runId,

@@ -12,6 +12,7 @@ type Bridge = Parameters<typeof runCustomUi>[1] & {
   paddingX?: number;
   autocompleteMaxVisible?: number;
   shortcuts?(keys: KeybindingsManager): (data: string) => boolean;
+  actions?: ReadonlyMap<string, () => void | Promise<void>>;
 };
 
 /** Keep editor state and callbacks in the worker; use one-shot controls for input. */
@@ -83,8 +84,21 @@ export class EditorHost {
         this.component = editor;
         try {
           this.refresh = () => tui.requestRender();
-          const custom = editor as EditorComponent & { actionHandlers?: Map<unknown, unknown>; onExtensionShortcut?: (data: string) => boolean };
-          if (custom.actionHandlers instanceof Map && !custom.onExtensionShortcut) custom.onExtensionShortcut = bridge.shortcuts?.(keys);
+          const custom = editor as EditorComponent & {
+            actionHandlers?: Map<unknown, unknown>; onExtensionShortcut?: (data: string) => boolean;
+          };
+          if (custom.actionHandlers instanceof Map) {
+            if (!custom.onExtensionShortcut) custom.onExtensionShortcut = bridge.shortcuts?.(keys);
+            for (const [action, handler] of bridge.actions ?? []) {
+              const invoke = () => {
+                if (this.component !== editor || controller.signal.aborted) return;
+                try { void Promise.resolve(handler()).catch(bridge.failure); }
+                catch (error) { bridge.failure(error); }
+              };
+              // Native CustomEditor owns matching, completion and history priority.
+              custom.actionHandlers.set(action, invoke);
+            }
+          }
           editor.onChange = () => { if (this.component === editor) { this.sync(); tui.requestRender(); } };
           editor.onSubmit = text => {
             if (this.component !== editor || controller.signal.aborted || !text.trim()) return;

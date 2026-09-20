@@ -9,6 +9,58 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('native editor actions clear, expand, dismiss completion and restore queued text before stop', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const install = await h.command('extension_command', { text: '/r16-editor' });
+  await h.workerPid(); await h.terminal(install.commandId);
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  let previous;
+  const next = () => until(async () => (await snapshot()).pendingInteractions.find(form => form.interactionId !== previous && form.title.startsWith('扩展编辑器')), 'action editor control', 5000);
+  const answer = async value => {
+    const form = await next(); previous = form.interactionId;
+    const payload = { operationId: form.operationId, interactionId: form.interactionId, response: { value } };
+    const key = randomUUID(); const cmd = await h.command('respond', payload, key); await h.terminal(cmd.commandId);
+    assert.equal((await h.command('respond', payload, key)).commandId, cmd.commandId);
+    await next();
+  };
+  const combo = async key => { await answer('组合键'); await answer(key); };
+  const draft = async text => { const cmd = await h.command('extension_command', { text: `/r16-editor-draft ${text}` }); await h.terminal(cmd.commandId); };
+  const text = async () => (await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1)?.details.args[0];
+  await combo('ctrl+o');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setToolsExpanded').at(-1).details.args[0], true);
+  await combo('ctrl+o');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setToolsExpanded').at(-1).details.args[0], false);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 1, 'held model');
+  await combo('ctrl+c');
+  assert.equal(await text(), '');
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  await draft('cho'); await answer('Tab');
+  await answer('Esc');
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running', 'Esc dismisses completion without stopping');
+  for (let i = 0; i < 2; i++) {
+    const queued = await h.command('steer', { targetRunId: active.runId, text: 'unconsumed draft' }); await h.terminal(queued.commandId);
+  }
+  await draft('current draft'); await answer('Esc');
+  await h.terminal(active.commandId, 'cancelled');
+  assert.equal(await text(), 'unconsumed draft\n\nunconsumed draft\n\ncurrent draft');
+  const returned = h.query("SELECT payload_json FROM events WHERE type = 'input.updated'").map(row => JSON.parse(row.payload_json)).filter(p => p.state === 'returned');
+  assert.equal(new Set(returned.map(p => p.inputId)).size, 2);
+  assert.equal(h.provider.requests.length, 1, 'recovered drafts are never resubmitted');
+  await draft('!!printf started > editor-bash-started; sleep 30'); await answer('Enter');
+  await until(async () => (await h.lines('editor-bash-started')).length === 1, 'editor Bash starts');
+  await answer('Esc');
+  await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.cancelled), 'editor Bash cancelled', 5000);
+  await combo('ctrl+d');
+  assert.ok((await snapshot()).notices.some(n => n.message.includes('终端退出尚未接入')));
+  assert.ok((await snapshot()).pendingInteractions.length > 0);
+  await draft('ab'); await answer('Home'); await combo('ctrl+d');
+  assert.equal(await text(), 'b', 'nonempty Ctrl+D keeps native delete-forward');
+  const replay = await h.connect();
+  assert.ok(replay.events().some(e => e.type === 'runtime.notice' && e.payload.details?.method === 'setToolsExpanded'));
+});
+
 test('terminal listeners consume and transform input before native extension shortcuts', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   for (const text of ['/r16-keys', '/r16-editor']) {
