@@ -1,6 +1,6 @@
 # 开发进度与验证证据
 
-最后更新：2026-09-20。
+最后更新：2026-09-21。
 
 ## 当前状态
 
@@ -25,6 +25,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S11 | blocked | 双设备/弱网合同与实际 server/worker 进程故障集成通过；真实 Android / iOS 设备未运行 |
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
+
+## 2026-09-21 空草稿双 Esc 与模型命令入口
+
+基于 `33e215d`，在原生 CustomEditor 的 app.interrupt 回退中加入空白草稿双 Esc：遵循 SDK 小于 500ms 的窗口和 doubleEscapeAction（默认 tree，可设 fork/none），成功打开后重置计时。补全、自定义 onEscape、扩展快捷键、摘要/压缩/重试取消、停止模型/Bash 和清理 Bash 草稿仍优先；普通停止不计为空闲 Esc。继续使用现有会话菜单去重和编辑器生命周期，不添加默认键位或新 Run。
+
+`/model` 和 `/model 引用` 进入同一 configure Operation。精确匹配直接调用固定 SDK findExactModelReferenceMatch，遵循作用域、provider/id、大小写和歧义；无作用域且缓存未命中时使用原生共享 refreshModelCatalogs，保留 15 秒超时、失败提示与缓存回退，再无匹配则打开带原搜索词的 ModelSelectorComponent。编辑器关闭取消其刷新订阅，不取消其他订阅；确认后的 model_select hook 仍完整等待。普通选择/精确引用 persist=false，不写全局默认值，slash 文本不发给模型。没有公共 schema 或手机代码变更。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：首次构建通过（`test-results/menu-entry-build.log`）；真实会话进程 30/30（`menu-entry-sessions.log`），验证 tree/fork/none、非空稿与停止优先、窗口超时/重置、模型引用/模糊搜索/无结果、运行中 hook 归属与默认配置不变。定向回归 70/70（`menu-entry-targeted.log`），包含新增四项引用歧义、作用域、刷新结果/失败、共享订阅取消和超时释放测试。本轮 `pnpm verify:S07` 原始结果为 12 passed / 4 failed（`menu-entry-s07.log`、`s07/report.json`）：构建、命令合同、五类生命周期表单、30 项会话进程及文档通过。除旧 live-commands / parity-tui-commands 源码身份失效外，新增测试还有未使用参数 lint 和只读 scopedModels 数组 push 的类型错误。已将 mock 改为类型签名、在夹具内部维护可变数组，不改变产品代码或测试断言。保留阶段原始失败报告；最终 lint、测试全量类型检查及受影响四项测试均通过（`menu-entry-lint-final2.log`、`menu-entry-test-types-final.log`、`menu-entry-model-final2.log`）。生产包/服务端/手机类型检查已在阶段运行中通过，无需重跑未变的构建及进程用例。最终文档与差异格式检查通过；S07 保持 blocked，未将补充证据改写为整阶段通过。
+
+未读取模型凭据或调用付费 provider；进程测试仅使用临时项目与本地合成模型接口。真实 provider 目录、交互式 TUI、设备按键/网络时序仍未验收，双端 JS 构建未重跑。其他内置菜单（thinking/settings/scoped-models 等）、终端退出/挂起、共享焦点和原生聊天重绘仍待适配，不把本轮入口补齐记为完整 TUI 或设备通过。
 
 ## 2026-09-20 原生会话树与分支摘要
 

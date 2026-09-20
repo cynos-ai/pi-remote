@@ -9,7 +9,7 @@ import { WidgetHost, type WidgetFactory } from "./widget-host.js";
 import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
-import { createModelSelector, type ModelSelection } from "./model-selector.js";
+import { createModelSelector, findEditorModel, type ModelSelection } from "./model-selector.js";
 import { createSessionSelector } from "./session-selector.js";
 import { createForkSelector } from "./fork-selector.js";
 import { createTreeSelector } from "./tree-selector.js";
@@ -1332,8 +1332,8 @@ export class PiWorker {
     return hub;
   }
 
-  private async configureFromEditor(owner: string, action: "thinking" | "forward" | "backward" | "select", signal?: AbortSignal): Promise<void> {
-    if (owner !== this.currentSessionId || !this.handle) return;
+  private async configureFromEditor(owner: string, action: "thinking" | "forward" | "backward" | "select", signal?: AbortSignal, search?: string): Promise<void> {
+    if (owner !== this.currentSessionId || !this.handle || signal?.aborted) return;
     const context = this.createStandaloneOperation(owner, "configure");
     this.standaloneOperations.delete(context.operationId);
     this.causalCommands.delete(context.operationId);
@@ -1344,8 +1344,11 @@ export class PiWorker {
         if (action === "select") {
           const settings = this.handle!.services.settingsManager;
           const provider = settings.getDefaultProvider(), id = settings.getDefaultModel();
-          const selection = await runCustomUi<ModelSelection | undefined>((tui, _theme, keys, done) =>
-            createModelSelector(tui, keys, session, provider && id ? { provider, id } : undefined, done), {
+          const exact = search ? await findEditorModel(session, search, signal!, (text, type) => this.createUiContext().notify(text, type)) : undefined;
+          if (signal?.aborted || owner !== this.currentSessionId) return;
+          const selection: ModelSelection | undefined = exact ? { model: exact, persist: false }
+            : await runCustomUi<ModelSelection | undefined>((tui, _theme, keys, done) =>
+            createModelSelector(tui, keys, session, provider && id ? { provider, id } : undefined, done, search), {
             agentDir: this.agentDir, signal: signal!, terminalInput: this.terminalInput(owner),
             publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
             inputError: message => this.createUiContext().notify(message, "error"),
@@ -1552,8 +1555,13 @@ export class PiWorker {
     const controller = new AbortController();
     this.customControllers.add(controller);
     let lastClear: number | undefined;
+    let lastEscape = 0;
     let modelMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
+    const openModelMenu = (search?: string) => {
+      if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal, search).finally(() => { modelMenu = undefined; });
+      return modelMenu;
+    };
     const openSessionMenu = (action: "resume" | "fork" | "tree") => {
       if (!sessionMenu) sessionMenu = (action === "tree" ? this.treeFromEditor(owner, controller.signal)
         : this.sessionFromEditor(owner, action, controller.signal)).finally(() => { sessionMenu = undefined; });
@@ -1572,10 +1580,7 @@ export class PiWorker {
             ["app.session.resume", () => openSessionMenu("resume")],
             ["app.session.fork", () => openSessionMenu("fork")],
             ["app.session.tree", () => openSessionMenu("tree")],
-            ["app.model.select", () => {
-              if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal).finally(() => { modelMenu = undefined; });
-              return modelMenu;
-            }],
+            ["app.model.select", () => openModelMenu()],
             ["app.thinking.cycle", () => this.configureFromEditor(owner, "thinking")],
             ["app.model.cycleForward", () => this.configureFromEditor(owner, "forward")],
             ["app.model.cycleBackward", () => this.configureFromEditor(owner, "backward")],
@@ -1598,6 +1603,14 @@ export class PiWorker {
                 else { this.restoreEditorQueue(); await session.abort(); }
               } else if (session.isBashRunning) this.abortBash({});
               else if (this.editorHost.getText().trimStart().startsWith("!")) this.editorHost.setText("");
+              else if (!this.editorHost.getText().trim()) {
+                const action = this.handle!.services.settingsManager.getDoubleEscapeAction();
+                if (action !== "none") {
+                  const now = Date.now();
+                  if (now - lastEscape < 500) { lastEscape = 0; await openSessionMenu(action === "tree" ? "tree" : "fork"); }
+                  else lastEscape = now;
+                }
+              }
             }]
           ]),
           shortcuts: keys => {
@@ -1636,6 +1649,7 @@ export class PiWorker {
           submit: async text => {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
+            if (text === "/model" || text.startsWith("/model ")) { await openModelMenu(text.slice(7).trim() || undefined); return; }
             if (text === "/resume" || text === "/fork") { await openSessionMenu(text === "/fork" ? "fork" : "resume"); return; }
             if (text === "/tree") { await openSessionMenu("tree"); return; }
             if (text === "/new") { await this.sessionFromEditor(owner, "new", controller.signal); return; }

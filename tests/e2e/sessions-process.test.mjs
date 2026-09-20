@@ -9,8 +9,8 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
-async function treeHarness(t, settings = {}) {
-  const h = await RealProcessHarness.create(t, { extension: true });
+async function treeHarness(t, settings = {}, options = {}) {
+  const h = await RealProcessHarness.create(t, { extension: true, ...options });
   await writeFile(join(h.agent, 'keybindings.json'), JSON.stringify({ 'app.session.tree': 'ctrl+alt+t', 'app.message.copy': 'ctrl+alt+c' }));
   const settingsPath = join(h.agent, 'settings.json');
   await writeFile(settingsPath, JSON.stringify({ ...JSON.parse(await readFile(settingsPath, 'utf8')), ...settings }));
@@ -34,6 +34,69 @@ async function treeHarness(t, settings = {}) {
   const after = async count => until(async () => { const lines = await h.lines('tree-after'); return lines.length >= count ? JSON.parse(lines.at(-1)) : undefined; }, 'native tree event', 5000);
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
+
+for (const action of ['tree', 'fork', 'none']) {
+  test(`empty editor double Escape follows native ${action} setting without taking over stop`, { timeout: 120000 }, async t => {
+    const { h, command, extension, snapshot, next, key } = await treeHarness(t, { doubleEscapeAction: action });
+    await command('prompt', { text: 'DOUBLE_ESCAPE_SOURCE' }); await extension('/r16-editor');
+    const menus = async () => (await snapshot()).pendingInteractions.filter(f => ['会话树', '分叉会话'].includes(f.title));
+    await key('扩展编辑器', 'Esc'); await key('扩展编辑器', 'Esc');
+    assert.equal((await menus()).length, 0, 'nonempty editor cannot open a session menu');
+    await extension('/r16-editor-draft');
+    const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+    await until(() => h.provider.requests.length === 2, 'double Escape active response', 5000);
+    await key('扩展编辑器', 'Esc'); await h.terminal(active.commandId, 'cancelled');
+    assert.equal((await menus()).length, 0, 'stop does not count as an idle Escape');
+    await key('扩展编辑器', 'Esc');
+    assert.equal((await menus()).length, 0);
+    // A key outside the native window becomes a new first press.
+    await new Promise(resolve => setTimeout(resolve, 550));
+    await key('扩展编辑器', 'Esc'); assert.equal((await menus()).length, 0);
+    await key('扩展编辑器', 'Esc');
+    if (action === 'none') assert.equal((await menus()).length, 0);
+    else {
+      const title = action === 'tree' ? '会话树' : '分叉会话';
+      await next(title); assert.equal((await menus()).length, 1);
+      await key(title, 'Esc');
+      await key('扩展编辑器', 'Esc'); assert.equal((await menus()).length, 0, 'successful double Escape resets its window');
+    }
+    assert.equal(h.provider.requests.length, 2, 'menus never submit a model prompt');
+  });
+}
+
+test('model slash selects exact native references, searches partial references and keeps defaults unchanged', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, answer, key } = await treeHarness(t, {}, { editorModels: true });
+  const settings = await readFile(join(h.agent, 'settings.json'), 'utf8');
+  await extension('/r16-editor');
+  const submit = async text => { await extension(`/r16-editor-draft ${text}`); await key('扩展编辑器', 'Enter'); };
+  const model = async () => (await snapshot()).session.model;
+  const original = await model();
+  await submit('/model'); await next('模型选择'); await key('模型选择', 'Esc');
+  await submit(`/model ${original.provider.toUpperCase()}/REASONED`);
+  await until(async () => (await model()).id === 'reasoned', 'exact slash model selection', 5000);
+  assert.ok(!(await snapshot()).pendingInteractions.some(f => f.title === '模型选择'));
+  await submit('/model deterministic');
+  await until(async () => (await model()).id === 'deterministic', 'bare exact model id', 5000);
+  await submit('/model reaso'); await next('模型选择');
+  await until(async () => (await snapshot()).notices.some(n => n.details?.method === 'custom.render' && JSON.stringify(n.details.args).includes('reaso')), 'prefilled model search', 5000);
+  await key('模型选择', 'Enter');
+  await until(async () => (await model()).id === 'reasoned', 'partial search selection', 5000);
+  await submit('/model no-such-model'); await next('模型选择'); await key('模型选择', 'Esc');
+  assert.equal((await model()).id, 'reasoned');
+  await extension('/r16-config-hooks model');
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 1, 'streaming during model slash', 5000);
+  await submit('/model deterministic');
+  const hook = await next('editor-model-first');
+  assert.notEqual(hook.operationId, active.operationId);
+  assert.equal(hook.origin, 'configure'); assert.equal(hook.runId, null);
+  await answer('editor-model-first', { confirmed: true }); await key('editor-model-second', 'slash-hook');
+  await until(async () => (await model()).id === 'deterministic', 'model slash hook completion', 5000);
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  await key('扩展编辑器', 'Esc'); await h.terminal(active.commandId, 'cancelled');
+  assert.equal(await readFile(join(h.agent, 'settings.json'), 'utf8'), settings);
+  assert.equal(h.provider.requests.length, 1);
+});
 
 test('native tree preserves search, labels, copy, hook cancellation and selected branch context', { timeout: 120000 }, async t => {
   const { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after } = await treeHarness(t);
