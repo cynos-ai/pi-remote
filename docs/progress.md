@@ -26,6 +26,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 原生历史恢复菜单与新建会话
+
+基于 `0c9d6f4`，接入 SessionSelectorComponent：沿 SDK current/all 列表、搜索、排序、命名过滤、路径显示、重命名、删除确认和当前历史保护。app.session.resume/new 沿原生默认保持无键位，可自定义绑定；CustomEditor 的完整 `/resume` 和 `/new` 也进入同一流程，不作为 prompt 发给模型。选择/新建使用 extensionRunner.createCommandContext 的已绑定动作，保留现有持久 intent、历史校验、替换串行和映射 ACK，不另开未经保护的 runtime 路径。菜单是独立 extension Operation，原生退出入口仍明确提示待适配。
+
+当前历史重命名通过 setSessionName 同步手机标题；非当前历史先校验文件/身份再 appendSessionInfo，手机标题在下次加载时同步。删除沿 SDK trash/unlink 与确认行为，只删除原生 JSONL，不删除手机事件记录；这一区别已写入菜单说明。菜单关闭清理状态计时器并停止渲染；会话替换使旧编辑器和菜单失效，源历史保持原内容。缺失/损坏的历史不能因恢复或重命名而静默重建。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：构建通过（`test-results/session-menu-build.log`）。首次真实进程 20/21（`session-menu-sessions-initial.log`），失败是测试假设 Ctrl+U 会清空预填重命名框；实际原生光标在开头，得到 MENU_RENAMEDMENU_SOURCE。按原生编辑行为先移到行尾再删除，原断言保持不变，复验 21/21（`session-menu-sessions-final.log`）。定向 SDK/editor/custom/terminal/runtime 66/66（`session-menu-targeted.log`）。最终 `pnpm verify:S07` 为 14 passed / 2 failed（`session-menu-s07.log`、`s07/report.json`）：构建、命令合同、五类表单、21 项会话进程、lint、全量 typecheck 和文档均通过；包含新增 slash 入口和列表展示后损坏历史的拒绝/保留源会话断言。失败仍是旧 live-commands / parity-tui-commands 源码身份失效。最终文档及差异格式检查通过，S07 保持 blocked，不将本地验证标为整阶段通过。
+
+未读取模型凭据或调用付费 provider。真实 TUI、设备、跨 worker 的原生历史变更及跨项目菜单矩阵未验收；树导航/分叉菜单、共享焦点和终端退出仍待适配。本轮未改协议 schema 或手机代码，双端 JS 构建未重跑；原生历史删除不代表手机事件清除功能已实现。
+
 ## 2026-09-20 原生模型选择菜单
 
 基于 `93cf24e`，Ctrl+L / app.model.select 接入固定 SDK 的 ModelSelectorComponent；内部模块加载集中在 agent-pi，新模块不向公共协议暴露 SDK 对象。直接保留原生搜索、后台目录刷新、空结果、上下选择、作用域 Tab、取消及保存默认键，菜单使用既有固定文本主题与该 worker 的原生 TUI keybindings。菜单沿 custom.render/select/input 持久表单提供控制和回放，重复打开不创建第二个菜单。

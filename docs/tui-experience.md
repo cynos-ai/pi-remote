@@ -76,7 +76,7 @@ ctx.ui.onTerminalInput 已接入当前 Session 的 custom/editor 虚拟终端，
 
 普通提交经 SDK prompt，运行中使用 steer；扩展 slash 保留即时处理；`!` / `!!` 使用原生用户 Bash hook 和执行器，不误发为模型文本。后续用户提交不归因于早先安装编辑器的扩展命令：独立 Operation、原生因果 Run，外部 Command 可空。提交异常保留文本为草稿，不自动重发、不覆盖用户较新的草稿。取消编辑器控件/恢复默认/会话替换会关闭旧按键并保留草稿；停止编辑器不停止已开始的模型任务。worker 重启不恢复内存回调。
 
-终端专用内置 slash 菜单尚未接入该编辑器路径，识别后提示使用手机对应入口并保留文本，不能当普通 prompt 发给模型。完整应用快捷键、压缩期间排队对照、图片粘贴及真机键盘手感仍待验收，现有手机附件及模型/会话/压缩入口继续独立使用。本适配不宣称完整交互式 TUI 已通过。
+除已接入的 `/new`、`/resume` 外，其他终端专用内置 slash 菜单尚未接入该编辑器路径，识别后提示使用手机对应入口并保留文本，不能当普通 prompt 发给模型。完整应用快捷键、压缩期间排队对照、图片粘贴及真机键盘手感仍待验收，现有手机附件及模型/会话/压缩入口继续独立使用。本适配不宣称完整交互式 TUI 已通过。
 
 应用输入监听按注册顺序安装到原生 TUI，支持 consume、data 改写、晚注册和取消订阅；组件自身的 tui.addInputListener 保持原生相对顺序。会话替换清理旧应用监听，仍待答的源 custom 组件保留自己的局部监听和按键能力；新 Session 不继承旧监听。worker 退出释放全部订阅。扩展 registerShortcut 使用原生 getShortcuts 的冲突处理及 matchesKey，绑定到具有 actionHandlers 的 CustomEditor；保留扩展自定义 onExtensionShortcut。快捷键回调使用 SDK createContext，异步不阻塞输入，错误归属原编辑器 Session，不能把快捷键注册套到所有普通 custom 组件。
 
@@ -87,5 +87,7 @@ CustomEditor 默认应用动作已接入 Esc、Ctrl+C 和 Ctrl+O，并沿用用�
 模型循环现已接入原生 app.model.cycleForward/cycleBackward（Linux 默认 Ctrl+P / Ctrl+Shift+P），思考等级循环接入 app.thinking.cycle（默认 Shift+Tab）；用户 keybindings 和显式历史键优先级保留。支持运行中切换，配置同步到手机并由 SDK 写入当前会话历史，不改全局默认值，也不重启当前模型请求。只有一个可用模型或当前模型不支持思考等级时提示原因。配置 hook 的表单独立于编辑器控制表单和模型 Run，可正常作答/取消；思考块显示切换和会话菜单仍待适配。
 
 CustomEditor 的 Ctrl+L（app.model.select，可重映射）现可打开原生模型菜单，沿现有文本画面和输入表单使用搜索、目录刷新、上下选择、作用域 Tab、Enter 选择及 Ctrl+S 保存默认值；具体键位以原生菜单提示和用户配置为准。普通选择只改当前会话，保存默认值才更新全局配置。Esc/表单取消保留编辑器草稿与当前模型，不停止执行；关闭编辑器或切换 Session 后旧菜单失效。菜单已选中时先收起画面，再展示 model_select 扩展表单。当前菜单和编辑器分属独立虚拟表面，不宣称共享终端焦点；内置 slash `/model` 解析入口仍未接入。
+
+CustomEditor 输入 `/resume` 可打开原生历史菜单，`/new` 新建会话，也可配置 app.session.resume/new 快捷键（SDK 默认无绑定）。菜单保留搜索、作用域、排序/命名过滤、路径展示，以及原生重命名和确认删除；当前历史不能删除。重命名当前会话立即同步手机标题，其他历史标题在后续加载时同步。删除只移除原生历史文件，手机事件记录保留；菜单明确提示这一差异，缺失历史不会被静默重建。取消菜单不停止活动模型；选择后走既有会话映射，旧编辑器按键失效。树导航、分叉菜单和终端退出尚未完成，以上仍不等于完整 TUI 或设备验收。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

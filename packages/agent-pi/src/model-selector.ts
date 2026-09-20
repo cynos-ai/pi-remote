@@ -18,11 +18,15 @@ const themes = await import(new URL("./modes/interactive/theme/theme.js", import
 
 export function createModelSelector(tui: TUI, keys: KeybindingsManager, session: AgentSession,
   defaults: { provider: string; id: string } | undefined, done: (result?: ModelSelection) => void, search?: string): Selector {
+  initializeNativeMenu(keys);
+  return new native.ModelSelectorComponent(tui, session.model, session.modelRuntime, session.scopedModels,
+    model => done({ model, persist: false }), () => done(), search,
+    model => done({ model, persist: true }), defaults);
+}
+
+export function initializeNativeMenu(keys: KeybindingsManager): void {
   // Native menus use the application-wide theme and TUI keybinding manager.
   // Each worker owns one agent configuration and uses the same fixed text theme.
   themes.setThemeInstance(nativeTextTheme());
   setKeybindings(keys);
-  return new native.ModelSelectorComponent(tui, session.model, session.modelRuntime, session.scopedModels,
-    model => done({ model, persist: false }), () => done(), search,
-    model => done({ model, persist: true }), defaults);
 }

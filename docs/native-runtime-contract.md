@@ -22,6 +22,10 @@ onTerminalInput 订阅按 Session 隔离，直接注册到各原生交互 TUI；
 
 app.model.select 复用固定 SDK ModelSelectorComponent，搜索、目录刷新、作用域、选择/取消/保存默认键均由原组件处理；主题使用现有固定文本主题，原生全局 TUI 键位使用该 worker 的 agent 配置。菜单有独立 configure Operation 与 custom.render/select/input 控制，重复打开复用同一菜单任务。选中后关闭菜单表面，再在同一配置 Operation 调用 setModel；标准扩展表单可继续待答，编辑器仍可接收其他操作。普通选择 persist=false，保存默认选择 persist=true 并等待 SettingsManager.flush。取消不切模型、不清草稿、不停止 Run。编辑器关闭/替换或 Session 替换会取消尚未选择的菜单，旧响应不得用于新 Session；已经确认的配置仍按 SDK hook 完成。菜单与编辑器是独立虚拟表面，尚不等同于原生终端共享焦点。
 
+app.session.resume/new 和编辑器中的完整 `/resume`、`/new` 分别进入原生历史选择与新建流程；快捷键沿原生默认保持未绑定，可由用户配置。菜单使用 SessionSelectorComponent 和 SessionManager 原生 current/all 列表，保留搜索、排序、命名过滤、路径显示、重命名和删除确认。当前历史禁止删除由原组件执行。重命名前校验持久文件；当前 Session 调用 setSessionName 以同步事件，其他文件校验后 appendSessionInfo，不允许缺失/损坏历史被 open 重建。非当前历史的手机标题在后续加载时同步；删除原生 JSONL 不删除手机事件记录，后续打开缺失历史仍失败，不自动重建。
+
+选择或新建通过已绑定的 SDK commandContextActions 执行，保留会话替换串行、持久 intent、目标校验和映射 ACK；不直接调用未包装的 runtime.switchSession。动作占独立无 Command/Run 的 extension Operation，取消只完成该操作；失败通知原编辑器并保留源 Session。编辑器关闭或会话替换后未完成菜单失效，已选中后的标准 hook 遵循原生生命周期。退出终端仍显示待适配，树导航/分叉菜单和跨虚拟表面焦点另验。
+
 会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
 
 Run 只记录实际 prompt / compact 生命周期。每个 Run 有唯一 operationId、source（command / extension / runtime）及可空 commandId。commandId 是外部请求的因果来源：一次扩展命令可产生多个顺序 Run，后台扩展也可没有手机请求。不得伪造设备、HTTP 命令或模型 Run 来凑表约束。同 Session 最多一个活动模型 Run，独立 Bash / 扩展内容不占此槽。

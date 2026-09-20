@@ -10,6 +10,7 @@ import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
 import { createModelSelector, type ModelSelection } from "./model-selector.js";
+import { createSessionSelector } from "./session-selector.js";
 import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
 import { TerminalInputHub } from "./terminal-input.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
@@ -1380,6 +1381,38 @@ export class PiWorker {
     }
   }
 
+  private async sessionFromEditor(owner: string, action: "new" | "resume", signal: AbortSignal): Promise<void> {
+    if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
+    const context = this.createStandaloneOperation(owner);
+    this.standaloneOperations.delete(context.operationId);
+    this.causalCommands.delete(context.operationId);
+    try {
+      await this.uiContextStorage.run(context, async () => {
+        let path: string | undefined;
+        if (action === "resume") {
+          path = await runCustomUi<string | undefined>((tui, _theme, keys, done) =>
+            createSessionSelector(tui, keys, this.handle!.session, done,
+              () => this.createUiContext().notify("终端退出尚未接入；会话继续运行", "error")), {
+            agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
+            publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+            inputError: message => this.createUiContext().notify(message, "error"),
+            ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "恢复会话" : "会话菜单输入", {
+              ...(keys ? { options: keys } : {}), message: "原生历史菜单：搜索并选择恢复；重命名/删除作用于原生历史，手机事件记录保留。删除遵循菜单确认。"
+            }, { signal: inputSignal })
+          });
+          if (!path) return;
+        }
+        if (signal.aborted || owner !== this.currentSessionId) return;
+        // Use the bound SDK command actions: these validate persistent history,
+        // serialize replacements and await the server's identity mapping ACK.
+        const actions = this.handle!.session.extensionRunner.createCommandContext();
+        if (action === "new") await actions.newSession();
+        else await actions.switchSession(path!);
+      });
+      this.emitOperationStatus("completed", context);
+    } catch (error) { this.emitOperationStatus("failed", context); throw error; }
+  }
+
   private setEditor(factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0]): void {
     if (!factory) {
       this.editorHost.stop();
@@ -1396,6 +1429,11 @@ export class PiWorker {
     this.customControllers.add(controller);
     let lastClear: number | undefined;
     let modelMenu: Promise<void> | undefined;
+    let sessionMenu: Promise<void> | undefined;
+    const resumeSession = () => {
+      if (!sessionMenu) sessionMenu = this.sessionFromEditor(owner, "resume", controller.signal).finally(() => { sessionMenu = undefined; });
+      return sessionMenu;
+    };
     const failure = (error: unknown) => this.send("extension_error", {
       sessionId: owner, operationId: context.operationId, extensionPath: "editor", event: "input", error: bounded(errorMessage(error), 2000)
     });
@@ -1405,6 +1443,8 @@ export class PiWorker {
           agentDir: this.agentDir, signal: controller.signal,
           terminalInput: this.terminalInput(owner), inputError: failure,
           actions: new Map<string, () => void | Promise<void>>([
+            ["app.session.new", () => this.sessionFromEditor(owner, "new", controller.signal)],
+            ["app.session.resume", resumeSession],
             ["app.model.select", () => {
               if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal).finally(() => { modelMenu = undefined; });
               return modelMenu;
@@ -1468,6 +1508,8 @@ export class PiWorker {
           submit: async text => {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
+            if (text === "/resume") { await resumeSession(); return; }
+            if (text === "/new") { await this.sessionFromEditor(owner, "new", controller.signal); return; }
             if (nativeSlashCommands.BUILTIN_SLASH_COMMANDS.some(command => command.name === name)) {
               throw new Error(`/${name} 的终端菜单尚未接入编辑器；请使用手机对应控制入口，文本已保留`);
             }

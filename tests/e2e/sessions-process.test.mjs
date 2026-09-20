@@ -1,13 +1,90 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { RealProcessHarness, until } from './real-process-harness.mjs';
 
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
+
+test('native session menu renames, protects current history, deletes with confirmation, resumes and starts new sessions', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  await writeFile(join(h.agent, 'keybindings.json'), JSON.stringify({ 'app.session.resume': 'ctrl+alt+r', 'app.session.new': 'ctrl+alt+n' }));
+  const command = async (kind, payload) => { const receipt = await h.command(kind, payload); await h.workerPid(); await h.terminal(receipt.commandId); return receipt; };
+  await command('prompt', { text: 'SESSION_MENU_SOURCE' });
+  await command('extension_command', { text: '/r16-title MENU_SOURCE' });
+  const source = mapping(h);
+  const entries = await history(source.pi_session_file);
+  const targetId = randomUUID(), targetPath = join(dirname(source.pi_session_file), `${targetId}.jsonl`);
+  const trashId = randomUUID(), trashPath = join(dirname(source.pi_session_file), `${trashId}.jsonl`);
+  const fixture = (id, name) => entries.map(e => JSON.stringify(e.type === 'session' ? { ...e, id } : e.type === 'session_info' ? { ...e, name } : e)).join('\n') + '\n';
+  await writeFile(targetPath, fixture(targetId, 'MENU_TARGET')); await writeFile(trashPath, fixture(trashId, 'MENU_TRASH'));
+  await command('extension_command', { text: '/r16-editor' });
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  const used = new Set();
+  const next = title => until(async () => (await snapshot()).pendingInteractions.find(form => form.title === title && !used.has(form.interactionId)), title, 5000);
+  const key = async (title, value) => {
+    const form = await next(title); used.add(form.interactionId);
+    const payload = { operationId: form.operationId, interactionId: form.interactionId, response: { value } };
+    const id = randomUUID(); const answer = await command('respond', payload);
+    // Retrying a consumed interaction with a new id must be rejected.
+    await assert.rejects(h.command('respond', payload, id), /INTERACTION_CLOSED/);
+    return { form, answer };
+  };
+  const editorCombo = async value => { await key('扩展编辑器', '组合键'); await key('扩展编辑器输入文本', value); };
+  const combo = async value => { await key('恢复会话', '组合键'); await key('会话菜单输入', value); };
+  const open = async (slash = false) => {
+    if (slash) { await command('extension_command', { text: '/r16-editor-draft /resume' }); await key('扩展编辑器', 'Enter'); }
+    else await editorCombo('ctrl+alt+r');
+    return next('恢复会话');
+  };
+  const search = async value => { await key('恢复会话', '输入文本'); await key('会话菜单输入', value); await next('恢复会话'); };
+  const frame = async text => until(async () => (await snapshot()).notices.some(n => n.details?.method === 'custom.render' && JSON.stringify(n.details.args).includes(text)), `session menu frame ${text}`, 5000);
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  const stream = await h.connect(); await until(() => stream.events().some(e => e.runId === active.runId && e.type === 'content.delta'), 'active stream');
+  await open(true); await frame('MENU_TARGET'); await key('恢复会话', 'Esc');
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  await key('扩展编辑器', 'Esc'); await h.terminal(active.commandId, 'cancelled');
+  await open(); await search('MENU_SOURCE'); await combo('ctrl+d');
+  await readFile(source.pi_session_file, 'utf8');
+  await frame('Cannot delete the currently active session');
+  await combo('ctrl+r'); await combo('ctrl+e'); await combo('ctrl+u'); await search('MENU_RENAMED'); await key('恢复会话', 'Enter');
+  await until(() => h.query('SELECT title FROM sessions WHERE id = ?', source.id)[0].title === 'MENU_RENAMED', 'current rename projected', 5000);
+  await key('恢复会话', 'Esc');
+  await open(); await search('MENU_TRASH'); await combo('ctrl+d'); await key('恢复会话', 'Esc');
+  await readFile(trashPath, 'utf8');
+  await combo('ctrl+d'); await key('恢复会话', 'Enter');
+  await until(async () => !(await readdir(dirname(trashPath))).includes(`${trashId}.jsonl`), 'native deletion after confirmation', 5000);
+  await key('恢复会话', 'Esc');
+  const sourceBytes = await readFile(source.pi_session_file, 'utf8');
+  const validTarget = await readFile(targetPath, 'utf8');
+  await open(); await search('MENU_TARGET');
+  await writeFile(targetPath, '{broken-json\n');
+  await key('恢复会话', 'Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('history') && n.message.includes('invalid')), 'invalid menu target diagnostic', 5000);
+  assert.equal(await readFile(targetPath, 'utf8'), '{broken-json\n', 'stale menu selection must not silently recreate history');
+  assert.equal(mapping(h).pi_session_id, source.pi_session_id);
+  await writeFile(targetPath, validTarget);
+  await open(); await search('MENU_TARGET');
+  const oldEditor = await next('扩展编辑器');
+  const replay = await h.connect(); assert.ok(replay.events().some(e => e.type === 'runtime.notice' && e.payload.details?.method === 'custom.render' && JSON.stringify(e.payload.details.args).includes('MENU_TARGET')));
+  await key('恢复会话', 'Enter');
+  const destination = await until(() => h.query('SELECT id FROM sessions WHERE pi_session_id = ?', targetId)[0], 'resumed target identity');
+  assert.equal(await readFile(source.pi_session_file, 'utf8'), sourceBytes);
+  await assert.rejects(h.command('respond', { operationId: oldEditor.operationId, interactionId: oldEditor.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  h.sessionId = destination.id;
+  await command('prompt', { text: 'RESUMED_FROM_MENU' });
+  assert.ok(JSON.stringify(h.provider.requests.at(-1)).includes('SESSION_MENU_SOURCE'));
+  await command('extension_command', { text: '/r16-editor' });
+  const targetBytes = await readFile(targetPath, 'utf8');
+  const count = h.query('SELECT COUNT(*) AS count FROM sessions')[0].count;
+  await command('extension_command', { text: '/r16-editor-draft /new' }); await key('扩展编辑器', 'Enter');
+  await until(() => h.query('SELECT COUNT(*) AS count FROM sessions')[0].count === count + 1, 'new session via app action');
+  assert.equal(await readFile(targetPath, 'utf8'), targetBytes);
+  assert.equal(h.provider.requests.length, 3, 'new/resume actions do not prompt');
+});
 
 test('native model menu searches, cancels, replays, saves defaults and closes with its editor', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true, editorModels: true });
