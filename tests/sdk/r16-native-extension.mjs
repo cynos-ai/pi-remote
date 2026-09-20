@@ -4,6 +4,30 @@ import { join } from 'node:path';
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  let overlayHandle;
+  pi.registerCommand('r16-overlay-show', {
+    description: 'Restore a pending native overlay',
+    handler: async () => { overlayHandle.setHidden(false); overlayHandle.focus(); }
+  });
+  pi.registerCommand('r16-overlay', {
+    description: 'Native overlay geometry, hidden input and original done result',
+    handler: async (_args, ctx) => {
+      const path = join(ctx.cwd, 'overlay-results');
+      let disposed = false;
+      let inputs = 0;
+      const result = await ctx.ui.custom((_tui, _theme, _keys, done) => ({
+        render: width => [`overlay:${width}:${inputs}`],
+        invalidate() {},
+        handleInput() {
+          inputs++;
+          if (inputs === 1) overlayHandle.setHidden(true);
+          else done({ inputs, bounds: overlayHandle.getBounds(), focused: overlayHandle.isFocused() });
+        },
+        dispose() { disposed = true; }
+      }), { overlay: true, overlayOptions: { width: 20, row: 1, col: 2 }, onHandle: handle => { overlayHandle = handle; } });
+      await appendFile(path, JSON.stringify({ result, disposed }) + '\n');
+    }
+  });
   pi.registerCommand('r16-custom', {
     description: 'Custom keyboard component returns its own done value',
     handler: async (_args, ctx) => {

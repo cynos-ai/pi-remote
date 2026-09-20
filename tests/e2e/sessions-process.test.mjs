@@ -8,6 +8,45 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('native overlay hides input, restores focus and replays its composited frame', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const receipt = await h.command('extension_command', { text: '/r16-overlay' });
+  await h.workerPid();
+  let previous;
+  const next = () => until(async () => (await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`)).pendingInteractions.find(item => item.interactionId !== previous), 'overlay control');
+  const enter = async () => {
+    const form = await next();
+    previous = form.interactionId;
+    const answer = await h.command('respond', { operationId: form.operationId, interactionId: form.interactionId, response: { value: 'Enter' } });
+    await h.terminal(answer.commandId);
+    await next();
+  };
+  await enter(); // First input hides the overlay.
+  await enter(); // Hidden overlay must not receive this input.
+  assert.equal((await h.lines('overlay-results')).length, 0);
+  const hidden = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  assert.ok(!hidden.notices.filter(n => n.details?.method === 'custom.render').at(-1).details.args[1].some(line => line.includes('overlay:')));
+  const restore = await h.command('extension_command', { text: '/r16-overlay-show' });
+  await h.terminal(restore.commandId);
+  const replay = await h.connect();
+  const frames = replay.events().filter(e => e.type === 'runtime.notice' && e.payload.details?.method === 'custom.render');
+  assert.ok(frames.at(-1).payload.details.args[1][1].startsWith('  overlay:20:1'));
+  const form = await next();
+  const answer = await h.command('respond', { operationId: form.operationId, interactionId: form.interactionId, response: { value: 'Enter' } });
+  await h.terminal(answer.commandId);
+  await h.terminal(receipt.commandId);
+  const saved = JSON.parse((await h.lines('overlay-results'))[0]);
+  assert.equal(saved.disposed, true);
+  assert.equal(saved.result.inputs, 2);
+  assert.equal(saved.result.focused, true);
+  assert.equal(saved.result.bounds.width, 20);
+  const final = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  assert.equal(final.pendingInteractions.length, 0);
+  assert.equal(final.notices.filter(n => n.details?.method === 'custom.render').at(-1).details.args[1], null);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  assert.equal(h.provider.requests.length, 0);
+});
+
 test('custom component keys/text survive reconnect, return native done results and cancel explicitly', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   const receipt = await h.command('extension_command', { text: '/r16-custom' });

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCustomUi } from "../../packages/agent-pi/src/custom-ui.js";
+import type { CustomTextTui } from "../../packages/agent-pi/src/custom-tui.js";
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 const temporaryAgents: string[] = [];
@@ -27,6 +28,93 @@ function bridge() {
 }
 
 describe("native custom component input lifecycle", () => {
+  it("cleans up failed overlay installation and rendering", async () => {
+    for (const point of ["layout", "handle", "render"]) {
+      const h = bridge();
+      let disposed = 0;
+      await expect(runCustomUi(() => ({
+        render: () => { if (point === "render") throw new Error(point); return ["overlay"]; },
+        invalidate() {}, dispose() { disposed++; }
+      }), h.options, {
+        overlay: true,
+        overlayOptions: () => { if (point === "layout") throw new Error(point); return { width: 20 }; },
+        onHandle: () => { if (point === "handle") throw new Error(point); }
+      })).rejects.toThrow(point);
+      expect(disposed).toBe(1);
+      expect(h.frames.at(-1)).toBeNull();
+    }
+  });
+
+  it("routes through native input listeners and the selected nested focus target", async () => {
+    const h = bridge();
+    const input: string[] = [];
+    const result = runCustomUi((tui, _theme, _keys, done) => {
+      const child = { focused: false, render: () => ["child"], invalidate() {}, handleInput(data: string) { input.push(`child:${data}`); if (data === "\t") done("child completed"); } };
+      tui.addInputListener(data => data === "\u001b[A" ? { consume: true } : data === "\r" ? { data: "\t" } : undefined);
+      return {
+        children: [child], focused: false, render: () => ["root", ...child.render()], invalidate() {},
+        handleInput(data) { input.push(`root:${data}`); tui.setFocus(child); }
+      };
+    }, h.options);
+    await tick(); h.questions.at(-1)!.answer({ value: "Tab" });
+    await tick(); h.questions.at(-1)!.answer({ value: "↑" });
+    await tick(); h.questions.at(-1)!.answer({ value: "Enter" });
+    expect(await result).toBe("child completed");
+    expect(input).toEqual(["root:\t", "child:\t"]);
+  });
+
+  it("uses native overlay geometry, visibility, focus and onHandle without sending hidden keys", async () => {
+    const h = bridge();
+    let handle!: ReturnType<CustomTextTui["showOverlay"]>;
+    let calls = 0;
+    let disposed = 0;
+    let layoutCalls = 0;
+    const result = runCustomUi((_tui, _theme, _keys, done) => ({
+      focused: false, render: width => [`overlay width=${width}`], invalidate() {},
+      handleInput() { calls++; done("overlay result"); }, dispose() { disposed++; }
+    }), h.options, {
+      overlay: true,
+      overlayOptions: () => { layoutCalls++; return { width: 20, row: 1, col: 2 }; },
+      onHandle: value => { handle = value; }
+    });
+    await tick();
+    expect(handle.getBounds()).toEqual({ row: 1, col: 2, width: 20, height: 1 });
+    expect(h.frames.at(-1)?.[1]).toContain("  overlay width=20");
+    expect(handle.isFocused()).toBe(true);
+    handle.setHidden(true); await tick();
+    expect(handle.isHidden()).toBe(true);
+    expect(h.frames.at(-1)?.join("")).not.toContain("overlay width");
+    h.questions.at(-1)!.answer({ value: "Enter" }); await tick();
+    expect(calls).toBe(0);
+    handle.setHidden(false); handle.focus(); await tick();
+    h.questions.at(-1)!.answer({ value: "Enter" });
+    expect(await result).toBe("overlay result");
+    expect(calls).toBe(1);
+    expect(disposed).toBe(1);
+    expect(layoutCalls).toBe(1); // Matches the pinned SDK's showExtensionCustom.
+    handle.setHidden(false); await tick();
+    expect(h.frames.at(-1)).toBeNull();
+  });
+
+  it("preserves non-capturing overlays, explicit focus release, and permanent removal", async () => {
+    const h = bridge();
+    let handle!: ReturnType<CustomTextTui["showOverlay"]>;
+    const input: string[] = [];
+    const result = runCustomUi((tui, _theme, _keys, done) => {
+      const base = { focused: false, render: () => ["base"], invalidate() {}, handleInput() { input.push("base"); if (input.length === 4) done("restored"); } };
+      tui.addChild(base); tui.setFocus(base);
+      return { focused: false, width: 18, render: () => ["overlay"], invalidate() {}, handleInput() { input.push("overlay"); } };
+    }, h.options, { overlay: true, overlayOptions: { nonCapturing: true }, onHandle: value => { handle = value; } });
+    await tick();
+    expect(handle.isFocused()).toBe(false);
+    h.questions.at(-1)!.answer({ value: "Enter" }); await tick();
+    handle.focus(); h.questions.at(-1)!.answer({ value: "Enter" }); await tick();
+    handle.unfocus(); h.questions.at(-1)!.answer({ value: "Enter" }); await tick();
+    handle.hide(); handle.setHidden(false); h.questions.at(-1)!.answer({ value: "Enter" });
+    expect(await result).toBe("restored");
+    expect(input).toEqual(["base", "overlay", "base", "base"]);
+  });
+
   it("handles synchronous done and factory/render failures without leaving controls", async () => {
     const immediate = bridge();
     let disposed = 0;

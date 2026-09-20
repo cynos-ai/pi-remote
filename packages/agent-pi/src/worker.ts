@@ -1296,10 +1296,6 @@ export class PiWorker {
       fields: { options?: string[]; message?: string; placeholder?: string; prefill?: string },
       options?: ExtensionUIDialogOptions
     ) => this.requestInteraction(kind, title, fields, options);
-    const unsupported = (name: string): never => {
-      this.emitUi(name, [{ unsupportedRenderer: true }]);
-      throw new Error(`extension UI method ${name} is not supported by the RPC form bridge`);
-    };
     return {
       select: async (title: string, options: string[], dialogOptions?: ExtensionUIDialogOptions) => {
         const result = await request("select", title, { options }, dialogOptions);
@@ -1359,7 +1355,6 @@ export class PiWorker {
       setHeader: (...args: unknown[]) => this.emitUi("setHeader", args),
       setTitle: (...args: unknown[]) => this.emitUi("setTitle", args),
       custom: async <T>(factory: Parameters<ExtensionUIContext["custom"]>[0], options?: Parameters<ExtensionUIContext["custom"]>[1]): Promise<T> => {
-        if (options?.overlay || options?.overlayOptions || options?.onHandle) return unsupported("custom overlay");
         const context = this.createStandaloneOperation();
         // Keep the factory/controls alive across one-shot form completions.
         this.standaloneOperations.delete(context.operationId);
@@ -1374,7 +1369,7 @@ export class PiWorker {
                 ...(keys ? { options: keys } : {}),
                 message: "Esc 交给扩展处理；取消控制面板会关闭组件。输入文本不自动发送 Enter。"
               }, { signal })
-            });
+            }, options);
             this.emitOperationStatus("completed", context);
             return result;
           } catch (error) { this.emitOperationStatus("failed", context); throw error; }

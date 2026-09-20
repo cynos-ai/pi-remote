@@ -12,15 +12,18 @@ export type Widget = Component & { dispose?(): void };
 export type WidgetFactory = (tui: TUI, theme: ExtensionUIContext["theme"]) => Widget;
 
 export function createTextTui(render: () => void): TuiMainScreen {
-  const terminal: Terminal = {
+  const tui = new TuiMainScreen(createTextTerminal());
+  tui.requestRender = render;
+  return tui;
+}
+
+export function createTextTerminal(): Terminal {
+  return {
     columns: 80, rows: 24, kittyProtocolActive: false,
     start: () => {}, stop: () => {}, drainInput: async () => {}, write: () => {},
     moveBy: () => {}, hideCursor: () => {}, showCursor: () => {}, clearLine: () => {},
     clearFromCursor: () => {}, clearScreen: () => {}, setTitle: () => {}, setProgress: () => {}
   };
-  const tui = new TuiMainScreen(terminal);
-  tui.requestRender = render;
-  return tui;
 }
 
 export function nativeTextTheme(): ExtensionUIContext["theme"] {

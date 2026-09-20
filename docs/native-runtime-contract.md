@@ -6,7 +6,9 @@
 
 Operation 标识一次初始化、配置、模型执行、用户 Bash 或扩展回调，kind 为 initialize / configure / run / bash / extension。由持久事件维护活动投影；无须增加操作调度表。异步后续操作可用 parentOperationId 标明来源，父操作完成不自动结束子操作。
 
-非 overlay custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异步 done 共享该归属，单个按键表单结束不关闭整个组件。done 关闭当时仍待答的控制表单并返回原值，用户明确取消返回 undefined；扩展自己的 Esc 语义不由适配器替代。异常向上报告并清理组件，worker 退出中止回调，迟到工厂不重新打开控件。此 UI 生命周期不是模型 Run，也不同于下文 custom 消息内容。
+custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异步 done 共享该归属，单个按键表单结束不关闭整个组件。done 关闭当时仍待答的控制表单并返回原值，用户明确取消返回 undefined；扩展自己的 Esc 语义不由适配器替代。异常向上报告并清理组件，worker 退出中止回调，迟到工厂不重新打开控件。此 UI 生命周期不是模型 Run，也不同于下文 custom 消息内容。
+
+每个 custom 使用独立 80×24 虚拟 TUI。overlay 合成、onHandle、隐藏/恢复及焦点输入由原生 TuiMainScreen 实现；输入经过原生 addInputListener 和当前焦点组件，不直接绕过路由调用根组件。overlayOptions 回调按固定 SDK 在安装时求值一次，普通 custom 忽略 overlay 配置。应用级 onTerminalInput 和跨实例共享焦点仍未接入。
 
 会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
 

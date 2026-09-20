@@ -66,6 +66,8 @@ widget 工厂现在由固定版本 `pi-tui@0.85.1` 的 `TuiMainScreen` 对象及
 
 非 overlay 的 `custom()` 已接入根组件 handleInput 与 done 回调：使用同一 80 列文本宿主及当前 agentDir 的原生 KeybindingsManager，每个实例有独立子 Operation、画面及控制表单。手机方向键等按钮发送终端序列，也可输入文本；画面随 requestRender 刷新。Esc 由组件自行解释，取消文本输入返回控制面板，用户明确取消控制面板返回 undefined 并销毁组件。done 的原始对象留在 worker 返回给扩展，不做 JSON 往返；同步/异步工厂和异步 done 均可结束，迟到工厂只销毁、不重开控件。
 
-本轮不支持 overlay/onHandle、内部焦点树的全局输入监听、任意组合键或终端像素效果；这些仍需独立适配，不能将根组件按键和文本子集当成完整 TUI。画面仅跟随待答控件展示；worker 崩溃使旧交互失效，不能用重连恢复内存中的组件回调或重发旧按键。
+custom 另支持固定 80×24 文本视口中的 overlay：复用原生合成、几何计算、可见性、onHandle 的隐藏/恢复/焦点控制，以及 TUI 的 addInputListener 和 setFocus 输入路由。overlayOptions 函数按 SDK 0.85.1 实际实现只在安装时求值；未传配置时保留组件 width 回退。每个 custom 是独立虚拟 TUI，背景仅包含该实例添加的组件，不是整个应用的终端画面。原生输入经虚拟 Terminal 路由，不占用进程 stdin/stdout。
+
+仍未支持 ctx.ui.onTerminalInput 的应用级监听、跨 custom 实例共享焦点、任意组合键或终端像素效果；不能将文本适配当成完整 TUI。画面仅跟随待答控件展示；worker 崩溃使旧交互失效，不能用重连恢复内存中的组件回调或重发旧按键。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

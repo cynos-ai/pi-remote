@@ -26,6 +26,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 custom overlay 与原生焦点路由
+
+基于已推送的 `389ebe1`，custom 改用独立 80×24 虚拟 Terminal 和原生 TuiMainScreen。普通组件及 overlay 均经原生输入监听和当前焦点接收按键；保留 overlay 合成、几何、onHandle、隐藏/恢复、nonCapturing、永久移除及焦点切换。overlayOptions 函数按 SDK 0.85.1 实际实现在安装时求值一次，缺省配置保留组件 width 回退。终端输出为空实现，不占用 worker stdin/stdout；画面复用 custom.render，未改变公共协议类型或数据库 schema。
+
+定向测试覆盖监听器消费/转换、嵌套焦点、overlay 几何和隐藏输入隔离、永久移除、关闭后旧 handle 不再发布画面，以及配置/handle/渲染异常清理。WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1 上，`pnpm exec vitest run --config vitest.config.mjs tests/sdk/custom-ui.test.ts tests/sdk/widget-host.test.ts tests/runtime/runtime.test.ts` 为 43/43，通过日志 `test-results/overlay-targeted-final.log`。`pnpm build:server` 和真实 SDK/server/worker 的 `node scripts/test-real-process-e2e.mjs --no-build --sessions-only` 为 13/13，日志 `overlay-build.log` / `overlay-sessions.log`；新增 HTTPS/WSS 场景验证隐藏不接收按键、独立扩展命令恢复、重连画面、原值返回、dispose、无 Run 和零模型调用。
+
+`pnpm verify:S07` 本轮为 13 passed / 3 failed（`test-results/overlay-s07.log`、`s07/report.json`）：构建、命令合同、真实表单/会话进程、全量 typecheck 和文档通过；一项 lint 失败为测试中 CustomTextTui 只作类型却未写 import type，已修正，独立 `pnpm lint` 复验通过（`overlay-lint-final.log`）。另外两项仍是旧 live-commands / parity-tui-commands 报告身份失效。保留阶段首次失败记录，不改写为整阶段通过；仅类型导入修正后未重复完整进程测试。最终 `python3 scripts/check_docs.py` 与 `git diff --check` 通过。
+
+当前仍是每实例独立文本 TUI，背景仅含工厂自身添加的组件；未接入应用级 ctx.ui.onTerminalInput、跨实例共享焦点、任意组合键、颜色/图片和动态手机视口。未运行本地交互式 TUI、付费模型或 Android/iOS 真机验收；上述真实进程测试使用本地合成 provider，不能替代这些验收。
+
 ## 2026-09-20 非 overlay custom 输入与完成回调
 
 基于 `3dac602`，接入 custom 根组件的原生 TUI/主题/KeybindingsManager、80 列文本画面、requestRender、handleInput 和 done 原值返回。手机在匹配 Operation 的控制卡片中显示画面，使用现有 select/input/respond 发送方向键、Enter/Esc 等或文本；取消文本输入回到控制面板，明确取消控制面板关闭组件并返回 undefined，Esc 保留扩展自己的处理。没有新核心事件、Interaction kind 或数据库迁移，custom.render 沿用持久化 notice，原始组件和回调结果留在 worker。

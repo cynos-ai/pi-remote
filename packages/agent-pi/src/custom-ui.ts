@@ -1,5 +1,6 @@
 import type { ExtensionUIContext, KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import { createTextTui, nativeTextTheme, renderTextComponent, type Widget } from "./widget-host.js";
+import { nativeTextTheme, type Widget } from "./widget-host.js";
+import { CustomTextTui } from "./custom-tui.js";
 
 const keybindings = await import(new URL("./core/keybindings.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href) as {
   KeybindingsManager: { create(agentDir?: string): KeybindingsManager };
@@ -17,7 +18,7 @@ export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["cus
   signal: AbortSignal;
   publish(lines: string[] | null): void;
   ask(kind: "select" | "input", options: string[] | undefined, signal: AbortSignal): Promise<Record<string, unknown> | undefined>;
-}): Promise<T> {
+}, options?: Parameters<ExtensionUIContext["custom"]>[1]): Promise<T> {
   const controller = new AbortController();
   let closed = false;
   let result: unknown;
@@ -42,17 +43,28 @@ export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["cus
       queued = false;
       if (closed || !component) return;
       try {
-        const lines = renderTextComponent(component);
+        const lines = tui.renderFrame();
         const encoded = JSON.stringify(lines);
         if (!closed && encoded !== last) { last = encoded; bridge.publish(lines); }
       } catch (error) { close(undefined, error); }
     });
   };
-  const tui = createTextTui(render);
+  const tui = new CustomTextTui(render);
   try {
+    tui.start();
     if (!closed) {
       const creation = Promise.resolve().then(() => factory(tui, nativeTextTheme(), keybindings.KeybindingsManager.create(bridge.agentDir), value => close(value)))
-        .then(created => { if (closed) created.dispose?.(); else { component = created; tui.setFocus(created); render(); } })
+        .then(created => {
+          if (closed) { created.dispose?.(); return; }
+          component = created;
+          if (options?.overlay) {
+            const fallbackWidth = (created as Widget & { width?: number | `${number}%` }).width;
+            const layout = typeof options.overlayOptions === "function" ? options.overlayOptions() : options.overlayOptions;
+            const handle = tui.showOverlay(created, layout ?? (fallbackWidth ? { width: fallbackWidth } : undefined));
+            options.onHandle?.(handle);
+          } else { tui.addChild(created); tui.setFocus(created); }
+          render();
+        })
         .catch(error => close(undefined, error));
       await Promise.race([creation, finished]);
     }
@@ -67,7 +79,7 @@ export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["cus
         if (!text) continue; // Cancelling text entry returns to the component controls.
         data = typeof text.value === "string" ? text.value : "";
       }
-      if (data !== undefined) component?.handleInput?.(data);
+      if (data !== undefined) tui.deliverInput(data);
       render();
     }
     if (failure !== undefined) throw failure;
@@ -75,6 +87,6 @@ export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["cus
   } finally {
     close();
     bridge.signal.removeEventListener("abort", abort);
-    try { component?.dispose?.(); } finally { bridge.publish(null); }
+    try { component?.dispose?.(); } finally { tui.stop(); bridge.publish(null); }
   }
 }
