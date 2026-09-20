@@ -26,6 +26,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 原生思考等级菜单
+
+基于 `ff00191`，接入固定 SDK ThinkingSelectorComponent 和 `/thinking` / `/thinking 等级`。菜单保留当前/默认标记、搜索、原生选择与保存键、取消，默认等级来自 SDK 常量与 SettingsManager；直接命令忽略大小写精确匹配当前可用等级，无效等级显示可用列表，不作为 prompt 提交。普通选择 persist=false，保存默认值才更新设置并等待 flush。模型在菜单打开后改变时，最终 setThinkingLevel 仍沿 SDK 能力处理，通知与手机配置反映实际有效等级。
+
+菜单使用独立 configure Operation，重复打开不叠加；编辑器结束或替换会关闭菜单并使旧响应失效。thinking_level_select 保持原生 fire-and-forget，复用既有 controlOperations 与迟到回调归属处理，不借用正在执行的 Run，也不重复发布 thinking_level_changed 已产生的配置变更。本轮未改协议、schema、手机代码或 SDK 版本。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：生产构建通过（`test-results/thinking-menu-build.log`），定向 model/editor/custom/terminal/worker/runtime 回归 70/70（`thinking-menu-targeted.log`）。首次真实会话进程 32/32（`thinking-menu-sessions.log`）。最终 `pnpm verify:S07` 为 14 passed / 2 failed（`thinking-menu-s07.log`、`s07/report.json`）：构建、命令合同、五类生命周期表单、32 项会话进程、lint、全量 typecheck 和文档通过；失败仍是旧 live-commands / parity-tui-commands 源码身份失效。新增用例验证不支持/未知等级、大小写引用、菜单搜索及普通选择、重映射保存默认键、运行中取消保护草稿、异步 hook 归属、编辑器关闭使旧输入失效，以及菜单打开后模型变化仍由 SDK 限定等级；没有额外模型 prompt。最终文档与差异格式检查通过，S07 保持 blocked，不将本地验证记为完整阶段通过。
+
+未读取模型凭据或调用付费 provider；新增测试仅使用临时目录、本地合成模型和真实 SDK/server/worker。真实模型等级矩阵、原生 TUI 与设备验收未运行，双端 JS 构建未重跑。`/settings` 涉及多项持久设置和终端/聊天布局即时应用，需逐项接通真实生效路径；它与 `/scoped-models`、退出/挂起、共享焦点、聊天重绘仍待适配，不能把思考菜单子集称为完整 TUI 通过。
+
 ## 2026-09-21 空草稿双 Esc 与模型命令入口
 
 基于 `33e215d`，在原生 CustomEditor 的 app.interrupt 回退中加入空白草稿双 Esc：遵循 SDK 小于 500ms 的窗口和 doubleEscapeAction（默认 tree，可设 fork/none），成功打开后重置计时。补全、自定义 onEscape、扩展快捷键、摘要/压缩/重试取消、停止模型/Bash 和清理 Bash 草稿仍优先；普通停止不计为空闲 Esc。继续使用现有会话菜单去重和编辑器生命周期，不添加默认键位或新 Run。

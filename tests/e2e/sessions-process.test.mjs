@@ -35,6 +35,67 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('thinking slash and native selector preserve defaults, capability checks and asynchronous hooks', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, answer, key, combo, draft } = await treeHarness(t, {}, { editorModels: true });
+  await writeFile(join(h.agent, 'keybindings.json'), JSON.stringify({ 'app.thinking.save': 'ctrl+alt+s' }));
+  const settingsPath = join(h.agent, 'settings.json'), original = await readFile(settingsPath, 'utf8');
+  await extension('/r16-editor');
+  const submit = async text => { await extension(`/r16-editor-draft ${text}`); await key('扩展编辑器', 'Enter'); };
+  const level = async () => (await snapshot()).session.thinkingLevel;
+  const search = async text => { await key('思考等级', '输入文本'); await key('思考等级输入', text); };
+  await submit('/thinking high');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('未知思考等级') && n.message.includes('off')), 'unsupported thinking diagnostic', 5000);
+  assert.equal(await level(), 'off'); assert.equal(await draft(), '');
+  await submit('/model reasoned');
+  await until(async () => (await snapshot()).session.model.id === 'reasoned', 'reasoning model', 5000);
+  await submit('/thinking HIGH'); await until(async () => await level() === 'high', 'explicit thinking reference', 5000);
+  assert.equal(await readFile(settingsPath, 'utf8'), original);
+  await submit('/thinking nonsense');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('nonsense') && n.message.includes('可用等级')), 'invalid level diagnostic', 5000);
+  assert.equal(await level(), 'high');
+  await submit('/thinking'); await search('low'); await key('思考等级', 'Enter');
+  await until(async () => await level() === 'low', 'normal menu choice', 5000);
+  assert.equal(await readFile(settingsPath, 'utf8'), original);
+  await submit('/thinking'); await search('high');
+  await combo('思考等级', '思考等级输入', 'ctrl+alt+s');
+  await until(async () => JSON.parse(await readFile(settingsPath, 'utf8')).defaultThinkingLevel === 'high', 'explicit saved default', 5000);
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 1, 'active thinking menu response', 5000);
+  await submit('/thinking');
+  await extension('/r16-editor-draft KEEP_DRAFT'); await key('思考等级', 'Esc');
+  assert.equal(await draft(), 'KEEP_DRAFT');
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  await extension('/r16-config-hooks thinking'); await submit('/thinking low');
+  const first = await next('editor-thinking-first'); assert.equal(first.origin, 'configure'); assert.equal(first.runId, null);
+  await answer('editor-thinking-first', { confirmed: true });
+  const second = await next('editor-thinking-second'); assert.equal(second.runId, null);
+  assert.notEqual(second.operationId, active.operationId);
+  await key('editor-thinking-second', 'thinking-menu-hook');
+  await until(async () => (await h.lines('editor-thinking-hooks')).length === 1, 'thinking hook completed', 5000);
+  await extension('/r16-config-hooks off');
+  await submit('/thinking'); const stale = await next('思考等级');
+  await extension('/r16-editor-clear');
+  await until(async () => !(await snapshot()).pendingInteractions.some(f => f.interactionId === stale.interactionId), 'thinking menu closes with editor', 5000);
+  await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  const stop = await h.command('abort', { targetRunId: active.runId }); await h.terminal(stop.commandId); await h.terminal(active.commandId, 'cancelled');
+  assert.equal(JSON.parse(await readFile(settingsPath, 'utf8')).defaultThinkingLevel, 'high');
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('thinking menu uses SDK clamping if model capabilities change while it is open', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, key } = await treeHarness(t, {}, { editorModels: true });
+  await extension('/r16-editor');
+  const submit = async text => { await extension(`/r16-editor-draft ${text}`); await key('扩展编辑器', 'Enter'); };
+  await submit('/model reasoned'); await until(async () => (await snapshot()).session.model.id === 'reasoned', 'reasoned model', 5000);
+  await submit('/thinking'); await key('思考等级', '输入文本'); await key('思考等级输入', 'high');
+  await submit('/model deterministic'); await until(async () => (await snapshot()).session.model.id === 'deterministic', 'changed model while menu open', 5000);
+  await next('思考等级'); await key('思考等级', 'Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message === '思考等级：off'), 'native thinking clamp', 5000);
+  assert.equal((await snapshot()).session.thinkingLevel, 'off');
+  assert.equal(JSON.parse(await readFile(join(h.agent, 'settings.json'), 'utf8')).defaultThinkingLevel, undefined);
+  assert.equal(h.provider.requests.length, 0);
+});
+
 for (const action of ['tree', 'fork', 'none']) {
   test(`empty editor double Escape follows native ${action} setting without taking over stop`, { timeout: 120000 }, async t => {
     const { h, command, extension, snapshot, next, key } = await treeHarness(t, { doubleEscapeAction: action });

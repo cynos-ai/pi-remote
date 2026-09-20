@@ -86,7 +86,7 @@ CustomEditor 默认应用动作已接入 Esc、Ctrl+C 和 Ctrl+O，并沿用用�
 
 模型循环现已接入原生 app.model.cycleForward/cycleBackward（Linux 默认 Ctrl+P / Ctrl+Shift+P），思考等级循环接入 app.thinking.cycle（默认 Shift+Tab）；用户 keybindings 和显式历史键优先级保留。支持运行中切换，配置同步到手机并由 SDK 写入当前会话历史，不改全局默认值，也不重启当前模型请求。只有一个可用模型或当前模型不支持思考等级时提示原因。配置 hook 的表单独立于编辑器控制表单和模型 Run，可正常作答/取消；思考块显示切换和会话菜单仍待适配。
 
-CustomEditor 的 Ctrl+L（app.model.select，可重映射）和 `/model` 可打开原生模型菜单，沿现有文本画面和输入表单使用搜索、目录刷新、上下选择、作用域 Tab、Enter 选择及 Ctrl+S 保存默认值；具体键位以原生菜单提示和用户配置为准。`/model 引用` 使用 SDK 精确匹配规则（包括 provider/id、大小写及歧义），先检查作用域或缓存；作用域内无匹配直接进入搜索，无作用域则调用原生共享目录刷新，15 秒超时后使用缓存，再次无精确匹配时打开预填搜索菜单。关闭编辑器取消该刷新订阅，不终止其他订阅；刷新异常显示原因并保留搜索入口。普通选择及精确引用只改当前会话，保存默认值才更新全局配置。Esc/表单取消保留当前模型，不停止执行；关闭编辑器或切换 Session 后旧菜单失效。菜单已选中时先收起画面，再展示 model_select 扩展表单；精确引用沿同一独立 configure Operation 等待 hook，不提交模型 prompt。当前菜单和编辑器分属独立虚拟表面，不宣称共享终端焦点；`/thinking`、`/settings`、`/scoped-models` 等其他内置菜单仍待适配。
+CustomEditor 的 Ctrl+L（app.model.select，可重映射）和 `/model` 可打开原生模型菜单，沿现有文本画面和输入表单使用搜索、目录刷新、上下选择、作用域 Tab、Enter 选择及 Ctrl+S 保存默认值；具体键位以原生菜单提示和用户配置为准。`/model 引用` 使用 SDK 精确匹配规则（包括 provider/id、大小写及歧义），先检查作用域或缓存；作用域内无匹配直接进入搜索，无作用域则调用原生共享目录刷新，15 秒超时后使用缓存，再次无精确匹配时打开预填搜索菜单。关闭编辑器取消该刷新订阅，不终止其他订阅；刷新异常显示原因并保留搜索入口。普通选择及精确引用只改当前会话，保存默认值才更新全局配置。Esc/表单取消保留当前模型，不停止执行；关闭编辑器或切换 Session 后旧菜单失效。菜单已选中时先收起画面，再展示 model_select 扩展表单；精确引用沿同一独立 configure Operation 等待 hook，不提交模型 prompt。当前菜单和编辑器分属独立虚拟表面，不宣称共享终端焦点；`/settings`、`/scoped-models` 等其他内置菜单仍待适配。
 
 CustomEditor 输入 `/resume` 可打开原生历史菜单，`/new` 新建会话，也可配置 app.session.resume/new 快捷键（SDK 默认无绑定）。菜单保留搜索、作用域、排序/命名过滤、路径展示，以及原生重命名和确认删除；当前历史不能删除。重命名当前会话立即同步手机标题，其他历史标题在后续加载时同步。删除只移除原生历史文件，手机事件记录保留；菜单明确提示这一差异，缺失历史不会被静默重建。取消菜单不停止活动模型；选择后走既有会话映射，旧编辑器按键失效。
 
@@ -95,5 +95,7 @@ CustomEditor 输入 `/resume` 可打开原生历史菜单，`/new` 新建会话�
 `/tree` 与 app.session.tree 使用原生 TreeSelectorComponent，保留搜索、过滤、折叠、标签及当前叶节点无操作行为。复制键在手机打开可长按复制的文本框，不修改消息或草稿；沿既有表单最多显示 32768 个字符，超过时明确提示。树导航使用原生 AgentSession.navigateTree：先询问无摘要/摘要/自定义指令，遵循 branchSummary.skipPrompt；取消摘要选项返回原选中节点，取消自定义指令返回选项。确认后才取回未消费队列并停止活动响应，保持每条 Input 的持久 returned/unknown 状态。摘要有独立取消表单和编辑器 Esc 入口，调用 abortBranchSummary；取消后返回树，不自动发送恢复草稿。原生 before-tree/session-tree 扩展及异步表单保留，已开始的导航不因编辑器关闭而自动撤销。返回的用户文本只填入空白草稿。
 
 导航改变当前模型上下文，不删除历史分支，也不重写手机事件时间线。无摘要导航沿 SDK 只改变内存叶指针，下一次原生追加记录时才固定新分支；摘要路径写入原生 branch_summary。手机菜单明确说明事件记录保留，不把旧事件列表当作当前模型上下文。树画面与编辑器仍是独立虚拟表面；原生 TUI 的聊天重绘、压缩期间 UI 输入队列刷新、完整焦点及终端退出尚未完成，不将本轮树导航当作完整 TUI 或设备验收。
+
+`/thinking` 使用固定 SDK 的 ThinkingSelectorComponent，保留当前/默认标记、搜索、选择、保存默认键及取消；可用列表直接来自当前模型。`/thinking 等级` 按原生规则忽略大小写精确匹配当前可用等级，未知或当前模型不支持的等级显示可用列表，不发给模型。普通选择/直接设置 persist=false，显式保存才更新默认值并等待设置落盘。菜单打开后模型变化时，最终 setThinkingLevel 仍由 SDK 处理有效等级；手机显示实际结果。thinking_level_select 保持原生 fire-and-forget，待答表单及迟到回调沿既有独立 Operation 生命周期处理，不借用无关 Run。菜单结束/编辑器替换后旧输入失效。`/settings` 和 `/scoped-models` 等其他内置菜单仍待适配。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

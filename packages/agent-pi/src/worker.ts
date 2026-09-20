@@ -10,6 +10,7 @@ import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
 import { createModelSelector, findEditorModel, type ModelSelection } from "./model-selector.js";
+import { createThinkingSelector, type ThinkingSelection } from "./thinking-selector.js";
 import { createSessionSelector } from "./session-selector.js";
 import { createForkSelector } from "./fork-selector.js";
 import { createTreeSelector } from "./tree-selector.js";
@@ -1332,7 +1333,7 @@ export class PiWorker {
     return hub;
   }
 
-  private async configureFromEditor(owner: string, action: "thinking" | "forward" | "backward" | "select", signal?: AbortSignal, search?: string): Promise<void> {
+  private async configureFromEditor(owner: string, action: "thinking" | "thinking-select" | "forward" | "backward" | "select", signal?: AbortSignal, search?: string): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal?.aborted) return;
     const context = this.createStandaloneOperation(owner, "configure");
     this.standaloneOperations.delete(context.operationId);
@@ -1341,7 +1342,30 @@ export class PiWorker {
       await this.uiContextStorage.run(context, async () => {
         const session = this.handle!.session;
         let message: string;
-        if (action === "select") {
+        if (action === "thinking-select") {
+          const settings = this.handle!.services.settingsManager;
+          let selection: ThinkingSelection | undefined;
+          if (search) {
+            const levels = session.getAvailableThinkingLevels();
+            const level = levels.find(level => level.toLowerCase() === search.toLowerCase());
+            if (!level) { this.createUiContext().notify(`未知思考等级「${search}」。可用等级：${levels.join(", ")}`, "error"); return; }
+            selection = { level, persist: false };
+          } else {
+            selection = await runCustomUi<ThinkingSelection | undefined>((_tui, _theme, keys, done) =>
+              createThinkingSelector(keys, session, settings.getDefaultThinkingLevel(), done), {
+              agentDir: this.agentDir, signal: signal!, terminalInput: this.terminalInput(owner),
+              publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+              inputError: message => this.createUiContext().notify(message, "error"),
+              ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "思考等级" : "思考等级输入", {
+                ...(keys ? { options: keys } : {}), message: "原生思考等级菜单：搜索后 Enter 选择，Ctrl+S 保存默认值，Esc 取消；遵循模型能力和自定义键位。"
+              }, { signal: inputSignal })
+            });
+          }
+          if (!selection || signal?.aborted || owner !== this.currentSessionId) return;
+          session.setThinkingLevel(selection.level, { persist: selection.persist });
+          if (selection.persist) await settings.flush();
+          message = selection.persist ? `默认思考等级：${selection.level}；当前等级：${session.thinkingLevel}` : `思考等级：${session.thinkingLevel}`;
+        } else if (action === "select") {
           const settings = this.handle!.services.settingsManager;
           const provider = settings.getDefaultProvider(), id = settings.getDefaultModel();
           const exact = search ? await findEditorModel(session, search, signal!, (text, type) => this.createUiContext().notify(text, type)) : undefined;
@@ -1370,7 +1394,7 @@ export class PiWorker {
         }
         // A model hook can replace the native session while the action awaits it.
         if (owner !== this.currentSessionId) return;
-        if (action !== "thinking" && session.model) this.emitSessionConfig({
+        if (action !== "thinking" && action !== "thinking-select" && session.model) this.emitSessionConfig({
           model: { provider: session.model.provider, id: session.model.id }, thinkingLevel: session.thinkingLevel
         });
         await this.sendModels({ requestId: "runtime-state" });
@@ -1557,10 +1581,15 @@ export class PiWorker {
     let lastClear: number | undefined;
     let lastEscape = 0;
     let modelMenu: Promise<void> | undefined;
+    let thinkingMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
     const openModelMenu = (search?: string) => {
       if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal, search).finally(() => { modelMenu = undefined; });
       return modelMenu;
+    };
+    const openThinkingMenu = (search?: string) => {
+      if (!thinkingMenu) thinkingMenu = this.configureFromEditor(owner, "thinking-select", controller.signal, search).finally(() => { thinkingMenu = undefined; });
+      return thinkingMenu;
     };
     const openSessionMenu = (action: "resume" | "fork" | "tree") => {
       if (!sessionMenu) sessionMenu = (action === "tree" ? this.treeFromEditor(owner, controller.signal)
@@ -1649,6 +1678,7 @@ export class PiWorker {
           submit: async text => {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
+            if (text === "/thinking" || text.startsWith("/thinking ")) { await openThinkingMenu(text.slice(10).trim() || undefined); return; }
             if (text === "/model" || text.startsWith("/model ")) { await openModelMenu(text.slice(7).trim() || undefined); return; }
             if (text === "/resume" || text === "/fork") { await openSessionMenu(text === "/fork" ? "fork" : "resume"); return; }
             if (text === "/tree") { await openSessionMenu("tree"); return; }
