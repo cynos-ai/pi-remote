@@ -4,6 +4,20 @@ import { createInitialState, toSnapshot, snapshotSchema } from "../../packages/p
 import { stateFromSnapshot } from "../../apps/mobile/src/session-model";
 
 describe("R10 extension UI", () => {
+  it("preserves widget placement and clears stale content on renderer failure", () => {
+    const set = (state: ReturnType<typeof emptyExtensionUi>, seq: number, args: unknown[]) => applyExtensionNotice(state, { seq, kind: "extension_ui", details: { method: "setWidget", args } });
+    const below = set(emptyExtensionUi(), 1, ["native", ["rendered"], { placement: "belowEditor" }]);
+    expect(below.widgetPlacements.native).toBe("belowEditor");
+    const above = set(below, 2, ["native", ["updated"]]);
+    expect(above.widgetPlacements.native).toBe("aboveEditor");
+    const failed = set(above, 3, ["native", { rendererError: "broken renderer" }]);
+    expect(failed.widgets).toEqual({});
+    expect(failed.unsupported).toContain("broken renderer");
+    const recovered = set(failed, 4, ["native", ["updated"]]);
+    expect(recovered.widgets.native).toEqual(["updated"]);
+    expect(recovered.unsupported).toBeNull();
+    expect(set(below, 2, ["native", null]).widgetPlacements).toEqual({});
+  });
   it("replays scalar UI controls, native resets and repeated expansion overrides", () => {
     const calls: [string, unknown[]][] = [
       ["setWorkingVisible", [false]], ["setWorkingMessage", ["checking"]],

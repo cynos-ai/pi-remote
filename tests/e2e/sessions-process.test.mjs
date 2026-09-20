@@ -8,6 +8,29 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('native widget factory refreshes after command completion and replays before explicit removal', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const receipt = await h.command('extension_command', { text: '/r16-widget' });
+  await h.workerPid();
+  await h.terminal(receipt.commandId);
+  const snapshot = await until(async () => {
+    const value = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+    return value.notices.some(n => n.details?.args?.[1]?.[0] === 'native-widget:2:80') ? value : null;
+  }, 'delayed widget render');
+  const rendered = snapshot.notices.filter(n => n.details?.method === 'setWidget');
+  assert.equal(rendered.at(-1).details.args[2].placement, 'belowEditor');
+  assert.ok(rendered.every(n => !JSON.stringify(n).includes('unsupportedRenderer')));
+  const replay = await h.connect();
+  assert.deepEqual(replay.events().filter(e => e.type === 'runtime.notice' && e.payload.details?.method === 'setWidget').map(e => e.payload.details), rendered.map(n => n.details));
+  assert.equal(h.provider.requests.length, 0);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  const clear = await h.command('extension_command', { text: '/r16-widget clear' });
+  await h.terminal(clear.commandId);
+  await until(async () => (await h.lines('widget-disposed')).length === 1, 'widget disposed');
+  const final = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  assert.deepEqual(final.notices.filter(n => n.details?.method === 'setWidget').at(-1).details.args, ['native-widget', null]);
+});
+
 test('native UI controls persist without Runs and expansion follows session replacement', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   const stream = await h.connect();

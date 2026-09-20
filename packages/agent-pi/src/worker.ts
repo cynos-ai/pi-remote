@@ -5,6 +5,7 @@ import { readFileSync, mkdtempSync, openSync, readSync, closeSync } from "node:f
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventBacklog } from "./event-backlog.js";
+import { WidgetHost, type WidgetFactory } from "./widget-host.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
 import { fileURLToPath } from "node:url";
 import {
@@ -372,6 +373,7 @@ export class PiWorker {
   private renaming = false;
   private editorText = "";
   private toolsExpanded = false;
+  private readonly widgetHost = new WidgetHost();
   private currentSessionId: string;
   private readonly persistedMappings = new Set<string>();
   private readonly replacementRequests = new WeakMap<PiSessionReplacementRequest, string>();
@@ -504,6 +506,7 @@ export class PiWorker {
   }
 
   dispose(): void {
+    this.widgetHost.dispose();
     this.cancelPendingInteractions("worker_disposed");
     clearInterval(this.heartbeatTimer);
     this.handle?.dispose();
@@ -1331,7 +1334,21 @@ export class PiWorker {
       setWorkingVisible: (...args: unknown[]) => this.emitUi("setWorkingVisible", args),
       setWorkingIndicator: (...args: unknown[]) => this.emitUi("setWorkingIndicator", args),
       setHiddenThinkingLabel: (...args: unknown[]) => this.emitUi("setHiddenThinkingLabel", args),
-      setWidget: (...args: unknown[]) => this.emitUi("setWidget", args),
+      setWidget: (key: string, content: string[] | WidgetFactory | undefined, options?: { placement?: string }) => {
+        const parent = this.operationContext();
+        const owner = parent ? this.operationSessions.get(parent.operationId) ?? this.currentSessionId : this.currentSessionId;
+        const publish = (args: unknown[]) => {
+          // Timers can refresh a widget after its originating command ended.
+          const context = parent && !this.closedOperations.has(parent.operationId) ? parent : this.createStandaloneOperation(owner);
+          this.uiContextStorage.run(context, () => this.emitUi("setWidget", args));
+          if (context !== parent) { this.standaloneOperations.delete(context.operationId); this.emitOperationStatus("completed", context); }
+        };
+        const identity = JSON.stringify([owner, key]);
+        const argsFor = (value: unknown) => options ? [key, value, options] : [key, value];
+        if (typeof content === "function") {
+          this.widgetHost.set(identity, content, lines => publish(argsFor(lines)), error => publish(argsFor({ rendererError: errorMessage(error) })));
+        } else { this.widgetHost.remove(identity); publish(argsFor(content)); }
+      },
       setFooter: (...args: unknown[]) => this.emitUi("setFooter", args),
       setHeader: (...args: unknown[]) => this.emitUi("setHeader", args),
       setTitle: (...args: unknown[]) => this.emitUi("setTitle", args),
@@ -1535,6 +1552,7 @@ export class PiWorker {
       else handle?.dispose();
     } finally {
       this.stopped = true;
+      this.widgetHost.dispose();
       clearInterval(this.heartbeatTimer);
       this.mappingAckRejecter?.(new Error(reason));
       this.mappingAckResolver = undefined;

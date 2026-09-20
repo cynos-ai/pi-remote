@@ -865,6 +865,11 @@ function interactionKindLabel(kind: InteractionProjection["kind"]): string {
   }
 }
 
+function ExtensionWidgets({ ui, placement }: { ui: ExtensionUiState; placement: "aboveEditor" | "belowEditor" }) {
+  return <>{Object.entries(ui.widgets).filter(([key]) => (ui.widgetPlacements[key] ?? "aboveEditor") === placement).map(([key, lines]) =>
+    <View key={key} style={styles.formCard}><Text style={styles.fieldLabel}>{key}</Text><Text selectable style={styles.codeText}>{lines.join("\n")}</Text></View>)}</>;
+}
+
 function ExtensionWorkingRow({ ui, active }: { ui: ExtensionUiState; active: boolean }) {
   const [frame, setFrame] = useState(0);
   const indicator = ui.workingIndicator;
@@ -1476,7 +1481,6 @@ function ExecutionScreen({
         </View>
       ))}
       {Object.entries(extensionUi.statuses).map(([key, value]) => <Text key={key} style={styles.infoText}>{key} · {value}</Text>)}
-      {Object.entries(extensionUi.widgets).map(([key, lines]) => <View key={key} style={styles.formCard}><Text style={styles.fieldLabel}>{key}</Text><Text style={styles.codeText}>{lines.join("\n")}</Text></View>)}
       {extensionUi.windowTitle ? <Text style={styles.infoText}>{extensionUi.windowTitle}</Text> : null}
       <ExtensionWorkingRow ui={extensionUi} active={state?.session.activeRunId != null} />
       <NoticeBanner message={extensionUi.unsupported} />
@@ -1599,6 +1603,7 @@ function ExecutionScreen({
           onRespond={respondToInteraction}
         />
       ))}
+      <ExtensionWidgets ui={extensionUi} placement="aboveEditor" />
       <View style={styles.composerCard}>
         <View style={styles.chipRow}>
           <ActionButton kind={composerMode === "prompt" ? "primary" : "secondary"} onPress={() => setComposerMode("prompt")} title="输入" />
@@ -1649,6 +1654,7 @@ function ExecutionScreen({
           {bashActive && canRun("abort_bash") ? <ActionButton disabled={actionBusy} kind="danger" onPress={() => void submitCommand({ kind: "abort_bash", payload: {} })} title="停止用户 Bash" /> : null}
         </View>
       </View>
+      <ExtensionWidgets ui={extensionUi} placement="belowEditor" />
     </View>
   );
 

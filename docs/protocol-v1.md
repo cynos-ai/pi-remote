@@ -267,6 +267,7 @@ heartbeat 每 5 秒；主失联 15 秒进入当前调用的停止流程。主端
 本节记录已落地的增量契约，验证范围见[修复记录](reviews/2026-09-15-code-review-fixes.md)。公共 protocolVersion 仍为 1；新增可选字段必须由更新后的严格 schema 识别，前后端一起发布。
 
 - Snapshot 增加 `notices`（旧记录缺省为空数组），每项为 `{seq,kind,message,details?}`。`runtime.notice.kind` 增加 `extension_ui`，details 为 `{method,args}`；标准状态、widget、工作提示、编辑器变更通过此事件保存和恢复。只支持终端函数渲染的能力明确显示差异，不返回伪成功。
+- widget 投影沿用 `setWidget`：args 为 `[key, lines | null, {placement?}?]`；省略 placement 等于 aboveEditor，belowEditor 表示输入区下方。工厂在 worker 渲染后只发送文本数组，失败发送 `[key,{rendererError:string},options?]`，手机清除该键旧内容并展示错误；null 删除 widget 及 placement。函数和 SDK 类型不进入公共协议，不新增数据库 schema；显示副本按既有通知持久化和重放。
 - `POST /v1/sessions/:id/editor-state` 接收 `{text}`，鉴权及所属 Session 校验后发送 `editor_state {text,requestId}`。worker 应用后以 `editor_state_ack {requestId}` 确认，HTTP 才返回 204。会话替换后，草稿同步到请求中指定 Session 自己的 worker，旧待答表单仍按所属 epoch 路由。该路径不等待 ready，不能阻塞初始化表单。respond/abort 等控制不依赖编辑器同步。
 - `GET /v1/models` 接受可选 `sessionId`、`refresh=true`。Session 目录来自实际 worker 模型运行时；无 Session 时读取运营者 agentDir 目录。`get_models {requestId,refresh?}` / `models {requestId,items,availableThinkingLevels}` 用于读取及刷新，`requestId:"runtime-state"` 为状态推送。snapshot 不等待初始化 hook 完成来读取目录缓存。
 - initialize 携带 `sessionId`（原 pi ID）、`sessionFile`、`persistenceState` 和标题。映射 ACK 必须在 setModel、thinking 和 session_start hooks 之前完成，ready 在初始化交互完成之后。SDK `isPersisted()` 仅指启用文件持久化，不是落盘证据；必须核实有效 JSONL。合法待答期间不触发 ready 硬超时，仍检测心跳丢失。

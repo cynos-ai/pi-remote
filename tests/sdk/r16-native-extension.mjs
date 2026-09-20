@@ -4,6 +4,21 @@ import { join } from 'node:path';
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  pi.registerCommand('r16-widget', {
+    description: 'Native widget factory with delayed refresh and disposal',
+    handler: async (args, ctx) => {
+      if (args.trim() === 'clear') { ctx.ui.setWidget('native-widget', undefined); return; }
+      ctx.ui.setWidget('native-widget', (tui, theme) => {
+        let count = 0;
+        const timer = setInterval(() => { count++; tui.requestRender(); if (count === 2) clearInterval(timer); }, 100);
+        return {
+          render: width => [theme.fg('accent', `native-widget:${count}:${width}`)],
+          invalidate() {},
+          dispose() { clearInterval(timer); void appendFile(join(ctx.cwd, 'widget-disposed'), 'disposed\n'); }
+        };
+      }, { placement: 'belowEditor' });
+    }
+  });
   pi.registerCommand('r16-ui', {
     description: 'Native scalar UI controls without a model Run',
     handler: async (args, ctx) => {

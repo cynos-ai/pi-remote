@@ -2,6 +2,7 @@ export interface ExtensionUiState {
   seq: number;
   statuses: Record<string, string>;
   widgets: Record<string, string[]>;
+  widgetPlacements: Record<string, "aboveEditor" | "belowEditor">;
   workingMessage: string;
   workingVisible: boolean;
   workingIndicator: { frames: string[]; intervalMs: number } | null;
@@ -15,7 +16,7 @@ export interface ExtensionUiState {
 }
 
 export const emptyExtensionUi = (): ExtensionUiState => ({
-  seq: 0, statuses: {}, widgets: {}, workingMessage: "", workingVisible: true,
+  seq: 0, statuses: {}, widgets: {}, widgetPlacements: {}, workingMessage: "", workingVisible: true,
   workingIndicator: null, hiddenThinkingLabel: "思考内容已隐藏", windowTitle: "",
   toolsExpanded: false, toolsExpansionSeq: 0, editorText: "", unsupported: null
 });
@@ -28,7 +29,7 @@ export interface ExtensionNotice {
 
 export function applyExtensionNotice(state: ExtensionUiState, notice: ExtensionNotice): ExtensionUiState {
   if (notice.kind !== "extension_ui" || notice.seq <= state.seq) return state;
-  const next = { ...state, seq: notice.seq, statuses: { ...state.statuses }, widgets: { ...state.widgets } };
+  const next = { ...state, seq: notice.seq, statuses: { ...state.statuses }, widgets: { ...state.widgets }, widgetPlacements: { ...state.widgetPlacements } };
   const method = notice.details?.method;
   const args = notice.details?.args;
   if (!Array.isArray(args)) return { ...next, unsupported: "扩展 UI 参数无法读取" };
@@ -42,9 +43,16 @@ export function applyExtensionNotice(state: ExtensionUiState, notice: ExtensionN
       break;
     case "setWidget":
       if (typeof key === "string") {
-        if (Array.isArray(value) && value.every((line) => typeof line === "string")) next.widgets[key] = value;
-        else if (value == null) delete next.widgets[key];
-        else next.unsupported = "此扩展 widget 使用终端渲染函数，需要扩展提供文本回退";
+        const failurePrefix = `扩展 widget ${JSON.stringify(key)} 渲染失败：`;
+        if (next.unsupported?.startsWith(failurePrefix)) next.unsupported = null;
+        if (Array.isArray(value) && value.every((line) => typeof line === "string")) {
+          next.widgets[key] = value;
+          next.widgetPlacements[key] = args[2]?.placement === "belowEditor" ? "belowEditor" : "aboveEditor";
+        } else if (value == null) { delete next.widgets[key]; delete next.widgetPlacements[key]; }
+        else {
+          delete next.widgets[key]; delete next.widgetPlacements[key];
+          next.unsupported = typeof value?.rendererError === "string" ? `${failurePrefix}${value.rendererError}` : "此扩展 widget 尚未获得可显示内容";
+        }
       }
       break;
     case "setWorkingMessage": next.workingMessage = typeof key === "string" ? key : ""; break;

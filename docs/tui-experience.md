@@ -58,6 +58,10 @@ S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制�
 
 扩展的 `setWorkingVisible`、`setWorkingIndicator({ frames, intervalMs })`、`setHiddenThinkingLabel`、`setTitle` 和 `setToolsExpanded` 通过已持久化的 `runtime.notice` 投影到手机。工作行只在活动 Run 中显示，空 frames 隐藏指示器，无参数恢复默认指示器；隐藏思考标签只替换已隐藏内容的提示，不隐藏原本可见的思考。窗口标题独立显示，不修改 Session 名称。工具默认折叠，可逐项手动展开；扩展再次设置时覆盖本地展开选择，完整输出和模型工具结果不受影响。
 
-`getToolsExpanded()` 返回当前 worker 的扩展展开设置；新 worker 从原生默认 false 开始并发布通知，同一 worker 的原生会话替换在目标映射确认后发布当前值。通知支持快照及断线重放，无须新增协议字段或数据库迁移。任意 `custom()`、header/footer/editor 工厂和终端渲染 widget 仍需组件适配；上述标量控制不代表已支持任意终端组件，也不替代设备渲染验收。
+`getToolsExpanded()` 返回当前 worker 的扩展展开设置；新 worker 从原生默认 false 开始并发布通知，同一 worker 的原生会话替换在目标映射确认后发布当前值。通知支持快照及断线重放，无须新增协议字段或数据库迁移。上述标量控制不代表已支持任意终端组件，也不替代设备渲染验收。
+
+widget 工厂现在由固定版本 `pi-tui@0.85.1` 的 `TuiMainScreen` 对象及 SDK dark 主题承载，在 80 列视口调用原生组件 `render()`，向手机发布去除 ANSI 控制序列后的文本。`requestRender()` 支持异步刷新、相同内容去重；同名替换、移除和 worker 退出调用 dispose，过期刷新不再覆盖新内容。编辑器上下 placement 对文本及工厂 widget 都生效。异步刷新在原 Operation 已终态时创建归属原 Session 的独立 Operation。
+
+这属于无焦点文本 widget 适配；颜色、自定义主题、终端图片、动态视口、overlay、header/footer/editor 工厂和 `custom()` 键盘交互仍待完成。终端图片和渲染异常显式报告，不能用上次成功内容冒充新结果。宿主不启动本地终端或占用 worker 的 stdin/stdout，组件输出不会混入 IPC。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

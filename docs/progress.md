@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 原生 widget 工厂文本适配
+
+基于 `6ab762a`，新增 `WidgetHost`，固定直接依赖 pi-tui 0.85.1，与 SDK 保持同版。用实际 TuiMainScreen 和 SDK dark 主题执行 widget 工厂，以 80 列渲染文本；通过现有 setWidget 通知持久化、快照和 WSS 重放。手机按 aboveEditor/belowEditor 显示，旧缓存默认 aboveEditor。未新增公共 SDK 类型、数据库表或迁移，协议文档补充现有通知的 placement 和 rendererError 形状。
+
+支持异步 requestRender、相同内容去重、同名替换/清除/退出时 dispose、旧刷新失效；原 Command 已完成的刷新产生归属原 Session 的独立 Operation，不创建 Run。失败清除旧显示并报告原因，恢复为相同文本仍重新发布并清除该 widget 错误。终端图片显式报告仍需图片适配，不把转义载荷显示为正常文本。
+
+首轮定向测试发现 TUI 在 SDK 0.85.1 只导出类型，改用原生 TuiMainScreen 后通过；失败日志保留 `test-results/widget-targeted.log`。依赖安装曾因离线 registry 索引缺失失败，之后通过项目 npm 镜像解析固定版本；撤回 pnpm 顺带重写的无关 Expo 锁文件元数据，只保留 pi-tui 直接依赖声明。
+
+验证环境 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。定向 SDK worker、widget 宿主及手机投影 20/20 通过（`test-results/widget-targeted-complete.log`）；最后增加异常恢复断言后宿主/手机 7/7 通过（`widget-recovery-final.log`）。重新构建的 `pnpm test:e2e` 为 24/24，证据 `widget-e2e.log`，使用临时项目及本地合成 provider。`pnpm verify:S07` 为 14 passed / 2 failed，两个失败仍为旧 live-commands / parity-tui-commands 证据身份不匹配（`widget-s07.log`、`s07/report.json`）；`pnpm verify:S10` 为 17 passed / 0 failed / 2 not_run，Android/iOS JS bundle、lint、全量 typecheck、手机合同及文档通过，设备未运行（`widget-s10.log`、`s10/report.json`）。详细阶段报告保持执行时的源码身份，不改写为后续提交。`pnpm install --frozen-lockfile --offline --ignore-scripts`、`python3 scripts/check_docs.py` 和 `git diff --check` 通过。
+
+当前是无焦点文本 widget 子集：不宣称颜色、自定义主题、动态终端宽度、overlay、终端图片、header/footer/editor 工厂或 custom 键盘交互已适配。主题加载器使用固定 SDK 内部相对路径，集中封装在 agent-pi，升级 SDK 时须重验。未执行付费模型调用、交互式本地 TUI 或 Android/iOS 真机验收。
+
 ## 2026-09-20 扩展 UI 标量控制
 
 基于 `98d5395`，接通手机工作行显隐、工作指示器帧/间隔、隐藏思考标签、独立窗口标题及工具展开控制。完整工具结果不受手机折叠影响，错误/中断提示始终显示；旧缓存补默认字段，通知按 seq 去重及快照恢复。修正 worker 的 `getToolsExpanded()` 固定 false：现在返回当前扩展设置，新 worker 发布默认 false，原生会话替换在 bound ACK 后通过归属目标的独立 Operation 发布存活设置，不串回源 Session。
