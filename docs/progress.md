@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 editor 工厂、输入与提交
+
+基于 `887a195`，新增 EditorHost：原工厂 getter、原生 EditorTheme/KeybindingsManager、padding/补全显示配置、原生文件/扩展/template/skill 补全及追加包装器。使用既有 custom.render 与持久 select/input/respond 操作实际组件，草稿 getter/setter、光标粘贴、onChange/onSubmit、替换和取消均留在 worker。安装立即返回，旧组件回调不操作新组件；初始化/输入异常清理组件，恢复默认保留文本。手机相同文本的 editor_state 不重置光标/补全，失败提交按草稿版本恢复，不覆盖用户后来输入或主动清空的内容。
+
+普通提交经 SDK prompt（流式时 steer），扩展 slash 仍即时执行；`!`/`!!` 经原生 user_bash hook/执行器及独立 Bash Operation，可沿手机停止入口控制。用户后续 Run 不绑定安装编辑器的旧 Command。终端专用内置菜单命令明确提示现有手机入口并保留文本，不误投模型；全局快捷键、压缩期间队列、图片粘贴与真机键盘手感仍待适配/对照。会话替换和 worker 退出关闭编辑器控件并重置补全包装器，重启不重发输入。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：定向 SDK/editor/custom/runtime 45/45（`test-results/editor-targeted-verified.log`）。真实 SDK CustomEditor 会话测试 15/15（`editor-sessions-final.log`），覆盖补全、单次模型提交、扩展命令、`!!` 排除上下文、内置菜单保护、光标粘贴和清除旧控件。首轮 `editor-sessions.log` 为 14/15：首个构建尚无相同草稿同步跳过 setText 的修复，光标粘贴等待最终触发 HTTP 429；重新构建后保持光标断言通过，没有调高限流或放宽断言。
+
+`pnpm verify:S07` 为 14 passed / 2 failed（`editor-s07.log`、`s07/report.json`）：构建、合同、真实表单和 15 项会话进程、lint/typecheck/docs 通过，后续会话替换关闭旧编辑器与 Bash Operation 类型断言亦通过；失败仅是旧 live-commands / parity-tui-commands 源码身份失效。最后对齐多层补全器 triggerCharacters 合并，SDK/editor/custom 独立复验 13/13（`editor-completion-final.log`），并由阶段后续 lint/typecheck 检查；该纯补全合并修订后未重跑完整进程构建。`pnpm verify:S10` 为 17 passed / 2 not_run（`editor-s10.log`、`s10/report.json`），手机合同、Android/iOS JS 构建及静态检查通过，设备未运行。保留首次失败日志和各阶段实际证据，不改写成整阶段 passed。最终文档及 diff 格式检查通过。
+
+协议、状态/数据说明、设计和验收同步更新，无新 DTO 或数据库迁移。未读取凭据或调用付费模型，真实进程使用本地合成 provider，不代替 live/TUI/设备验收。
+
 ## 2026-09-20 header/footer 工厂与原生 footer 数据
 
 基于 `b6c630c`，接入 header/footer 工厂的 80 列文本渲染、异步刷新、去重、替换/清除/dispose 和错误清除。footer 使用 SDK 0.85.1 的实际 FooterDataProvider：Git 分支及订阅、扩展状态、按 scopedModels / available snapshot 计算的 provider 数量；header 的 setExpanded 跟随展开设置。SDK 内部模块引用仅在 agent-pi，升级版本需重验。手机独立显示顶部和输入区下方画面，复用既有 runtime.notice 持久化及快照/WSS 重放，无新增公共类型或数据库迁移。

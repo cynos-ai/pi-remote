@@ -62,14 +62,20 @@ S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制�
 
 widget 工厂现在由固定版本 `pi-tui@0.85.1` 的 `TuiMainScreen` 对象及 SDK dark 主题承载，在 80 列视口调用原生组件 `render()`，向手机发布去除 ANSI 控制序列后的文本。`requestRender()` 支持异步刷新、相同内容去重；同名替换、移除和 worker 退出调用 dispose，过期刷新不再覆盖新内容。编辑器上下 placement 对文本及工厂 widget 都生效。异步刷新在原 Operation 已终态时创建归属原 Session 的独立 Operation。
 
-这属于无焦点文本 widget 适配；颜色、自定义主题、终端图片、动态视口及 editor 工厂仍待完成。终端图片和渲染异常显式报告，不能用上次成功内容冒充新结果。宿主不启动本地终端或占用 worker 的 stdin/stdout，组件输出不会混入 IPC。
+这属于无焦点文本 widget 适配；颜色、自定义主题、终端图片、动态视口仍待完成。终端图片和渲染异常显式报告，不能用上次成功内容冒充新结果。宿主不启动本地终端或占用 worker 的 stdin/stdout，组件输出不会混入 IPC。
 
-`setHeader` / `setFooter` 工厂复用 80 列文本宿主，手机分别在会话内容顶部和输入区下方显示；undefined 清除扩展画面并恢复普通布局。footer 使用原生 FooterDataProvider，提供真实工作目录的 Git 分支、分支变化订阅、扩展状态和当前可用 provider 数量。状态变更刷新画面；header 的 setExpanded 跟随扩展工具展开设置。替换、清除时销毁组件，worker 退出再清理 Git watcher；异步刷新归属安装时 Session，不转移到后来切换的 Session。渲染失败清除旧画面并提示错误，原始工厂不传到手机。编辑器输入、提交、自动补全和快捷键仍需单独适配，不把 header/footer 文本显示当成编辑器支持。
+`setHeader` / `setFooter` 工厂复用 80 列文本宿主，手机分别在会话内容顶部和输入区下方显示；undefined 清除扩展画面并恢复普通布局。footer 使用原生 FooterDataProvider，提供真实工作目录的 Git 分支、分支变化订阅、扩展状态和当前可用 provider 数量。状态变更刷新画面；header 的 setExpanded 跟随扩展工具展开设置。替换、清除时销毁组件，worker 退出再清理 Git watcher；异步刷新归属安装时 Session，不转移到后来切换的 Session。渲染失败清除旧画面并提示错误，原始工厂不传到手机。编辑器交互按下文单独验收，不把 header/footer 文本显示当成编辑器支持。
 
 非 overlay 的 `custom()` 已接入根组件 handleInput 与 done 回调：使用同一 80 列文本宿主及当前 agentDir 的原生 KeybindingsManager，每个实例有独立子 Operation、画面及控制表单。手机方向键等按钮发送终端序列，也可输入文本；画面随 requestRender 刷新。Esc 由组件自行解释，取消文本输入返回控制面板，用户明确取消控制面板返回 undefined 并销毁组件。done 的原始对象留在 worker 返回给扩展，不做 JSON 往返；同步/异步工厂和异步 done 均可结束，迟到工厂只销毁、不重开控件。
 
 custom 另支持固定 80×24 文本视口中的 overlay：复用原生合成、几何计算、可见性、onHandle 的隐藏/恢复/焦点控制，以及 TUI 的 addInputListener 和 setFocus 输入路由。overlayOptions 函数按 SDK 0.85.1 实际实现只在安装时求值；未传配置时保留组件 width 回退。每个 custom 是独立虚拟 TUI，背景仅包含该实例添加的组件，不是整个应用的终端画面。原生输入经虚拟 Terminal 路由，不占用进程 stdin/stdout。
 
 仍未支持 ctx.ui.onTerminalInput 的应用级监听、跨 custom 实例共享焦点、任意组合键或终端像素效果；不能将文本适配当成完整 TUI。画面仅跟随待答控件展示；worker 崩溃使旧交互失效，不能用重连恢复内存中的组件回调或重发旧按键。
+
+`setEditorComponent` 工厂接收原生 EditorTheme 结构、KeybindingsManager、padding 和补全显示设置；组件留在 worker，按 custom 的独立 Operation / 按键表单显示和操作。`getEditorComponent` 返回原工厂，替换/恢复保留文本；setEditorText、getEditorText、pasteToEditor 操作实际组件，粘贴优先使用原生光标插入。相同手机草稿重复同步不重置光标或补全状态。自动补全使用原生 CombinedAutocompleteProvider，包含文件、扩展命令、prompt templates 和已启用 skills，addAutocompleteProvider 按顺序包装。输入 Enter 是否提交由组件决定，onSubmit 的文本原值用于提交（沿原生去除首尾空白），不从画面反推输入。
+
+普通提交经 SDK prompt，运行中使用 steer；扩展 slash 保留即时处理；`!` / `!!` 使用原生用户 Bash hook 和执行器，不误发为模型文本。后续用户提交不归因于早先安装编辑器的扩展命令：独立 Operation、原生因果 Run，外部 Command 可空。提交异常保留文本为草稿，不自动重发、不覆盖用户较新的草稿。取消编辑器控件/恢复默认/会话替换会关闭旧按键并保留草稿；停止编辑器不停止已开始的模型任务。worker 重启不恢复内存回调。
+
+终端专用内置 slash 菜单尚未接入该编辑器路径，识别后提示使用手机对应入口并保留文本，不能当普通 prompt 发给模型。完整应用快捷键、压缩期间排队对照、图片粘贴及真机键盘手感仍待验收，现有手机附件及模型/会话/压缩入口继续独立使用。本适配不宣称完整交互式 TUI 已通过。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

@@ -4,6 +4,8 @@
 
 ## 环境与证据
 
+editor 工厂补充 AT21 / AT22 / AT32：原工厂 getter、原生主题/快捷键/补全、草稿保留、光标粘贴、重复同步不重置光标、onSubmit 原值、正常/失败提交、替换后旧回调隔离、安装异常 dispose。真实 CustomEditor + HTTPS/WSS 验证 Tab 补全、普通模型提交一次、扩展 slash、`!!` 排除上下文、终端菜单不误投模型、清除保留草稿及失效旧按键拒绝。完整应用快捷键、压缩期间输入及设备键盘独立验收。
+
 header/footer 工厂补充 AT21 / AT22 / AT32：原生工厂及主题、真实 Git 分支/订阅、状态和 provider 数量、header 展开、异步刷新、同名替换/清除/dispose、工厂及渲染异常。真实进程验证 HTTPS/WSS 持久化重放、无模型 Run、清除恢复默认布局及会话替换后的源归属。手机 reducer 检查异常清除和幂等回放；JS 构建不替代真机显示验收。
 
 - contract：不依赖模型的协议与 reducer 测试。

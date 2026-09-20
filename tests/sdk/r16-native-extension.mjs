@@ -1,9 +1,37 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { CustomEditor } from '@earendil-works/pi-coding-agent';
 
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  pi.registerCommand('r16-editor-draft', { description: 'Set native editor draft', handler: async (args, ctx) => ctx.ui.setEditorText(args) });
+  pi.registerCommand('r16-editor-paste', { description: 'Paste at native cursor', handler: async (args, ctx) => ctx.ui.pasteToEditor(args) });
+  pi.registerCommand('r16-editor-clear', { description: 'Restore default editor', handler: async (_args, ctx) => ctx.ui.setEditorComponent(undefined) });
+  pi.registerCommand('r16-editor', {
+    description: 'Install the real CustomEditor and native autocomplete wrapper',
+    handler: async (_args, ctx) => {
+      const disposePath = join(ctx.cwd, 'editor-disposed');
+      ctx.ui.setEditorText('seed');
+      ctx.ui.addAutocompleteProvider(base => ({
+        ...base,
+        getSuggestions: async (lines, line, col, options) => lines[line]?.startsWith('com')
+          ? { prefix: 'com', items: [{ value: 'EDITOR_NATIVE_SUBMIT', label: 'EDITOR_NATIVE_SUBMIT' }] }
+          : base.getSuggestions(lines, line, col, options),
+        applyCompletion: (lines, line, col, item, prefix) => item.value === 'EDITOR_NATIVE_SUBMIT'
+          ? { lines: ['EDITOR_NATIVE_SUBMIT'], cursorLine: 0, cursorCol: 20 }
+          : base.applyCompletion(lines, line, col, item, prefix)
+      }));
+      const factory = (tui, theme, keys) => {
+        class TestEditor extends CustomEditor {
+          dispose() { void appendFile(disposePath, 'disposed\n'); }
+        }
+        return new TestEditor(tui, theme, keys);
+      };
+      ctx.ui.setEditorComponent(factory);
+      ctx.ui.setStatus('editor-factory', String(ctx.ui.getEditorComponent() === factory));
+    }
+  });
   pi.registerCommand('r16-surface', {
     description: 'Native header/footer factories and footer data',
     handler: async (args, ctx) => {

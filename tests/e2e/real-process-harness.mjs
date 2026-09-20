@@ -127,7 +127,7 @@ export class RealProcessHarness {
         res.on('end', () => {
           try {
             assert.ok(res.statusCode >= 200 && res.statusCode < 300, `${method} ${path}: ${res.statusCode} ${raw}\n${this.logs}`);
-            resolve(JSON.parse(raw));
+            resolve(raw ? JSON.parse(raw) : null);
           } catch (error) { reject(error); }
         });
       });

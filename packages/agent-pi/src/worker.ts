@@ -8,6 +8,8 @@ import { EventBacklog } from "./event-backlog.js";
 import { WidgetHost, type WidgetFactory } from "./widget-host.js";
 import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
+import { EditorHost } from "./editor-host.js";
+import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
 import { fileURLToPath } from "node:url";
 import {
@@ -37,6 +39,10 @@ import type {
   ExtensionUIDialogOptions,
   UserBashEventResult
 } from "@earendil-works/pi-coding-agent";
+
+const nativeSlashCommands = await import(new URL("./core/slash-commands.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href) as {
+  BUILTIN_SLASH_COMMANDS: Array<{ name: string }>;
+};
 
 function unrefTimer(timer: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | undefined): void {
   if (timer === undefined) return;
@@ -375,6 +381,7 @@ export class PiWorker {
   private clearingQueue = false;
   private renaming = false;
   private editorText = "";
+  private readonly editorHost = new EditorHost();
   private toolsExpanded = false;
   private readonly widgetHost = new WidgetHost();
   private readonly surfaceHosts = new Map<string, SurfaceHost>();
@@ -500,6 +507,8 @@ export class PiWorker {
         return;
       case "editor_state":
         this.editorText = message.payload.text;
+        // Repeated handset snapshots must not reset native cursor/completion state.
+        if (this.editorHost.getText() !== message.payload.text) this.editorHost.setText(message.payload.text);
         if (message.payload.requestId) this.send("editor_state_ack", { requestId: message.payload.requestId });
         return;
       case "rename":
@@ -512,6 +521,7 @@ export class PiWorker {
   }
 
   dispose(): void {
+    this.editorHost.reset();
     for (const controller of this.customControllers) controller.abort();
     this.widgetHost.dispose();
     for (const host of this.surfaceHosts.values()) host.dispose();
@@ -594,6 +604,7 @@ export class PiWorker {
     this.send("session_replaced", { requestId, piSessionId: session.sessionId, piSessionFile: session.sessionFile,
       persistenceState: this.hasPersistedHistory(session) ? "persisted" : "unflushed" });
     this.currentSessionId = await ack;
+    this.editorHost.reset();
     if (request) this.replacementRequests.delete(request);
     // Expansion belongs to the surviving UI runtime, but the destination
     // needs its own durable projection after the mapping is acknowledged.
@@ -1295,6 +1306,75 @@ export class PiWorker {
     this.acceptControl(payload.commandId);
   }
 
+  private setEditor(factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0]): void {
+    if (!factory) {
+      this.editorHost.stop();
+      this.editorText = this.editorHost.getText();
+      this.emitUi("setEditorText", [this.editorText]);
+      return;
+    }
+    const owner = this.currentSessionId;
+    const context = this.createStandaloneOperation(owner);
+    this.standaloneOperations.delete(context.operationId);
+    // Installing an editor is not the cause of a later user submission.
+    this.causalCommands.delete(context.operationId);
+    const controller = new AbortController();
+    this.customControllers.add(controller);
+    const failure = (error: unknown) => this.send("extension_error", {
+      sessionId: owner, operationId: context.operationId, extensionPath: "editor", event: "input", error: bounded(errorMessage(error), 2000)
+    });
+    void this.uiContextStorage.run(context, async () => {
+      try {
+        await this.editorHost.run(factory, {
+          agentDir: this.agentDir, signal: controller.signal,
+          paddingX: this.handle?.services.settingsManager.getEditorPaddingX(),
+          autocompleteMaxVisible: this.handle?.services.settingsManager.getAutocompleteMaxVisible(),
+          publish: lines => this.uiContextStorage.run(context, () => this.emitUi("custom.render", [context.operationId, lines])),
+          changed: text => {
+            if (text !== this.editorText) { this.editorText = text; this.uiContextStorage.run(context, () => this.emitUi("setEditorText", [text])); }
+          },
+          failure,
+          ask: (kind, keys, signal) => this.requestInteraction(kind, kind === "select" ? "扩展编辑器" : "扩展编辑器输入文本", {
+            ...(keys ? { options: keys } : {}),
+            message: "按键交给原生编辑器；Enter 遵循编辑器提交行为。取消恢复普通输入区并保留草稿。"
+          }, { signal }),
+          autocomplete: () => {
+            const session = this.handle!.session;
+            const commands = session.extensionRunner.getRegisteredCommands().map(command => ({
+              name: command.invocationName, description: command.description, getArgumentCompletions: command.getArgumentCompletions
+            }));
+            const skills = this.handle!.services.settingsManager.getEnableSkillCommands()
+              ? this.handle!.services.resourceLoader.getSkills().skills.map(skill => ({ name: `skill:${skill.name}`, description: skill.description })) : [];
+            return new CombinedAutocompleteProvider([...commands, ...session.promptTemplates, ...skills], this.handle!.services.cwd);
+          },
+          submit: async text => {
+            if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
+            const name = /^\/([^\s]+)/.exec(text)?.[1];
+            if (nativeSlashCommands.BUILTIN_SLASH_COMMANDS.some(command => command.name === name)) {
+              throw new Error(`/${name} 的终端菜单尚未接入编辑器；请使用手机对应控制入口，文本已保留`);
+            }
+            const submission = this.createStandaloneOperation(owner, text.startsWith("!") ? "bash" : "extension");
+            this.standaloneOperations.delete(submission.operationId);
+            this.causalCommands.delete(submission.operationId);
+            await this.uiContextStorage.run(submission, async () => {
+              try {
+                if (text.startsWith("!")) {
+                  const excluded = text.startsWith("!!");
+                  await this.executeUserBash(text.slice(excluded ? 2 : 1), excluded, randomUUID());
+                } else await this.handle!.session.prompt(text, { source: "interactive", streamingBehavior: "steer" });
+                this.emitOperationStatus("completed", submission);
+              } catch (error) { this.emitOperationStatus("failed", submission); throw error; }
+            });
+          }
+        });
+        this.emitOperationStatus("completed", context);
+      } catch (error) {
+        failure(error);
+        this.emitOperationStatus("failed", context);
+      } finally { this.customControllers.delete(controller); }
+    });
+  }
+
   private updateSurfaceData(host: SurfaceHost): void {
     const session = this.handle?.session;
     const models = session?.scopedModels?.length ? session.scopedModels.map(item => item.model)
@@ -1412,12 +1492,12 @@ export class PiWorker {
           finally { this.customControllers.delete(controller); }
         });
       },
-      pasteToEditor: (text: string) => { this.editorText += text; this.emitUi("setEditorText", [this.editorText]); },
-      setEditorText: (text: string) => { this.editorText = text; this.emitUi("setEditorText", [text]); },
-      getEditorText: () => this.editorText,
-      addAutocompleteProvider: (...args: unknown[]) => this.emitUi("addAutocompleteProvider", args),
-      setEditorComponent: (...args: unknown[]) => this.emitUi("setEditorComponent", args),
-      getEditorComponent: () => undefined,
+      pasteToEditor: (text: string) => { this.editorHost.paste(text); this.editorText = this.editorHost.getText(); this.emitUi("setEditorText", [this.editorText]); },
+      setEditorText: (text: string) => { this.editorHost.setText(text); this.editorText = this.editorHost.getText(); this.emitUi("setEditorText", [this.editorText]); },
+      getEditorText: () => this.editorHost.getText(),
+      addAutocompleteProvider: (factory: Parameters<ExtensionUIContext["addAutocompleteProvider"]>[0]) => this.editorHost.addAutocompleteProvider(factory),
+      setEditorComponent: (factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0]) => this.setEditor(factory),
+      getEditorComponent: () => this.editorHost.getFactory(),
       theme: undefined,
       getAllThemes: () => [],
       getTheme: () => undefined,
@@ -1605,6 +1685,7 @@ export class PiWorker {
   private async shutdown(reason: string): Promise<void> {
     if (this.stopped) return;
     try {
+      this.editorHost.reset();
       if (this.execution) this.execution.abortRequested = true;
       for (const controller of this.customControllers) controller.abort();
       this.cancelPendingInteractions(reason);
@@ -1765,9 +1846,9 @@ export class PiWorker {
     }
   }
 
-  private createStandaloneOperation(owner?: string): OperationContext {
+  private createStandaloneOperation(owner?: string, kind: "extension" | "bash" = "extension"): OperationContext {
     const parent = this.uiContextStorage.getStore();
-    const context: OperationContext = { operationId: randomUUID(), runId: null, kind: "extension" };
+    const context: OperationContext = { operationId: randomUUID(), runId: null, kind };
     this.standaloneOperations.add(context.operationId);
     const causal = parent ? this.causalCommands.get(parent.operationId) : undefined;
     if (causal) this.causalCommands.set(context.operationId, causal);
