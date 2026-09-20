@@ -8,6 +8,47 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('native UI controls persist without Runs and expansion follows session replacement', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const stream = await h.connect();
+  const receipt = await h.command('extension_command', { text: '/r16-ui' });
+  await h.workerPid();
+  await h.terminal(receipt.commandId);
+  const snapshot = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  const details = snapshot.notices.filter(n => n.kind === 'extension_ui').map(n => n.details);
+  assert.deepEqual(details, [
+    { method: 'setToolsExpanded', args: [false] },
+    { method: 'setStatus', args: ['tools-before', 'false'] },
+    { method: 'setToolsExpanded', args: [true] },
+    { method: 'setStatus', args: ['tools-after', 'true'] },
+    { method: 'setWorkingMessage', args: ['Checking extension UI'] },
+    { method: 'setWorkingVisible', args: [false] },
+    { method: 'setWorkingIndicator', args: [{ frames: ['a', 'b'], intervalMs: 120 }] },
+    { method: 'setHiddenThinkingLabel', args: ['Private reasoning'] },
+    { method: 'setTitle', args: ['Extension window'] }
+  ]);
+  assert.equal(h.provider.requests.length, 0);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  assert.equal(h.query('SELECT title FROM sessions WHERE id = ?', h.sessionId)[0].title, 'R16 real SDK');
+  await until(() => stream.events().filter(e => e.type === 'runtime.notice' && e.payload.kind === 'extension_ui').length === details.length, 'UI notices broadcast');
+  stream.socket.terminate();
+  const replay = await h.connect();
+  assert.deepEqual(replay.events().filter(e => e.type === 'runtime.notice' && e.payload.kind === 'extension_ui').map(e => e.payload.details), details);
+  const sourceId = h.sessionId;
+  const replacement = await h.command('extension_command', { text: '/r16-new' });
+  await h.terminal(replacement.commandId);
+  const destination = h.query('SELECT id FROM sessions WHERE id != ?', sourceId)[0];
+  assert.ok(destination);
+  h.sessionId = destination.id;
+  const target = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  assert.deepEqual(target.notices.filter(n => n.details?.method === 'setToolsExpanded').map(n => n.details.args), [[true]]);
+  const reset = await h.command('extension_command', { text: '/r16-ui reset' });
+  await h.terminal(reset.commandId);
+  const final = await h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  assert.ok(final.notices.some(n => n.details?.method === 'setStatus' && JSON.stringify(n.details.args) === JSON.stringify(['tools-before', 'true'])));
+  assert.ok(final.notices.some(n => n.details?.method === 'setStatus' && JSON.stringify(n.details.args) === JSON.stringify(['tools-after', 'false'])));
+});
+
 test('history recovery API discovers an orphan, imports once and resumes its original context', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t);
   const initial = await h.command('prompt', { text: 'RECOVER_ORIGINAL_CONTEXT' });

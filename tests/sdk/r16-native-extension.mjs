@@ -4,6 +4,19 @@ import { join } from 'node:path';
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  pi.registerCommand('r16-ui', {
+    description: 'Native scalar UI controls without a model Run',
+    handler: async (args, ctx) => {
+      ctx.ui.setStatus('tools-before', String(ctx.ui.getToolsExpanded()));
+      ctx.ui.setToolsExpanded(args.trim() !== 'reset');
+      ctx.ui.setStatus('tools-after', String(ctx.ui.getToolsExpanded()));
+      ctx.ui.setWorkingMessage('Checking extension UI');
+      ctx.ui.setWorkingVisible(false);
+      ctx.ui.setWorkingIndicator({ frames: ['a', 'b'], intervalMs: 120 });
+      ctx.ui.setHiddenThinkingLabel('Private reasoning');
+      ctx.ui.setTitle('Extension window');
+    }
+  });
   pi.on('session_start', async (_event, ctx) => {
     if (process.env.R16_STARTUP_FORM === '1') {
       const answer = await ctx.ui.confirm('R16 startup confirmation', 'Wait beyond the normal 15 second handshake, then answer.');

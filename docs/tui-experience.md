@@ -56,4 +56,8 @@
 
 S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制与标准交互；S10 验证移动入口；S12 复验正常 Linux 部署；S13 汇总证据。当前合同、Linux、Docker 子集已有对应阶段报告；真实 provider、交互式原生 TUI、Android / iOS 实机及终端专用 custom renderer 对照仍未完成，不将这些缺口描述为已通过。
 
+扩展的 `setWorkingVisible`、`setWorkingIndicator({ frames, intervalMs })`、`setHiddenThinkingLabel`、`setTitle` 和 `setToolsExpanded` 通过已持久化的 `runtime.notice` 投影到手机。工作行只在活动 Run 中显示，空 frames 隐藏指示器，无参数恢复默认指示器；隐藏思考标签只替换已隐藏内容的提示，不隐藏原本可见的思考。窗口标题独立显示，不修改 Session 名称。工具默认折叠，可逐项手动展开；扩展再次设置时覆盖本地展开选择，完整输出和模型工具结果不受影响。
+
+`getToolsExpanded()` 返回当前 worker 的扩展展开设置；新 worker 从原生默认 false 开始并发布通知，同一 worker 的原生会话替换在目标映射确认后发布当前值。通知支持快照及断线重放，无须新增协议字段或数据库迁移。任意 `custom()`、header/footer/editor 工厂和终端渲染 widget 仍需组件适配；上述标量控制不代表已支持任意终端组件，也不替代设备渲染验收。
+
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

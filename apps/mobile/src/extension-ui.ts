@@ -3,13 +3,21 @@ export interface ExtensionUiState {
   statuses: Record<string, string>;
   widgets: Record<string, string[]>;
   workingMessage: string;
+  workingVisible: boolean;
+  workingIndicator: { frames: string[]; intervalMs: number } | null;
+  hiddenThinkingLabel: string;
+  windowTitle: string;
+  toolsExpanded: boolean;
+  toolsExpansionSeq: number;
   editorText: string;
   editorSelection?: { start: number; end: number };
   unsupported: string | null;
 }
 
 export const emptyExtensionUi = (): ExtensionUiState => ({
-  seq: 0, statuses: {}, widgets: {}, workingMessage: "", editorText: "", unsupported: null
+  seq: 0, statuses: {}, widgets: {}, workingMessage: "", workingVisible: true,
+  workingIndicator: null, hiddenThinkingLabel: "思考内容已隐藏", windowTitle: "",
+  toolsExpanded: false, toolsExpansionSeq: 0, editorText: "", unsupported: null
 });
 
 export interface ExtensionNotice {
@@ -40,6 +48,19 @@ export function applyExtensionNotice(state: ExtensionUiState, notice: ExtensionN
       }
       break;
     case "setWorkingMessage": next.workingMessage = typeof key === "string" ? key : ""; break;
+    case "setWorkingVisible": if (typeof key === "boolean") next.workingVisible = key; break;
+    case "setWorkingIndicator": {
+      if (key == null) { next.workingIndicator = null; break; }
+      if (typeof key === "object" && (key.frames === undefined || (Array.isArray(key.frames) && key.frames.every((frame: unknown) => typeof frame === "string")))) {
+        next.workingIndicator = { frames: key.frames === undefined ? ["◐", "◓", "◑", "◒"] : [...key.frames], intervalMs: typeof key.intervalMs === "number" && Number.isFinite(key.intervalMs) && key.intervalMs > 0 ? key.intervalMs : 80 };
+      } else next.unsupported = "扩展工作指示器参数无法读取";
+      break;
+    }
+    case "setHiddenThinkingLabel": next.hiddenThinkingLabel = typeof key === "string" ? key : "思考内容已隐藏"; break;
+    case "setTitle": if (typeof key === "string") next.windowTitle = key; break;
+    case "setToolsExpanded":
+      if (typeof key === "boolean") { next.toolsExpanded = key; next.toolsExpansionSeq = notice.seq; }
+      break;
     case "setEditorText":
       if (typeof key === "string") { next.editorText = key; next.editorSelection = { start: key.length, end: key.length }; }
       break;

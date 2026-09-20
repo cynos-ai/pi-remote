@@ -400,6 +400,7 @@ export default function(pi) {
     const snapshot = snapshotSchema.parse(toSnapshot(state));
     const ui = snapshot.notices.filter((notice) => notice.kind === "extension_ui");
     expect(ui.map((notice) => notice.details)).toEqual([
+      { method: "setToolsExpanded", args: [false] },
       { method: "setStatus", args: ["startup-editor", "draft before initialize\n第二行"] },
       { method: "setWidget", args: ["review-widget", ["first widget line", "second widget line"]] },
       { method: "setEditorText", args: ["extension replacement"] },

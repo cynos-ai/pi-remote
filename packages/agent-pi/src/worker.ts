@@ -371,6 +371,7 @@ export class PiWorker {
   private clearingQueue = false;
   private renaming = false;
   private editorText = "";
+  private toolsExpanded = false;
   private currentSessionId: string;
   private readonly persistedMappings = new Set<string>();
   private readonly replacementRequests = new WeakMap<PiSessionReplacementRequest, string>();
@@ -582,6 +583,12 @@ export class PiWorker {
       persistenceState: this.hasPersistedHistory(session) ? "persisted" : "unflushed" });
     this.currentSessionId = await ack;
     if (request) this.replacementRequests.delete(request);
+    // Expansion belongs to the surviving UI runtime, but the destination
+    // needs its own durable projection after the mapping is acknowledged.
+    const context = this.createStandaloneOperation(this.currentSessionId);
+    this.uiContextStorage.run(context, () => this.emitUi("setToolsExpanded", [this.toolsExpanded]));
+    this.standaloneOperations.delete(context.operationId);
+    this.emitOperationStatus("completed", context);
     await this.sendModels({ requestId: "runtime-state" });
   }
 
@@ -634,6 +641,9 @@ export class PiWorker {
       if (!payload.hasPendingTitle && nativeName) this.onSessionEvent({ type: "session_info_changed", name: nativeName });
       await this.sendModels({ requestId: "runtime-state" });
       await this.uiContextStorage.run(initializationContext, async () => {
+        // A new worker starts with the native collapsed-tools default. Publish
+        // it so an older mobile snapshot cannot retain another worker's flag.
+        this.emitUi("setToolsExpanded", [this.toolsExpanded]);
         if (payload.model) {
           const model = this.handle!.services.modelRuntime.getModel(payload.model.provider, payload.model.id);
           if (!model) throw new Error(`model ${payload.model.provider}/${payload.model.id} is not available`);
@@ -1336,8 +1346,8 @@ export class PiWorker {
       getAllThemes: () => [],
       getTheme: () => undefined,
       setTheme: () => ({ success: false, error: "themes are not available in the RPC bridge" }),
-      getToolsExpanded: () => false,
-      setToolsExpanded: (...args: unknown[]) => this.emitUi("setToolsExpanded", args)
+      getToolsExpanded: () => this.toolsExpanded,
+      setToolsExpanded: (expanded: boolean) => { this.toolsExpanded = expanded; this.emitUi("setToolsExpanded", [expanded]); }
     } as unknown as ExtensionUIContext;
   }
 

@@ -865,7 +865,25 @@ function interactionKindLabel(kind: InteractionProjection["kind"]): string {
   }
 }
 
-function ExecutionTimelineRow({ item }: { item: SessionTimelineItem }) {
+function ExtensionWorkingRow({ ui, active }: { ui: ExtensionUiState; active: boolean }) {
+  const [frame, setFrame] = useState(0);
+  const indicator = ui.workingIndicator;
+  useEffect(() => {
+    setFrame(0);
+    if (!active || !ui.workingVisible || !indicator || indicator.frames.length < 2) return;
+    const timer = setInterval(() => setFrame(current => (current + 1) % indicator.frames.length), indicator.intervalMs);
+    return () => clearInterval(timer);
+  }, [active, indicator, ui.workingVisible]);
+  if (!active || !ui.workingVisible) return null;
+  return <View style={styles.buttonRow} accessibilityRole="progressbar" accessibilityLabel={ui.workingMessage || "处理中"}>
+    {indicator === null ? <ActivityIndicator /> : <Text>{indicator.frames[frame % Math.max(1, indicator.frames.length)] ?? ""}</Text>}
+    <Text style={styles.infoText}>{ui.workingMessage || "处理中…"}</Text>
+  </View>;
+}
+
+function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: ExtensionUiState }) {
+  const [expanded, setExpanded] = useState(ui.toolsExpanded);
+  useEffect(() => { setExpanded(ui.toolsExpanded); }, [ui.toolsExpanded, ui.toolsExpansionSeq]);
   if (item.kind === "message" && item.data.custom && !item.data.custom.display) return null;
   const live = "displayState" in item;
   const completeness = live ? "live" : item.completeness;
@@ -879,8 +897,9 @@ function ExecutionTimelineRow({ item }: { item: SessionTimelineItem }) {
           </Text>
         </View>
         <Text style={styles.toolMeta}>调用归属 · {item.operationId}{item.runId ? ` · Run ${item.runId}` : " · 独立内容"}</Text>
-        <Text style={styles.codeText}>{safeJson(item.data.args)}</Text>
-        <Text style={styles.codeText}>{item.data.output?.text ?? "等待工具输出"}</Text>
+        {expanded ? <Text style={styles.codeText}>{safeJson(item.data.args)}</Text> : null}
+        <Text numberOfLines={expanded ? undefined : 3} style={styles.codeText}>{item.data.output?.text ?? "等待工具输出"}</Text>
+        <ActionButton kind="secondary" onPress={() => setExpanded(current => !current)} title={expanded ? "收起输出" : "展开输出"} />
         {item.data.output?.truncated ? <Text style={styles.warningText}>展示副本已截断，原始 artifact 仍由服务器保留。</Text> : null}
         {!live && item.completeness === "partial" ? <Text style={styles.warningText}>工具在 {item.endReason} 状态中断，执行结果未知。</Text> : null}
         {item.data.isError ? <Text style={styles.errorText}>工具返回错误，后续模型可继续处理。</Text> : null}
@@ -901,7 +920,7 @@ function ExecutionTimelineRow({ item }: { item: SessionTimelineItem }) {
         if (block.kind === "text" || block.kind === "thinking") {
           return (
             <Text key={`${item.itemId}-${index}`} style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
-              {block.kind === "thinking" && !block.redacted ? "思考：" : ""}{block.text}
+              {block.kind === "thinking" ? block.redacted ? ui.hiddenThinkingLabel : `思考：${block.text}` : block.text}
               {block.truncated ? "（展示副本已截断）" : ""}
             </Text>
           );
@@ -1098,8 +1117,8 @@ function ExecutionScreen({
         setPendingSubmits(await pendingStore?.list(session.id) ?? []);
         const cachedUi = await cache?.getResource<ExtensionUiState>(accountKey, `extension-ui:${session.id}`);
         if (active && cachedUi) {
-          extensionUiRef.current = cachedUi.value;
-          setExtensionUi(cachedUi.value);
+          extensionUiRef.current = { ...emptyExtensionUi(), ...cachedUi.value };
+          setExtensionUi(extensionUiRef.current);
           setComposerText(cachedUi.value.editorText);
         }
       } catch (caught) { if (active) setError(errorText(caught)); }
@@ -1458,7 +1477,8 @@ function ExecutionScreen({
       ))}
       {Object.entries(extensionUi.statuses).map(([key, value]) => <Text key={key} style={styles.infoText}>{key} · {value}</Text>)}
       {Object.entries(extensionUi.widgets).map(([key, lines]) => <View key={key} style={styles.formCard}><Text style={styles.fieldLabel}>{key}</Text><Text style={styles.codeText}>{lines.join("\n")}</Text></View>)}
-      <NoticeBanner message={extensionUi.workingMessage} />
+      {extensionUi.windowTitle ? <Text style={styles.infoText}>{extensionUi.windowTitle}</Text> : null}
+      <ExtensionWorkingRow ui={extensionUi} active={state?.session.activeRunId != null} />
       <NoticeBanner message={extensionUi.unsupported} />
       {lastCommandId ? <Text style={styles.commandReceipt}>最近收据 · {lastCommandId}</Text> : null}
       <View style={styles.modelBar}>
@@ -1644,7 +1664,8 @@ function ExecutionScreen({
           ListEmptyComponent={<Text style={styles.emptyText}>这个 Session 还没有可显示的时间线。</Text>}
           ListFooterComponent={nextCursor ? <ActionButton disabled={loadingMore} kind="secondary" onPress={() => void loadMore()} title={loadingMore ? "加载中…" : "加载更早记录"} /> : null}
           ListHeaderComponent={header}
-          renderItem={({ item }) => <ExecutionTimelineRow item={item} />}
+          extraData={extensionUi}
+          renderItem={({ item }) => <ExecutionTimelineRow item={item} ui={extensionUi} />}
         />
       </View>
     </SafeAreaView>

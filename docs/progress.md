@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 扩展 UI 标量控制
+
+基于 `98d5395`，接通手机工作行显隐、工作指示器帧/间隔、隐藏思考标签、独立窗口标题及工具展开控制。完整工具结果不受手机折叠影响，错误/中断提示始终显示；旧缓存补默认字段，通知按 seq 去重及快照恢复。修正 worker 的 `getToolsExpanded()` 固定 false：现在返回当前扩展设置，新 worker 发布默认 false，原生会话替换在 bound ACK 后通过归属目标的独立 Operation 发布存活设置，不串回源 Session。
+
+继续使用现有 runtime.notice，未新增公共协议字段或数据表。测试新增手机正常/异常/重置投影，以及真实 SDK 扩展到生产 server/worker 的 HTTPS/WSS 持久化、重放、无 Run 控制、窗口标题不改 Session 名称和原生替换归属。环境为 WSL Linux / Node 24.19.0 / SDK 0.85.1，本轮仅使用本地合成 provider，无付费模型请求。
+
+验证：完整 `node scripts/test-real-process-e2e.mjs --no-build` 为 23/23 通过，日志 `test-results/extension-ui-e2e.log`；定向 SDK worker 13/13 通过。手机新增夹具首轮漏了协议必填 message 字段，修正后 `tests/mobile/extension-ui.test.ts` 为 3/3 通过，首轮与修正日志分别保留在 `extension-ui-targeted.log`、`extension-ui-mobile-final.log`。`pnpm verify:S07` 为 14 passed / 2 failed；失败仍是旧 live-commands / parity-tui-commands 证据与当前源码不匹配，本轮构建、合同、两组真实进程、lint、全量 typecheck 和文档通过，见 `extension-ui-s07.log` 与 `s07/report.json`，未改写旧报告。
+
+最终 `pnpm verify:S10` 为 blocked（17 passed / 0 failed / 2 not_run）：手机合同、Android/iOS JS bundle、lint、全量 typecheck、文档通过；两个 not_run 为设备。首轮夹具失败保留在 `test-results/extension-ui-s10.log`，最终证据在 `extension-ui-s10-final.log` 与 `s10/report.json`。`python3 scripts/check_docs.py` 和 `git diff --check` 通过。
+
+任意 custom、header/footer/editor 工厂和终端 renderer 仍待组件适配，Android/iOS 设备显示与动画未运行；不能将本轮标量控制或 JS 构建视为完整原生 UI 或真机通过。真实 provider / 交互式 TUI 矩阵仍需当前源码证据。
+
 ## 2026-09-20 手机历史找回入口
 
 基于 `aa625d0`，新增项目级 recoverable-history / history-imports API、公共 Zod DTO、手机 API 方法及 Session 列表的选择/确认/取消入口。服务只读管理目录 `${PI_REMOTE_PI_DIR}/sessions`，通过 agent-pi 的完整 JSONL 检查和真实 cwd 核对发现历史；跳过符号链接、空白/损坏、重复原生身份、其他项目或已有映射。候选 HMAC 绑定项目、相对路径和原生 ID，手机不传任意路径。导入重新扫描，在事务中核对映射、创建 persisted Session 与幂等收据；同键重放原收据、不同键返回已有同项目映射，活跃原生替换期间拒绝抢占。没有新增数据表或迁移，没有修改 Bash/模型能力边界。
