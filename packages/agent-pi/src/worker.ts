@@ -11,6 +11,7 @@ import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
 import { createModelSelector, findEditorModel, type ModelSelection } from "./model-selector.js";
 import { createThinkingSelector, type ThinkingSelection } from "./thinking-selector.js";
+import { createSettingsSelector } from "./settings-selector.js";
 import { createSessionSelector } from "./session-selector.js";
 import { createForkSelector } from "./fork-selector.js";
 import { createTreeSelector } from "./tree-selector.js";
@@ -1410,6 +1411,49 @@ export class PiWorker {
     }
   }
 
+  private async settingsFromEditor(owner: string, signal: AbortSignal): Promise<void> {
+    if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
+    const context = this.createStandaloneOperation(owner, "configure");
+    this.standaloneOperations.delete(context.operationId);
+    this.causalCommands.delete(context.operationId);
+    const session = this.handle.session, settings = this.handle.services.settingsManager;
+    let writes = Promise.resolve();
+    let writeFailed = false;
+    try {
+      await this.uiContextStorage.run(context, async () => {
+        await runCustomUi<void>((_tui, _theme, keys, done) => createSettingsSelector(keys, session, settings, {
+          change: apply => {
+            if (signal.aborted || owner !== this.currentSessionId) return;
+            apply();
+            writes = writes.then(async () => {
+              await settings.flush();
+              const errors = settings.drainErrors();
+              if (errors.length) throw new Error(errors.map(item => errorMessage(item.error)).join("; "));
+              this.createUiContext().notify("设置已保存", "info");
+            }).catch(error => { writeFailed = true; this.createUiContext().notify(`设置保存失败：${errorMessage(error)}`, "error"); });
+          },
+          unavailable: message => this.createUiContext().notify(message, "warning"),
+          refreshAutocomplete: () => this.editorHost.refreshAutocomplete(),
+          setPaddingX: value => this.editorHost.setPaddingX(value),
+          setAutocompleteMaxVisible: value => this.editorHost.setAutocompleteMaxVisible(value)
+        }, () => done(undefined)), {
+          agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
+          publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+          inputError: message => this.createUiContext().notify(message, "error"),
+          ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "设置" : "设置输入", {
+            ...(keys ? { options: keys } : {}), message: "原生设置菜单：搜索并按 Enter 修改，即时保存；关闭不撤销已改设置。标为待适配的显示/启动项不会修改配置。"
+          }, { signal: inputSignal })
+        });
+        await writes;
+      });
+      if (writeFailed) this.emitOperationStatus("failed", context);
+      else {
+        this.controlOperations.set(context.operationId, { operationId: context.operationId, commandId: "", kind: "configure" });
+        this.completeControlOperation(context.operationId);
+      }
+    } catch (error) { await writes; this.emitOperationStatus("failed", context); throw error; }
+  }
+
   private branchSummary?: { owner: string; session: AgentSession };
 
   private async treeFromEditor(owner: string, signal: AbortSignal): Promise<void> {
@@ -1582,6 +1626,7 @@ export class PiWorker {
     let lastEscape = 0;
     let modelMenu: Promise<void> | undefined;
     let thinkingMenu: Promise<void> | undefined;
+    let settingsMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
     const openModelMenu = (search?: string) => {
       if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal, search).finally(() => { modelMenu = undefined; });
@@ -1678,6 +1723,10 @@ export class PiWorker {
           submit: async text => {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
+            if (text === "/settings") {
+              if (!settingsMenu) settingsMenu = this.settingsFromEditor(owner, controller.signal).finally(() => { settingsMenu = undefined; });
+              await settingsMenu; return;
+            }
             if (text === "/thinking" || text.startsWith("/thinking ")) { await openThinkingMenu(text.slice(10).trim() || undefined); return; }
             if (text === "/model" || text.startsWith("/model ")) { await openModelMenu(text.slice(7).trim() || undefined); return; }
             if (text === "/resume" || text === "/fork") { await openSessionMenu(text === "/fork" ? "fork" : "resume"); return; }

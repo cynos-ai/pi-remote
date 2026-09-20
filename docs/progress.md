@@ -26,6 +26,16 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 原生设置菜单与即时生效路径
+
+基于 `755513a`，接入 `/settings` 的原生 SettingsSelectorComponent、SettingsList 搜索/值循环和模型思考覆盖子菜单。支持自动压缩、steer/follow-up 模式、传输/HTTP idle timeout、模型思考覆盖增删、图片自动缩放/模型图片阻断、skill 命令、默认项目信任、双 Esc/树过滤，以及编辑器 padding/补全条数。SDK runtime setter 与设置保存同时执行；编辑器更新不替换组件、不清草稿，缺少可选 setter 的自定义编辑器沿原生行为保留自身布局。默认项目信任只改变原生后续回退决策。没有新协议字段、schema 或默认执行限制。
+
+尚未接入显示/启动生效路径的主题、全屏、图片显示、思考块隐藏、聊天重绘/布局、警告等可见项标为“待适配”，选择时明确提示配置未修改。图片显示/宽度项是否出现仍由原生终端图片能力决定；模型图片处理设置没有默认禁用。菜单使用独立 configure Operation，重复打开不叠加、旧编辑器输入失效；异步 flush 后检查 SettingsManager.drainErrors，保存失败通知并将操作记失败。关闭不撤销已更改设置，写入失败不伪装成持久成功；模型 thinking hook 沿现有独立生命周期处理。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：首轮构建因菜单 done 回调参数类型失败（`test-results/settings-menu-build.log`），改用显式 undefined 后构建通过（`settings-menu-build-final.log`）。首轮进程 32/33（`settings-menu-sessions.log`）：测试选了当前文本终端不显示的 Show images 项，持续 HTTP 等待触发限流；改为实际存在的 Hide thinking 项并读取持久事件，不放宽产品限流或断言。第二轮 34/35（`settings-menu-sessions-final.log`）：新增覆盖子菜单测试使用了未定义的 Down/Up 响应值，已改为协议提供的箭头。保存/显示项拒绝和实际文件写入失败验证均通过。定向回归 71/71（`settings-menu-targeted.log`），新增布局/补全即时更新、保留草稿且不重建组件验证。本轮 `pnpm verify:S07` 原始结果为 13 passed / 3 failed（`settings-menu-s07.log`、`s07/report.json`）：构建、命令合同、五类生命周期表单、35 项会话进程、全量类型检查及文档通过；失败是 selector 的 prefer-const lint 及旧 live-commands / parity-tui-commands 源码身份失效。变量改为 const 后完整 lint 和 agent-pi 类型检查均通过（`settings-menu-lint-final.log`、`settings-menu-types-final.log`），不改产品行为或测试断言，保留阶段原始失败报告。新增进程证据覆盖保存后双 Esc 立即生效、编辑器草稿保留、未适配项/子菜单不写配置、重连画面、旧响应拒绝、运行中模型思考覆盖增删，以及实际文件写入失败不声称保存成功。最终文档和差异格式检查通过；S07 保持 blocked，不将菜单子集记为完整阶段通过。
+
+未读取模型凭据或调用付费 provider；测试只用临时项目和本地合成模型。完整真实 provider/传输/图片/信任矩阵、交互式 TUI、Android/iOS 实机均未验收，双端 JS 构建未重跑。菜单明确标出的显示/启动项、共享焦点、聊天重绘、`/scoped-models` 和退出/挂起仍待实现；设置菜单已接通的子集不代表完整 TUI 能力通过。
+
 ## 2026-09-21 原生思考等级菜单
 
 基于 `ff00191`，接入固定 SDK ThinkingSelectorComponent 和 `/thinking` / `/thinking 等级`。菜单保留当前/默认标记、搜索、原生选择与保存键、取消，默认等级来自 SDK 常量与 SettingsManager；直接命令忽略大小写精确匹配当前可用等级，无效等级显示可用列表，不作为 prompt 提交。普通选择 persist=false，保存默认值才更新设置并等待 flush。模型在菜单打开后改变时，最终 setThinkingLevel 仍沿 SDK 能力处理，通知与手机配置反映实际有效等级。

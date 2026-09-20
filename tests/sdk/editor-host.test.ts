@@ -44,6 +44,22 @@ function editor() {
   return { component, history, disposed: () => disposed };
 }
 describe("native extension editor host", () => {
+  it("updates active layout and completions without replacing the editor or its draft", async () => {
+    const h = setup(), e = editor();
+    const padding: number[] = [], limits: number[] = [];
+    let installs = 0;
+    const component = { ...e.component, setPaddingX: (value: number) => { padding.push(value); },
+      setAutocompleteMaxVisible: (value: number) => { limits.push(value); }, setAutocompleteProvider: () => { installs++; } };
+    h.host.setText("retained draft");
+    const running = h.host.run(() => component, h.bridge); await tick();
+    const before = installs;
+    h.host.setPaddingX(3); h.host.setAutocompleteMaxVisible(15); h.host.refreshAutocomplete();
+    expect(padding.at(-1)).toBe(3); expect(limits.at(-1)).toBe(15); expect(installs).toBe(before + 1);
+    expect(h.host.getText()).toBe("retained draft"); expect(e.disposed()).toBe(0); expect(h.submitted).toEqual([]);
+    h.host.stop(); await running;
+    h.host.setPaddingX(1); h.host.refreshAutocomplete();
+    expect(padding.at(-1)).toBe(3); expect(installs).toBe(before + 1);
+  });
   it("binds default actions, preserves special overrides and ignores stale actions", async () => {
     const h = setup(), e = editor();
     const calls: string[] = [];

@@ -28,6 +28,9 @@ export class EditorHost {
 
   getFactory(): Factory | undefined { return this.factory; }
   getText(): string { return this.component?.getText() ?? this.text; }
+  refreshAutocomplete(): void { if (this.component && this.bridge) this.component.setAutocompleteProvider?.(this.autocomplete()); }
+  setPaddingX(value: number): void { this.component?.setPaddingX?.(value); this.refresh?.(); }
+  setAutocompleteMaxVisible(value: number): void { this.component?.setAutocompleteMaxVisible?.(value); this.refresh?.(); }
   setText(text: string): void {
     if (text !== this.getText()) this.revision++;
     this.text = text;

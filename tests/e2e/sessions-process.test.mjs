@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFile, writeFile, readdir } from 'node:fs/promises';
+import { readFile, writeFile, readdir, rename, mkdir, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -34,6 +34,76 @@ async function treeHarness(t, settings = {}, options = {}) {
   const after = async count => until(async () => { const lines = await h.lines('tree-after'); return lines.length >= count ? JSON.parse(lines.at(-1)) : undefined; }, 'native tree event', 5000);
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
+
+test('native settings persist changes, update active editor and reject unsupported rendering controls', { timeout: 120000 }, async t => {
+  const { h, command, extension, snapshot, next, answer, key, combo, draft } = await treeHarness(t);
+  await command('prompt', { text: 'SETTINGS_SOURCE' }); await extension('/r16-editor');
+  const settings = async () => JSON.parse(await readFile(join(h.agent, 'settings.json'), 'utf8'));
+  const open = async () => { await extension('/r16-editor-draft /settings'); await key('扩展编辑器', 'Enter'); return next('设置'); };
+  const search = async value => { await combo('设置', '设置输入', 'ctrl+u'); await key('设置', '输入文本'); await key('设置输入', value); };
+  const change = async label => { await search(label); await key('设置', 'Enter'); };
+  const initial = await settings();
+  await open(); await extension('/r16-editor-draft KEEP_SETTINGS_DRAFT');
+  await change('Auto-compact'); await until(async () => (await settings()).compaction.enabled === true, 'auto compact persisted', 5000);
+  await change('Editor padding'); await until(async () => (await settings()).editorPaddingX !== undefined, 'editor padding persisted', 5000);
+  await change('Autocomplete max items'); await until(async () => (await settings()).autocompleteMaxVisible !== undefined, 'completion layout persisted', 5000);
+  await change('Double escape'); await until(async () => (await settings()).doubleEscapeAction !== undefined, 'double Escape setting persisted', 5000);
+  await change('Hide thinking');
+  await until(() => h.query("SELECT seq FROM events WHERE type = 'runtime.notice' AND json_extract(payload_json, '$.message') LIKE '%尚未接入%未修改%' ").length, 'unsupported setting diagnostic', 5000);
+  assert.equal((await settings()).hideThinkingBlock, initial.hideThinkingBlock);
+  await search('Warnings'); await key('设置', 'Enter'); await key('设置', 'Enter'); await key('设置', 'Esc');
+  assert.deepEqual((await settings()).warnings, initial.warnings);
+  const latestSettingsFrame = h.query("SELECT payload_json FROM events WHERE type = 'runtime.notice' AND json_extract(payload_json, '$.details.method') = 'custom.render' ORDER BY seq DESC")
+    .map(row => JSON.parse(row.payload_json)).find(p => JSON.stringify(p.details.args).includes('Warnings'));
+  assert.ok(JSON.stringify(latestSettingsFrame).includes('待适配'), 'nested pending settings must not display as applied');
+  assert.equal(await draft(), 'KEEP_SETTINGS_DRAFT');
+  const replay = await h.connect();
+  assert.ok(replay.events().some(e => e.type === 'runtime.notice' && e.payload.details?.method === 'custom.render' && JSON.stringify(e.payload.details.args).includes('待适配')));
+  await answer('设置', { cancelled: true });
+  assert.equal((await settings()).compaction.enabled, true, 'closing settings does not roll back changes');
+  await extension('/r16-editor-draft'); await key('扩展编辑器', 'Esc'); await key('扩展编辑器', 'Esc');
+  const action = (await settings()).doubleEscapeAction;
+  if (action !== 'none') { const title = action === 'fork' ? '分叉会话' : '会话树'; await next(title); await key(title, 'Esc'); }
+  await open(); const stale = await next('设置'); await extension('/r16-editor-clear');
+  await until(async () => !(await snapshot()).pendingInteractions.some(f => f.interactionId === stale.interactionId), 'settings closed with editor', 5000);
+  await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('settings per-model thinking override applies during streaming and can be cleared', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, answer, key } = await treeHarness(t, { defaultThinkingLevel: 'medium' }, { editorModels: true });
+  await extension('/r16-editor'); await extension('/r16-editor-draft /model reasoned'); await key('扩展编辑器', 'Enter');
+  await until(async () => (await snapshot()).session.model.id === 'reasoned', 'settings reasoning model', 5000);
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' }); await until(() => h.provider.requests.length === 1, 'active settings response', 5000);
+  await extension('/r16-editor-draft /settings'); await key('扩展编辑器', 'Enter');
+  await next('设置'); await key('设置', '输入文本'); await key('设置输入', 'Default thinking level per model'); await key('设置', 'Enter');
+  await key('设置', 'Enter'); await key('设置', '↓'); await key('设置', '↓'); await key('设置', 'Enter');
+  const settings = async () => JSON.parse(await readFile(join(h.agent, 'settings.json'), 'utf8'));
+  await until(async () => (await settings()).modelThinkingLevels?.['r16-local/reasoned'] === 'low', 'model override saved', 5000);
+  await until(async () => (await snapshot()).session.thinkingLevel === 'low', 'model override applied', 5000);
+  await key('设置', 'Enter'); await key('设置', '↑'); await key('设置', '↑'); await key('设置', '↑'); await key('设置', 'Enter');
+  await until(async () => (await settings()).modelThinkingLevels?.['r16-local/reasoned'] === undefined, 'model override removed', 5000);
+  await until(async () => (await snapshot()).session.thinkingLevel === 'medium', 'global default restored', 5000);
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  await answer('设置', { cancelled: true }); await key('扩展编辑器', 'Esc'); await h.terminal(active.commandId, 'cancelled');
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('settings persistence failure is reported without claiming a successful save', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, answer, key } = await treeHarness(t);
+  await extension('/r16-editor'); await extension('/r16-editor-draft /settings'); await key('扩展编辑器', 'Enter');
+  const menu = await next('设置');
+  const path = join(h.agent, 'settings.json'), backup = join(h.agent, 'settings.saved');
+  await rename(path, backup); await mkdir(path);
+  try {
+    await key('设置', 'Enter');
+    await until(async () => (await snapshot()).notices.some(n => n.message.includes('设置保存失败')), 'settings write failure', 5000);
+    assert.ok(!(await snapshot()).notices.some(n => n.message === '设置已保存'));
+    await answer('设置', { cancelled: true });
+    await until(() => h.query("SELECT seq FROM events WHERE operation_id = ? AND type = 'operation.updated' AND json_extract(payload_json, '$.status') = 'failed'", menu.operationId).length, 'failed settings operation', 5000);
+  } finally { await rmdir(path); await rename(backup, path); }
+  assert.equal(h.provider.requests.length, 0);
+});
 
 test('thinking slash and native selector preserve defaults, capability checks and asynchronous hooks', { timeout: 120000 }, async t => {
   const { h, extension, snapshot, next, answer, key, combo, draft } = await treeHarness(t, {}, { editorModels: true });
@@ -694,9 +764,9 @@ test('real CustomEditor edits, completes and submits once; reset invalidates old
   await draft('!!printf editor-shell'); await key('Enter');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.command === 'printf editor-shell' && item.message.excludeFromContext === true), 'editor native Bash');
   assert.ok(h.query("SELECT seq FROM events WHERE type = 'operation.updated' AND json_extract(payload_json, '$.kind') = 'bash'").length > 0);
-  await draft('/settings'); await key('Enter');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/settings') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
-  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/settings');
+  await draft('/scoped-models'); await key('Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/scoped-models') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/scoped-models');
   assert.equal(h.provider.requests.length, 1, 'Bash and terminal menus never become model prompts');
   await draft('keep');
   await key('Home');
