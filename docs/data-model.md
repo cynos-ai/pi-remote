@@ -78,6 +78,8 @@ header/footer 同样使用 runtime.notice 保存文本画面、null 清除及 re
 
 editor 复用 custom 画面和持久 Interaction，草稿通过 setEditorText 投影；工厂、补全包装器与光标留在 worker 内存。重启只恢复显示/草稿，不恢复组件或重发 onSubmit。后续用户提交与安装 Command 分离；普通模型执行由原生事件建立 Run，用户 Bash 无模型 Run，respond 的完成状态不是模型或 shell 副作用成功保证。
 
+终端监听订阅和快捷键 handler 同样只存在 worker 内存，不序列化、不新增表。组合键沿既有 select/input 响应持久化，按一次性 interactionId 去重；回放通知不重新触发快捷键副作用，重启后未知输入不自动重投。
+
 Run / Interaction 的 command_id 是因果来源，允许多个 Run 共用一条 Command，也允许没有外部 Command。原生替换后 S1 的 Command 可产生 S2 的执行；存储事务必须沿 projects.user_id 验证同 owner，不要求来源同 Session。target_run_id 与 response_command_id 是定向控制，仍由复合 FK 要求同执行 Session。参考 SQL 不独立保证跨表 owner 校验，S04 必须测试允许的同 owner 路径和被拒绝的跨 owner 路径。
 
 SDK 内输入按 inputId 保存到 live_state 的 pendingInputs / recoveredInputs，完整内容含附件引用。input.updated 区分 queued / consumed / returned / unknown；stop 返回未消费草稿，不自动重发。该投影与应用 queue.updated 后续 Run 队列分开；clearQueue 仅返回文本，不能据此丢掉附件。compact 的原生队列行为单独验证。

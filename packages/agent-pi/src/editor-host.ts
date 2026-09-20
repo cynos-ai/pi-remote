@@ -1,4 +1,4 @@
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionUIContext, KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteProvider, EditorComponent } from "@earendil-works/pi-tui";
 import { runCustomUi } from "./custom-ui.js";
 
@@ -11,6 +11,7 @@ type Bridge = Parameters<typeof runCustomUi>[1] & {
   autocomplete(): AutocompleteProvider;
   paddingX?: number;
   autocompleteMaxVisible?: number;
+  shortcuts?(keys: KeybindingsManager): (data: string) => boolean;
 };
 
 /** Keep editor state and callbacks in the worker; use one-shot controls for input. */
@@ -82,6 +83,8 @@ export class EditorHost {
         this.component = editor;
         try {
           this.refresh = () => tui.requestRender();
+          const custom = editor as EditorComponent & { actionHandlers?: Map<unknown, unknown>; onExtensionShortcut?: (data: string) => boolean };
+          if (custom.actionHandlers instanceof Map && !custom.onExtensionShortcut) custom.onExtensionShortcut = bridge.shortcuts?.(keys);
           editor.onChange = () => { if (this.component === editor) { this.sync(); tui.requestRender(); } };
           editor.onSubmit = text => {
             if (this.component !== editor || controller.signal.aborted || !text.trim()) return;

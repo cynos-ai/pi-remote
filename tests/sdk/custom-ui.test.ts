@@ -28,6 +28,20 @@ function bridge() {
 }
 
 describe("native custom component input lifecycle", () => {
+  it("accepts combination keys and keeps invalid key input in the control loop", async () => {
+    const h = bridge();
+    const input: string[] = [], errors: string[] = [];
+    const result = runCustomUi((_tui, _theme, _keys, done) => ({
+      render: () => ["keys"], invalidate() {}, handleInput(data) { input.push(data); done("key"); }
+    }), { ...h.options, inputError: message => errors.push(message) });
+    await tick(); h.questions.at(-1)!.answer({ value: "组合键" });
+    await tick(); h.questions.at(-1)!.answer({ value: "ctrl+unknown" });
+    await tick(); expect(h.questions.at(-1)!.kind).toBe("select");
+    expect(errors).toHaveLength(1); expect(input).toEqual([]);
+    h.questions.at(-1)!.answer({ value: "组合键" });
+    await tick(); h.questions.at(-1)!.answer({ value: "ctrl+k" });
+    expect(await result).toBe("key"); expect(input).toEqual(["\u000b"]);
+  });
   it("cleans up failed overlay installation and rendering", async () => {
     for (const point of ["layout", "handle", "render"]) {
       const h = bridge();

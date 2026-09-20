@@ -44,6 +44,22 @@ function editor() {
   return { component, history, disposed: () => disposed };
 }
 describe("native extension editor host", () => {
+  it("installs shortcuts only on native CustomEditor-shaped components and preserves overrides", async () => {
+    const h = setup(), e = editor();
+    const handler = () => true;
+    let installations = 0;
+    h.bridge.shortcuts = () => { installations++; return handler; };
+    const component = { ...e.component, actionHandlers: new Map(), onExtensionShortcut: undefined as ((data: string) => boolean) | undefined };
+    let result = h.host.run(() => component, h.bridge); await tick();
+    expect(component.onExtensionShortcut).toBe(handler);
+    h.host.stop(); await result;
+    const override = () => false;
+    component.onExtensionShortcut = override;
+    result = h.host.run(() => component, h.bridge); await tick();
+    expect(component.onExtensionShortcut).toBe(override);
+    expect(installations).toBe(1);
+    h.host.stop(); await result;
+  });
   it("disposes a component when autocomplete installation fails", async () => {
     const h = setup(), e = editor();
     h.host.setText("draft");

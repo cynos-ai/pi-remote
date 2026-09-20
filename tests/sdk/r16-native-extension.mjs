@@ -1,10 +1,33 @@
 import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CustomEditor } from '@earendil-works/pi-coding-agent';
+import { matchesKey } from '@earendil-works/pi-tui';
 
 // Loaded by the real SDK's normal extension discovery, from the temporary
 // agentDir. No SDK internals, transport replacements or worker test hooks.
 export default function extension(pi) {
+  let removeKeys = [];
+  pi.registerShortcut('ctrl+alt+k', {
+    description: 'Native shortcut test',
+    handler: async ctx => {
+      await appendFile(join(ctx.cwd, 'shortcut-calls'), 'shortcut\n');
+      ctx.ui.setStatus('keys-shortcut', 'done');
+    }
+  });
+  pi.registerShortcut('ctrl+alt+e', { description: 'Native shortcut error', handler: () => { throw new Error('shortcut input failure'); } });
+  pi.registerCommand('r16-keys', {
+    description: 'Subscribe terminal listeners in native order',
+    handler: async (_args, ctx) => {
+      removeKeys = [
+        ctx.ui.onTerminalInput(data => {
+          if (matchesKey(data, 'ctrl+alt+x')) { ctx.ui.setStatus('keys-consumed', 'yes'); return { consume: true }; }
+          if (matchesKey(data, 'ctrl+alt+j')) return { data: '\u001b[107;7u' };
+        }),
+        ctx.ui.onTerminalInput(data => { ctx.ui.setStatus('keys-observed', matchesKey(data, 'ctrl+alt+k') ? 'shortcut' : 'other'); })
+      ];
+    }
+  });
+  pi.registerCommand('r16-keys-off', { description: 'Unsubscribe native listeners', handler: async () => { for (const remove of removeKeys) { remove(); remove(); } removeKeys = []; } });
   pi.registerCommand('r16-editor-draft', { description: 'Set native editor draft', handler: async (args, ctx) => ctx.ui.setEditorText(args) });
   pi.registerCommand('r16-editor-paste', { description: 'Paste at native cursor', handler: async (args, ctx) => ctx.ui.pasteToEditor(args) });
   pi.registerCommand('r16-editor-clear', { description: 'Restore default editor', handler: async (_args, ctx) => ctx.ui.setEditorComponent(undefined) });

@@ -9,7 +9,8 @@ import { WidgetHost, type WidgetFactory } from "./widget-host.js";
 import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
-import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
+import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
+import { TerminalInputHub } from "./terminal-input.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
 import { fileURLToPath } from "node:url";
 import {
@@ -382,6 +383,7 @@ export class PiWorker {
   private renaming = false;
   private editorText = "";
   private readonly editorHost = new EditorHost();
+  private readonly terminalInputs = new Map<string, TerminalInputHub>();
   private toolsExpanded = false;
   private readonly widgetHost = new WidgetHost();
   private readonly surfaceHosts = new Map<string, SurfaceHost>();
@@ -521,6 +523,8 @@ export class PiWorker {
   }
 
   dispose(): void {
+    for (const hub of this.terminalInputs.values()) hub.clear();
+    this.terminalInputs.clear();
     this.editorHost.reset();
     for (const controller of this.customControllers) controller.abort();
     this.widgetHost.dispose();
@@ -603,7 +607,9 @@ export class PiWorker {
     const ack = this.replacementAck(requestId, "bound");
     this.send("session_replaced", { requestId, piSessionId: session.sessionId, piSessionFile: session.sessionFile,
       persistenceState: this.hasPersistedHistory(session) ? "persisted" : "unflushed" });
+    const sourceSessionId = this.currentSessionId;
     this.currentSessionId = await ack;
+    this.terminalInputs.get(sourceSessionId)?.clear();
     this.editorHost.reset();
     if (request) this.replacementRequests.delete(request);
     // Expansion belongs to the surviving UI runtime, but the destination
@@ -1306,6 +1312,12 @@ export class PiWorker {
     this.acceptControl(payload.commandId);
   }
 
+  private terminalInput(owner = this.currentSessionId): TerminalInputHub {
+    let hub = this.terminalInputs.get(owner);
+    if (!hub) { hub = new TerminalInputHub(); this.terminalInputs.set(owner, hub); }
+    return hub;
+  }
+
   private setEditor(factory: Parameters<ExtensionUIContext["setEditorComponent"]>[0]): void {
     if (!factory) {
       this.editorHost.stop();
@@ -1327,6 +1339,20 @@ export class PiWorker {
       try {
         await this.editorHost.run(factory, {
           agentDir: this.agentDir, signal: controller.signal,
+          terminalInput: this.terminalInput(owner), inputError: failure,
+          shortcuts: keys => {
+            const runner = this.handle!.session.extensionRunner;
+            const shortcuts = runner.getShortcuts(keys.getEffectiveConfig());
+            return data => {
+              for (const [key, shortcut] of shortcuts) {
+                if (!matchesKey(data, key)) continue;
+                try { void Promise.resolve(shortcut.handler(runner.createContext())).catch(failure); }
+                catch (error) { failure(error); }
+                return true;
+              }
+              return false;
+            };
+          },
           paddingX: this.handle?.services.settingsManager.getEditorPaddingX(),
           autocompleteMaxVisible: this.handle?.services.settingsManager.getAutocompleteMaxVisible(),
           publish: lines => this.uiContextStorage.run(context, () => this.emitUi("custom.render", [context.operationId, lines])),
@@ -1336,7 +1362,7 @@ export class PiWorker {
           failure,
           ask: (kind, keys, signal) => this.requestInteraction(kind, kind === "select" ? "扩展编辑器" : "扩展编辑器输入文本", {
             ...(keys ? { options: keys } : {}),
-            message: "按键交给原生编辑器；Enter 遵循编辑器提交行为。取消恢复普通输入区并保留草稿。"
+            message: "按键交给原生编辑器；组合键示例 ctrl+k、alt+enter、f5。Enter 遵循编辑器提交行为，取消恢复普通输入区并保留草稿。"
           }, { signal }),
           autocomplete: () => {
             const session = this.handle!.session;
@@ -1446,7 +1472,7 @@ export class PiWorker {
           }
         });
       },
-      onTerminalInput: () => () => undefined,
+      onTerminalInput: (handler: Parameters<ExtensionUIContext["onTerminalInput"]>[0]) => this.terminalInput(owner()).subscribe(handler),
       setStatus: (key: string, text: string | undefined) => { surfaces().setStatus(key, text); this.emitUi("setStatus", [key, text]); },
       setWorkingMessage: (...args: unknown[]) => this.emitUi("setWorkingMessage", args),
       setWorkingVisible: (...args: unknown[]) => this.emitUi("setWorkingVisible", args),
@@ -1480,10 +1506,12 @@ export class PiWorker {
           try {
             const result = await runCustomUi<T>(factory, {
               agentDir: this.agentDir, signal: controller.signal,
+              terminalInput: this.terminalInput(this.operationSessions.get(context.operationId) ?? this.currentSessionId),
+              inputError: message => this.onExtensionError({ extensionPath: "custom", event: "input", error: message }),
               publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
               ask: (kind, keys, signal) => this.requestInteraction(kind, kind === "select" ? "自定义组件控制" : "自定义组件输入文本", {
                 ...(keys ? { options: keys } : {}),
-                message: "Esc 交给扩展处理；取消控制面板会关闭组件。输入文本不自动发送 Enter。"
+                message: "Esc 交给扩展处理；取消控制面板会关闭组件。输入文本不自动发送 Enter；组合键示例 ctrl+k、alt+enter、f5。"
               }, { signal })
             }, options);
             this.emitOperationStatus("completed", context);
@@ -1685,6 +1713,8 @@ export class PiWorker {
   private async shutdown(reason: string): Promise<void> {
     if (this.stopped) return;
     try {
+      for (const hub of this.terminalInputs.values()) hub.clear();
+      this.terminalInputs.clear();
       this.editorHost.reset();
       if (this.execution) this.execution.abortRequested = true;
       for (const controller of this.customControllers) controller.abort();

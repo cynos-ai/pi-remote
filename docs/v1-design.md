@@ -193,6 +193,7 @@ pi JSONL 与业务数据库分别持久化。Session 显式保存 uninitialized 
 | custom UI 文本/按键适配 | 工厂保留在 worker，以独立子 Operation 的画面通知和连续 select/input 表单承载输入、done 与取消；每个实例的 80×24 虚拟 TUI 复用原生 overlay、onHandle、焦点和输入监听路由；画面仅在对应待答控件内展示；不把自定义 UI 与 custom 消息或模型 Run 混淆 |
 | header/footer 工厂 | 80 列文本画面分别投影在会话顶部/输入区下方；footer 接收原生 Git 分支、状态及 provider 数据；异步刷新归属源 Session，清除恢复普通布局；编辑器交互另行验收 |
 | editor 工厂 | 独立 Operation 的按键表单驱动原生编辑器及补全，保留工厂 getter、光标粘贴和草稿同步；onSubmit 经 SDK prompt / 用户 Bash，后续用户 Run 不绑定安装 Command；终端菜单及完整全局快捷键仍需适配 |
+| 应用监听与扩展快捷键 | onTerminalInput 绑定同 Session 原生交互表面，先消费/改写再路由；CustomEditor 沿 SDK 冲突规则匹配扩展快捷键，保留自定义覆盖；组合键走一次性表单；默认应用动作另验 |
 | 完成 | agent_settled、prompt / compact Promise、最终 stopReason 与重试状态综合判断 |
 
 SDK 的 prompt preflight 接受、HTTP 命令接收、完整执行结束是不同边界。SDK / provider 的最终消息与工具结果校准显示。SDK 与 CLI RPC JSON 的类型不同，不能直接混用。

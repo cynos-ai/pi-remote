@@ -70,12 +70,16 @@ widget 工厂现在由固定版本 `pi-tui@0.85.1` 的 `TuiMainScreen` 对象及
 
 custom 另支持固定 80×24 文本视口中的 overlay：复用原生合成、几何计算、可见性、onHandle 的隐藏/恢复/焦点控制，以及 TUI 的 addInputListener 和 setFocus 输入路由。overlayOptions 函数按 SDK 0.85.1 实际实现只在安装时求值；未传配置时保留组件 width 回退。每个 custom 是独立虚拟 TUI，背景仅包含该实例添加的组件，不是整个应用的终端画面。原生输入经虚拟 Terminal 路由，不占用进程 stdin/stdout。
 
-仍未支持 ctx.ui.onTerminalInput 的应用级监听、跨 custom 实例共享焦点、任意组合键或终端像素效果；不能将文本适配当成完整 TUI。画面仅跟随待答控件展示；worker 崩溃使旧交互失效，不能用重连恢复内存中的组件回调或重发旧按键。
+ctx.ui.onTerminalInput 已接入当前 Session 的 custom/editor 虚拟终端，按原生监听器顺序消费或改写输入；普通手机 TextInput 的草稿同步不是终端按键事件。跨 custom 实例共享焦点和终端像素效果仍未接入，不能将文本适配当成完整 TUI。画面仅跟随待答控件展示；worker 崩溃使旧交互失效，不能用重连恢复内存中的组件回调或重发旧按键。
 
 `setEditorComponent` 工厂接收原生 EditorTheme 结构、KeybindingsManager、padding 和补全显示设置；组件留在 worker，按 custom 的独立 Operation / 按键表单显示和操作。`getEditorComponent` 返回原工厂，替换/恢复保留文本；setEditorText、getEditorText、pasteToEditor 操作实际组件，粘贴优先使用原生光标插入。相同手机草稿重复同步不重置光标或补全状态。自动补全使用原生 CombinedAutocompleteProvider，包含文件、扩展命令、prompt templates 和已启用 skills，addAutocompleteProvider 按顺序包装。输入 Enter 是否提交由组件决定，onSubmit 的文本原值用于提交（沿原生去除首尾空白），不从画面反推输入。
 
 普通提交经 SDK prompt，运行中使用 steer；扩展 slash 保留即时处理；`!` / `!!` 使用原生用户 Bash hook 和执行器，不误发为模型文本。后续用户提交不归因于早先安装编辑器的扩展命令：独立 Operation、原生因果 Run，外部 Command 可空。提交异常保留文本为草稿，不自动重发、不覆盖用户较新的草稿。取消编辑器控件/恢复默认/会话替换会关闭旧按键并保留草稿；停止编辑器不停止已开始的模型任务。worker 重启不恢复内存回调。
 
 终端专用内置 slash 菜单尚未接入该编辑器路径，识别后提示使用手机对应入口并保留文本，不能当普通 prompt 发给模型。完整应用快捷键、压缩期间排队对照、图片粘贴及真机键盘手感仍待验收，现有手机附件及模型/会话/压缩入口继续独立使用。本适配不宣称完整交互式 TUI 已通过。
+
+应用输入监听按注册顺序安装到原生 TUI，支持 consume、data 改写、晚注册和取消订阅；组件自身的 tui.addInputListener 保持原生相对顺序。会话替换清理旧应用监听，仍待答的源 custom 组件保留自己的局部监听和按键能力；新 Session 不继承旧监听。worker 退出释放全部订阅。扩展 registerShortcut 使用原生 getShortcuts 的冲突处理及 matchesKey，绑定到具有 actionHandlers 的 CustomEditor；保留扩展自定义 onExtensionShortcut。快捷键回调使用 SDK createContext，异步不阻塞输入，错误归属原编辑器 Session，不能把快捷键注册套到所有普通 custom 组件。
+
+控制表单新增“组合键”输入，支持 ctrl/alt/shift 与字符、方向/导航键及 F1–F12，例如 ctrl+k、ctrl+alt+j、shift+enter。无效键名提示后回到控件，不关闭组件或向模型发送文本。固定 SDK 0.85.1 的 matchesKey 对带修饰键的 F1–F12 恒返回 false；适配仍传递标准终端字节供原始监听/组件处理，但不声称它们能通过原生扩展快捷键匹配。默认应用动作（退出/挂起、切模型、会话选择等）尚未完整绑定，不能把扩展快捷键已通过当成完整应用热键已通过。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

@@ -9,6 +9,57 @@ import { RealProcessHarness, until } from './real-process-harness.mjs';
 const history = async path => (await readFile(path, 'utf8')).trim().split('\n').map(JSON.parse);
 const mapping = h => h.query('SELECT id, pi_session_id, pi_session_file FROM sessions WHERE id = ?', h.sessionId)[0];
 
+test('terminal listeners consume and transform input before native extension shortcuts', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  for (const text of ['/r16-keys', '/r16-editor']) {
+    const command = await h.command('extension_command', { text }); await h.workerPid(); await h.terminal(command.commandId);
+  }
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  let previous;
+  const next = () => until(async () => (await snapshot()).pendingInteractions.find(form => form.interactionId !== previous && form.title.startsWith('扩展编辑器')), 'editor key form');
+  const answer = async value => {
+    const form = await next(); previous = form.interactionId;
+    const payload = { operationId: form.operationId, interactionId: form.interactionId, response: { value } };
+    const key = randomUUID(); const command = await h.command('respond', payload, key); await h.terminal(command.commandId);
+    assert.equal((await h.command('respond', payload, key)).commandId, command.commandId);
+  };
+  const combo = async key => { await answer('组合键'); await answer(key); await next(); };
+  await combo('ctrl+alt+x');
+  let value = await snapshot();
+  assert.ok(value.notices.some(n => n.details?.method === 'setStatus' && n.details.args[0] === 'keys-consumed'));
+  assert.ok(!value.notices.some(n => n.details?.method === 'setStatus' && n.details.args[0] === 'keys-observed'));
+  assert.equal((await h.lines('shortcut-calls')).length, 0);
+  await combo('ctrl+alt+j');
+  await until(async () => (await h.lines('shortcut-calls')).length === 1, 'transformed shortcut runs once');
+  value = await snapshot();
+  assert.ok(value.notices.some(n => n.details?.method === 'setStatus' && n.details.args[0] === 'keys-observed' && n.details.args[1] === 'shortcut'));
+  assert.equal(value.notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], 'seed');
+  const off = await h.command('extension_command', { text: '/r16-keys-off' }); await h.terminal(off.commandId);
+  const observedBefore = (await snapshot()).notices.filter(n => n.details?.method === 'setStatus' && n.details.args[0] === 'keys-observed').length;
+  await combo('ctrl+alt+j');
+  assert.equal((await h.lines('shortcut-calls')).length, 1);
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setStatus' && n.details.args[0] === 'keys-observed').length, observedBefore);
+  await combo('ctrl+alt+k');
+  await until(async () => (await h.lines('shortcut-calls')).length === 2, 'shortcut still works after unsubscribe');
+  await combo('ctrl+alt+e');
+  assert.ok((await snapshot()).notices.some(n => n.message.includes('shortcut input failure')));
+  await combo('ctrl+unknown');
+  assert.ok((await snapshot()).notices.some(n => n.message.includes('无法识别组合键')));
+  assert.equal(h.provider.requests.length, 0);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+  const replay = await h.connect();
+  assert.ok(replay.events().some(e => e.type === 'runtime.notice' && e.payload.details?.args?.[0] === 'keys-shortcut'));
+  const register = await h.command('extension_command', { text: '/r16-keys' }); await h.terminal(register.commandId);
+  const custom = await h.command('extension_command', { text: '/r16-custom' });
+  const oldForm = await until(async () => (await snapshot()).pendingInteractions.find(form => form.title === '自定义组件控制'), 'source custom with listeners');
+  const replacement = await h.command('extension_command', { text: '/r16-new' }); await h.terminal(replacement.commandId);
+  const observedAtReplacement = (await snapshot()).notices.filter(n => n.details?.method === 'setStatus' && n.details.args[0] === 'keys-observed').length;
+  const finish = await h.command('respond', { operationId: oldForm.operationId, interactionId: oldForm.interactionId, response: { value: 'Enter' } });
+  await h.terminal(finish.commandId); await h.terminal(custom.commandId);
+  assert.deepEqual(JSON.parse((await h.lines('custom-results'))[0]), { result: { down: 0, text: '' }, disposed: true });
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setStatus' && n.details.args[0] === 'keys-observed').length, observedAtReplacement, 'old application listeners removed even from surviving custom surfaces');
+});
+
 test('real CustomEditor edits, completes and submits once; reset invalidates old keys', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   const install = await h.command('extension_command', { text: '/r16-editor' });

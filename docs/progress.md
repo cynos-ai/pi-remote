@@ -26,6 +26,20 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-20 终端监听、组合键与扩展快捷键
+
+基于 `ee66346`，接入按 Session 隔离的 TerminalInputHub，将 onTerminalInput 直接绑定到 custom/editor 的原生 TUI，保留注册顺序、消费/改写、组件局部监听相对顺序、晚注册和取消订阅。控件关闭解除绑定；原生会话替换清除旧应用监听，源 custom 控件自身仍可继续完成；worker 退出清理订阅。普通手机草稿同步不伪造终端按键，跨表面共享焦点仍未接入。
+
+CustomEditor 的扩展快捷键使用 SDK getShortcuts / matchesKey / createContext，保留已有 onExtensionShortcut；回调异步执行且异常归属原编辑器，不关闭输入循环。普通 custom 组件不强行插入编辑器快捷键处理。控制表单增加“组合键”，支持 ctrl/alt/shift、字符/导航键及 F1–F12；仍沿两次既有 select/input/respond 消费，不新建协议 kind 或数据库表。无效键名显示错误并返回控制，重复请求不重复按键。
+
+首轮定向测试 `test-results/keys-targeted.log` 为 16/17，失败来自对 shift+f12 可被原生 matcher 识别的假设。查阅固定 0.85.1 的 keys.js 确认 F1–F12 分支在 modifier 非零时直接 false；测试拆分为普通组合键原生匹配与修饰功能键的准确字节/原生不匹配两项，保留限制，不升级 SDK、不用自定义匹配替代原生结论。原始组件/监听器仍可处理这些标准终端字节。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：定向 terminal/editor/custom/runtime 51/51（`keys-targeted-verified.log`），初次真实进程会话 16/16（`keys-sessions.log`）。真实 worker 验证消费阻断、转换后触发快捷键一次、取消订阅、错误保持控件、通知重放、零模型调用；随后补充原生会话替换清除旧监听但保留源 custom 的断言，也经本轮 S07 真实进程通过。
+
+`pnpm verify:S07` 原始结果 13 passed / 3 failed（`keys-s07.log`、`s07/report.json`）：构建、命令合同、真实表单/会话进程、lint 和文档通过；typecheck 中产品包、服务端和手机通过，测试配置按 CommonJS 检查导致新测试的 import.meta 不允许。已改用仓库绝对路径加载 SDK，`pnpm exec tsc -p tsconfig.tests.json`、SDK/editor/custom 19/19 及 `pnpm lint` 复验全部通过（`keys-test-types-final.log`、`keys-sdk-final.log`、`keys-lint-final.log`）。另外两项仍是旧 live-commands / parity-tui-commands 身份失效。保留阶段失败报告；仅测试加载路径修正后未重跑完整进程构建，不改写为整阶段 passed。最终文档与 diff 格式检查通过。
+
+当前完成的是应用输入监听与扩展注册快捷键；默认应用动作（退出/挂起、切模型、会话菜单等）尚未完整绑定，终端菜单、压缩队列对照及真机输入仍未验收。本轮未读取模型凭据或调用付费模型，未重跑 Android/iOS JS 构建，手机继续使用既有表单；真实进程测试不替代 live/TUI/device。
+
 ## 2026-09-20 editor 工厂、输入与提交
 
 基于 `887a195`，新增 EditorHost：原工厂 getter、原生 EditorTheme/KeybindingsManager、padding/补全显示配置、原生文件/扩展/template/skill 补全及追加包装器。使用既有 custom.render 与持久 select/input/respond 操作实际组件，草稿 getter/setter、光标粘贴、onChange/onSubmit、替换和取消均留在 worker。安装立即返回，旧组件回调不操作新组件；初始化/输入异常清理组件，恢复默认保留文本。手机相同文本的 editor_state 不重置光标/补全，失败提交按草稿版本恢复，不覆盖用户后来输入或主动清空的内容。

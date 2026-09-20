@@ -8,11 +8,13 @@ Operation 标识一次初始化、配置、模型执行、用户 Bash 或扩展�
 
 custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异步 done 共享该归属，单个按键表单结束不关闭整个组件。done 关闭当时仍待答的控制表单并返回原值，用户明确取消返回 undefined；扩展自己的 Esc 语义不由适配器替代。异常向上报告并清理组件，worker 退出中止回调，迟到工厂不重新打开控件。此 UI 生命周期不是模型 Run，也不同于下文 custom 消息内容。
 
-每个 custom 使用独立 80×24 虚拟 TUI。overlay 合成、onHandle、隐藏/恢复及焦点输入由原生 TuiMainScreen 实现；输入经过原生 addInputListener 和当前焦点组件，不直接绕过路由调用根组件。overlayOptions 回调按固定 SDK 在安装时求值一次，普通 custom 忽略 overlay 配置。应用级 onTerminalInput 和跨实例共享焦点仍未接入。
+每个 custom 使用独立 80×24 虚拟 TUI。overlay 合成、onHandle、隐藏/恢复及焦点输入由原生 TuiMainScreen 实现；输入经过原生 addInputListener 和当前焦点组件，不直接绕过路由调用根组件。overlayOptions 回调按固定 SDK 在安装时求值一次，普通 custom 忽略 overlay 配置。应用级 onTerminalInput 按下文绑定到同 Session 的交互表面；跨实例共享焦点仍未接入。
 
 header/footer 为无焦点组件，工厂及 FooterDataProvider 留在 worker，以安装时 Session 为归属。异步刷新若原 Operation 已关闭，创建同 Session 的新 Operation；不能沿用后来目标会话的归属。替换/清除销毁旧组件，worker 退出清理 provider 的 Git watcher。footer 状态数据来自 setStatus，可用 provider 数量按原生 scopedModels 或 available snapshot 计算，不为渲染额外发起模型请求。
 
 editor 工厂用独立 extension Operation 跨连续按键存活；安装立即返回，不阻塞扩展命令或初始化。替换、取消、会话替换和退出使旧控件失效，迟到 onSubmit / onChange 不操作新组件。后续用户提交清除安装时的命令因果关系，创建独立操作，SDK 产生的 Run 可无外部 Command。onSubmit 异常只保留草稿、不自动重试；已开始的 SDK 任务不因编辑器被替换而停止。异步失败明确携带安装时 Session 归属。相同 editor_state 文本不调用组件 setText，避免重置原生光标。
+
+onTerminalInput 订阅按 Session 隔离，直接注册到各原生交互 TUI；消费/改写及局部监听顺序由 SDK 负责。移除控件解除其绑定但保留有效应用订阅供之后组件使用；原生会话替换清除旧应用订阅，不能将新会话监听绑定到源会话仍待答的 custom。扩展快捷键只接入原生 CustomEditor 的 onExtensionShortcut，沿用 getShortcuts 和原上下文；已有回调不覆盖，异常通知不关闭编辑器。默认应用 actionHandlers 的完整迁移另验。
 
 会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
 

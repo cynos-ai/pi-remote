@@ -1,6 +1,7 @@
 import type { ExtensionUIContext, KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { nativeTextTheme, type Widget } from "./widget-host.js";
 import { CustomTextTui } from "./custom-tui.js";
+import { encodeTerminalKey, type TerminalInputHub } from "./terminal-input.js";
 
 const keybindings = await import(new URL("./core/keybindings.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href) as {
   KeybindingsManager: { create(agentDir?: string): KeybindingsManager };
@@ -16,6 +17,8 @@ export const customKeys: Record<string, string> = {
 export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["custom"]>[0], bridge: {
   agentDir?: string;
   signal: AbortSignal;
+  terminalInput?: TerminalInputHub;
+  inputError?(message: string): void;
   publish(lines: string[] | null): void;
   ask(kind: "select" | "input", options: string[] | undefined, signal: AbortSignal): Promise<Record<string, unknown> | undefined>;
 }, options?: Parameters<ExtensionUIContext["custom"]>[1]): Promise<T> {
@@ -50,6 +53,7 @@ export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["cus
     });
   };
   const tui = new CustomTextTui(render);
+  const detachInput = bridge.terminalInput?.attach(tui);
   try {
     tui.start();
     if (!closed) {
@@ -69,15 +73,16 @@ export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["cus
       await Promise.race([creation, finished]);
     }
     while (!closed) {
-      const response = await bridge.ask("select", [...Object.keys(customKeys), "输入文本"], controller.signal);
+      const response = await bridge.ask("select", [...Object.keys(customKeys), "输入文本", "组合键"], controller.signal);
       if (closed) break;
       if (!response) { close(); break; }
       let data = customKeys[String(response.value)];
-      if (response.value === "输入文本") {
+      if (response.value === "输入文本" || response.value === "组合键") {
         const text = await bridge.ask("input", undefined, controller.signal);
         if (closed) break;
         if (!text) continue; // Cancelling text entry returns to the component controls.
-        data = typeof text.value === "string" ? text.value : "";
+        data = response.value === "组合键" ? encodeTerminalKey(String(text.value ?? "")) : typeof text.value === "string" ? text.value : "";
+        if (data === undefined) { bridge.inputError?.("无法识别组合键；示例：ctrl+k、alt+enter、ctrl+shift+left、f5"); continue; }
       }
       if (data !== undefined) tui.deliverInput(data);
       render();
@@ -87,6 +92,6 @@ export async function runCustomUi<T>(factory: Parameters<ExtensionUIContext["cus
   } finally {
     close();
     bridge.signal.removeEventListener("abort", abort);
-    try { component?.dispose?.(); } finally { tui.stop(); bridge.publish(null); }
+    try { component?.dispose?.(); } finally { detachInput?.(); tui.stop(); bridge.publish(null); }
   }
 }
