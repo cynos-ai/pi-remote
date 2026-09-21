@@ -165,6 +165,13 @@ async function jsonRequest(url, init = {}) {
   return parsed;
 }
 
+async function textRequest(url, init = {}) {
+  const response = await fetch(url, init);
+  const body = await response.text();
+  if (!response.ok) throw new Error(`${init.method ?? "GET"} ${url} returned HTTP ${response.status}`);
+  return body;
+}
+
 async function dockerLifecycle() {
   tempRoot = await mkdtemp(join(resultsDir, "docker-fixture-"));
   const workspace = join(tempRoot, "workspaces");
@@ -301,12 +308,40 @@ async function dockerLifecycle() {
   if (typeof sessionId !== "string") throw new Error("session API did not return a session id");
   record("S12-persisted-resources", "passed", "HTTP pair -> project -> session", ["SQLite owner/device/project/session state created in the container"]);
 
+  const doctorCli = await compose(["exec", "-T", "app", "node", "apps/server/dist/cli.js", "doctor"]);
+  if (doctorCli.code !== 0) throw new Error(`doctor CLI failed: ${doctorCli.stdout}\n${doctorCli.stderr}`);
+  const doctor = JSON.parse(doctorCli.stdout.trim());
+  const doctorChecks = new Map((doctor.checks ?? []).map((check) => [check.id, check.status]));
+  const requiredDoctorChecks = ["state-directory", "pi-directory", "output-directory", "workspace-root", "tool-node", "tool-git", "tool-bash", "tool-python", "sqlite", "runtime-user", "project-mounts", "maintenance", "instance-lock"];
+  const failedDoctorChecks = requiredDoctorChecks.filter((id) => doctorChecks.get(id) !== "passed");
+  if (doctor.status !== "passed" || failedDoctorChecks.length > 0) throw new Error(`doctor did not pass required checks: ${failedDoctorChecks.join(", ")}`);
+  record("S12-doctor", "passed", composeCommand(["exec", "-T", "app", "node", "apps/server/dist/cli.js", "doctor"]), ["state/pi/output/workspace permissions", "non-root toolchain", "SQLite integrity", "registered project mount", "runtime and maintenance state"]);
+
+  const artifactText = "S12 persisted artifact\n";
+  const artifactResponse = await jsonRequest(`${baseUrl}/v1/sessions/${sessionId}/artifacts`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${deviceToken}`, "content-type": "application/octet-stream" },
+    body: Buffer.from(artifactText)
+  });
+  const artifactId = artifactResponse.id;
+  if (typeof artifactId !== "string") throw new Error("artifact API did not return an artifact id");
+  if (await textRequest(`${baseUrl}/v1/artifacts/${artifactId}`, { headers: { authorization: `Bearer ${deviceToken}` } }) !== artifactText) {
+    throw new Error("uploaded artifact could not be read before recreation");
+  }
+  const nativeHistoryText = `${JSON.stringify({ type: "session", version: 3, id: "s12-native-history", timestamp: new Date().toISOString(), cwd: "/workspaces/project" })}\n`;
+  const nativeHistoryBase64 = Buffer.from(nativeHistoryText).toString("base64");
+  const writeHistory = await compose(["exec", "-T", "app", "node", "-e", "const fs=require('node:fs');fs.mkdirSync('/state/pi/sessions',{recursive:true});fs.writeFileSync('/state/pi/sessions/s12-native-history.jsonl',Buffer.from(process.argv[1],'base64'))", nativeHistoryBase64]);
+  if (writeHistory.code !== 0) throw new Error(`native JSONL persistence fixture failed: ${writeHistory.stdout}\n${writeHistory.stderr}`);
+
   const recreate = await compose(["up", "-d", "--no-build", "--force-recreate", "app"]);
   if (recreate.code !== 0) throw new Error(`app recreate failed: ${recreate.stdout}\n${recreate.stderr}`);
   await waitForHttp(`http://127.0.0.1:${httpPort}/healthz`);
   const afterRecreate = await jsonRequest(`${baseUrl}/v1/sessions/${sessionId}`, { headers: { authorization: `Bearer ${deviceToken}` } });
   if (afterRecreate.id !== sessionId || afterRecreate.title !== "S12 Docker persisted session") throw new Error("session state was not retained across app recreation");
-  record("S12-recreate-persistence", "passed", composeCommand(["up", "-d", "--no-build", "--force-recreate", "app"]), ["old session readable after app container recreation"]);
+  if (await textRequest(`${baseUrl}/v1/artifacts/${artifactId}`, { headers: { authorization: `Bearer ${deviceToken}` } }) !== artifactText) throw new Error("artifact was not retained across app recreation");
+  const historyAfterRecreate = await compose(["exec", "-T", "app", "node", "-e", "const fs=require('node:fs');process.exit(fs.readFileSync('/state/pi/sessions/s12-native-history.jsonl','utf8')===Buffer.from(process.argv[1],'base64').toString('utf8')?0:1)", nativeHistoryBase64]);
+  if (historyAfterRecreate.code !== 0) throw new Error("native JSONL was not retained across app recreation");
+  record("S12-recreate-persistence", "passed", composeCommand(["up", "-d", "--no-build", "--force-recreate", "app"]), ["old SQLite session, native JSONL and artifact readable after app container recreation"]);
 
   const backupMount = `${dockerBackupRoot}:/backups`;
   const runningBackup = await compose(["run", "--rm", "--no-deps", "-v", backupMount, "app", "node", "apps/server/dist/cli.js", "backup", "--destination", "/backups/running"]);
@@ -344,13 +379,21 @@ async function dockerLifecycle() {
   await waitForHttp(`${restoredBaseUrl}/healthz`);
   const restoredSession = await jsonRequest(`${restoredBaseUrl}/v1/sessions/${sessionId}`, { headers: { authorization: `Bearer ${deviceToken}` } });
   if (restoredSession.id !== sessionId || restoredSession.title !== "S12 Docker persisted session") throw new Error("restored service could not read the old session");
-  record("S12-restore-continuity", "passed", "GET restored /v1/sessions/:id", ["old device credential and old session readable from a new state volume"]);
+  if (await textRequest(`${restoredBaseUrl}/v1/artifacts/${artifactId}`, { headers: { authorization: `Bearer ${deviceToken}` } }) !== artifactText) throw new Error("restored service could not read the old artifact");
+  const restoredHistory = await run("docker", ["exec", restoreContainerName, "node", "-e", "const fs=require('node:fs');process.exit(fs.readFileSync('/state/pi/sessions/s12-native-history.jsonl','utf8')===Buffer.from(process.argv[1],'base64').toString('utf8')?0:1)", nativeHistoryBase64]);
+  if (restoredHistory.code !== 0) throw new Error("restored service could not read the native JSONL");
+  record("S12-restore-continuity", "passed", "GET restored session/artifact + inspect native JSONL", ["old device credential, SQLite session, native JSONL and artifact readable from a new state volume"]);
 
   // Bring the original service back only for deterministic cleanup and to
   // prove the standard Compose command remains the operator entry point.
   const restart = await compose(["up", "-d", "--no-build", "app"]);
   if (restart.code !== 0) throw new Error(`compose restart after backup failed: ${restart.stdout}\n${restart.stderr}`);
   await waitForHttp(`http://127.0.0.1:${httpPort}/healthz`);
+  const afterStop = await jsonRequest(`${baseUrl}/v1/sessions/${sessionId}`, { headers: { authorization: `Bearer ${deviceToken}` } });
+  if (afterStop.id !== sessionId || await textRequest(`${baseUrl}/v1/artifacts/${artifactId}`, { headers: { authorization: `Bearer ${deviceToken}` } }) !== artifactText) {
+    throw new Error("standard Compose restart did not restore the old session and artifact");
+  }
+  record("S12-stop-recovery", "passed", composeCommand(["stop", "app"]) + " -> " + composeCommand(["up", "-d", "--no-build", "app"]), ["graceful server stop", "health recovery", "old device credential, session and artifact remain usable"]);
 }
 
 const requiredFiles = [
@@ -385,6 +428,12 @@ record("S12-node-runtime", nodeMajor === 24 ? "passed" : "failed", "node --versi
 
 await command("S12-server-build", "pnpm", ["run", "build:server"], ["server, worker and migration assets"]);
 await command("S12-deployment-tests", "pnpm", ["exec", "vitest", "run", "--config", "vitest.config.mjs", "tests/deployment/deployment.test.ts"], ["real temporary SQLite", "manifest/hash", "active runtime rejection", "new-volume restore"]);
+await command("S12-v1-custom-entry-upgrade", "pnpm", ["exec", "vitest", "run", "--config", "vitest.config.mjs", "tests/storage/storage.test.ts", "-t", "upgrades the stable v1 timeline constraint"], ["stable user_version remains 1", "existing timeline history retained", "custom_entry accepted after in-place upgrade"]);
+if (process.platform === "linux") {
+  await command("S12-worker-recovery", "node", ["scripts/test-real-process-e2e.mjs", "--no-build", "--sessions-only"], ["production server and real SDK worker processes", "worker SIGKILL around native session replacement mapping", "persisted history and Session recovery without automatic command replay"]);
+} else {
+  record("S12-worker-recovery", "not_run", "node scripts/test-real-process-e2e.mjs --no-build --sessions-only", [], "requires the unified Linux execution environment");
+}
 for (const [id, commandName, args] of [
   ["S12-lint", "pnpm", ["run", "lint"]],
   ["S12-typecheck", "pnpm", ["run", "typecheck"]],

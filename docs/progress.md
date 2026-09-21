@@ -688,3 +688,9 @@ next: <下一阶段>
 历史页和实时执行页为工具输出、助手文本、thinking、工具参数及用户 Bash 的 artifactId 增加按需文本预览。客户端带设备鉴权和 `Range: bytes=0-65535` 请求，只读取最多 64 KiB；服务器仍有后续字节时明确提示，不自动下载大文件。失败保留已持久化的展示副本并可重试。协议 schema、数据库和服务端 artifact 归属规则未改变。
 
 验证环境：Windows、Node 24.19.0、pnpm 10.28.0。手机 view-model / API 定向测试 2 文件 14 项通过，覆盖运行态输入模式、slash 名称/说明搜索、鉴权 Range 与截断标记；全仓 typecheck 与 lint 通过。首次 `pnpm verify:S10` 暴露持久命令测试用 POSIX shell 写 Windows 临时路径时未产生副作用文件，改为独立 Node 子进程执行同一真实文件副作用后，定向持久命令测试 8/8 通过。最终 `pnpm verify:S10` 为 17 passed / 2 not_run，移动合同共 9 文件 41 项、协议构建、Android/iOS JavaScript 构建、lint、typecheck 和 docs 均通过；Android 设备/模拟器和 Xcode/iOS Simulator 不可用，两个设备项保持 not_run，阶段状态为 blocked。报告位于 `test-results/s10/report.json`（默认不提交）。
+
+## 2026-09-22 部署与恢复闭环复验
+
+增强 `verify:S12 -- --deployment-only`，把此前只创建 SQLite 项目/Session 的容器生命周期扩展为实际运行 doctor、上传并读取受鉴权 artifact、保存 pi JSONL，并在强制重建 app、正常 stop/up、停机备份及新状态卷恢复后逐项读取原设备凭据、Session、artifact 和 JSONL。另纳入稳定 v1 数据库对 `custom_entry` 约束的原位升级测试，以及真实 Linux 主服务/SDK worker 会话进程恢复测试；后者覆盖会话替换映射窗口的 SIGKILL、持久历史恢复及不自动重放交付不明命令。验收仍使用一次性 Compose 项目、状态卷和工作区，结束后确认无 S12 临时容器残留。
+
+最终在 WSL 2、Node 24.19.0、pnpm 10.28.0、Docker 28.3.3 中从锁文件建立独立 Linux 依赖目录，`pnpm verify:S12 -- --deployment-only` 为 34 passed / 0 failed / 0 not_run。服务器构建、部署/迁移/worker 测试、lint、typecheck、docs、镜像构建、HTTP/HTTPS、非 root 工具链、配对、doctor、持久化、备份与新卷恢复全部通过，报告位于 `test-results/s12-deployment-only/report.json`（默认不提交）。首次直接复用 Windows `node_modules` 的 WSL 运行因缺少 Linux Rolldown binding 失败，隔离依赖后通过；第一次新增 artifact 检查因验收脚本按 text/plain 而非二进制上传返回 400，改为与客户端相同的 octet-stream Buffer 后最终通过。完整 S12 的真实 Bash/TUI Docker 对照、真实 provider 和 Android/iOS 真机仍是独立外部验收，本节点没有用 deployment-only 结果替代。
