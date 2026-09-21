@@ -35,6 +35,58 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('editor login keeps secret answers out of durable commands events snapshots and native history', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, key, snapshot } = await treeHarness(t); h.privateEvidence = true;
+  await command('prompt', { text: 'BEFORE_SECRET_LOGIN' }); await extension('/r16-editor');
+  await extension('/r16-editor-draft /login r16-local'); await key('扩展编辑器', 'Enter');
+  const form = await next('登录密钥'); assert.equal(form.sensitive, true); assert.equal(form.runId, null);
+  const reconnected = await h.connect();
+  assert.ok(reconnected.events().some(e => e.type === 'interaction.requested' && e.payload.sensitive));
+  const sentinel = 'synthetic-login-answer-never-persist-in-events';
+  const payload = { interactionId: form.interactionId, operationId: form.operationId, response: { value: sentinel } };
+  const id = randomUUID(), receipt = await h.command('respond', payload, id); await h.terminal(receipt.commandId);
+  await until(async () => (await snapshot()).notices.some(n => n.message.startsWith('已保存')), 'API key saved', 5000);
+  assert.equal(JSON.parse(await readFile(join(h.agent, 'auth.json'), 'utf8'))['r16-local'].key, sentinel);
+  assert.equal((await h.command('respond', payload, id)).commandId, receipt.commandId);
+  await assert.rejects(h.command('respond', { ...payload, response: { value: 'different-secret' } }, id), /IDEMPOTENCY_CONFLICT/);
+  for (const table of ['events', 'commands', 'interactions', 'sessions']) assert.ok(!JSON.stringify(h.query(`SELECT * FROM ${table}`)).includes(sentinel), table);
+  assert.ok(!JSON.stringify(await snapshot()).includes(sentinel));
+  assert.ok(!(await readFile(mapping(h).pi_session_file, 'utf8')).includes(sentinel));
+  assert.ok(!h.logs.includes(sentinel));
+  assert.ok(h.query("SELECT payload_json FROM events WHERE type = 'interaction.resolved'").some(r => JSON.parse(r.payload_json).redacted));
+  const inspect = async dir => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const file = join(dir, entry.name);
+      if (entry.isDirectory()) await inspect(file);
+      else if (entry.isFile() && file !== join(h.agent, 'auth.json')) {
+        assert.ok(!(await readFile(file)).includes(Buffer.from(sentinel)), `secret outside native auth store: ${file}`);
+      }
+    }
+  };
+  await inspect(h.root);
+  assert.equal(h.provider.requests.length, 1);
+  await h.killMain(); await h.start();
+  assert.equal((await h.command('respond', payload, id)).commandId, receipt.commandId, 'stable fingerprint after server restart');
+});
+
+test('editor login cancellation and auth storage failure never expose or save the answer elsewhere', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, key, answer, snapshot, draft } = await treeHarness(t); h.privateEvidence = true;
+  await command('prompt', { text: 'LOGIN_FAILURE' }); await extension('/r16-editor');
+  const open = async () => { await extension('/r16-editor-draft /login r16-local'); await key('扩展编辑器', 'Enter'); return next('登录密钥'); };
+  await open(); await answer('登录密钥', { cancelled: true });
+  await until(async () => await draft() === '/login r16-local', 'cancelled login restores draft', 5000);
+  const form = await open();
+  const auth = join(h.agent, 'auth.json');
+  await rename(auth, `${auth}.saved`); await mkdir(auth);
+  const sentinel = 'synthetic-login-storage-failure-secret';
+  await answer('登录密钥', { value: sentinel });
+  await until(() => h.query("SELECT 1 FROM events WHERE operation_id = ? AND type = 'operation.updated' AND json_extract(payload_json, '$.status') = 'failed'", form.operationId).length, 'login storage failed', 5000);
+  assert.ok(!(await snapshot()).notices.some(n => n.message.startsWith('已保存')));
+  for (const table of ['events', 'commands', 'interactions']) assert.ok(!JSON.stringify(h.query(`SELECT * FROM ${table}`)).includes(sentinel));
+  await rmdir(auth); await rename(`${auth}.saved`, auth);
+  assert.equal(h.provider.requests.length, 1);
+});
+
 test('editor logout cancels safely, removes stored credentials and leaves active model and config intact', { timeout: 120000 }, async t => {
   const { h, extension, next, key, snapshot } = await treeHarness(t); h.privateEvidence = true;
   const auth = join(h.agent, 'auth.json'), models = join(h.agent, 'models.json');
@@ -267,8 +319,8 @@ test('editor information, title, copy and exports stay local and preserve failur
   await until(async () => (await h.lines('builtin history.html')).join('\n').includes('<!DOCTYPE html>'), 'HTML export', 5000);
   await submit('/export /dev/null/fail.jsonl');
   await until(async () => await draft() === '/export /dev/null/fail.jsonl', 'export failure draft preserved', 5000);
-  await submit('/login');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('provider 鉴权') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
+  await submit('/share');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('分享预览') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
   assert.equal(h.provider.requests.length, 1, 'builtin information and exports never prompt the model');
 });
 
@@ -1078,9 +1130,9 @@ test('real CustomEditor edits, completes and submits once; reset invalidates old
   await draft('!!printf editor-shell'); await key('Enter');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.command === 'printf editor-shell' && item.message.excludeFromContext === true), 'editor native Bash');
   assert.ok(h.query("SELECT seq FROM events WHERE type = 'operation.updated' AND json_extract(payload_json, '$.kind') = 'bash'").length > 0);
-  await draft('/login'); await key('Enter');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/login') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
-  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/login');
+  await draft('/share'); await key('Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/share') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/share');
   assert.equal(h.provider.requests.length, 1, 'Bash and terminal menus never become model prompts');
   await draft('keep');
   await key('Home');

@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createLogoutSelector, listLogoutProviders, removeStoredCredential } from "../../packages/agent-pi/src/auth-selector.js";
+import { createLogoutSelector, listLogoutProviders, removeStoredCredential, saveApiKey, createLoginSelector, listApiKeyProviders } from "../../packages/agent-pi/src/auth-selector.js";
 import { createPiAgentSession } from "../../packages/agent-pi/src/runtime.js";
 
 type Runtime = Parameters<typeof listLogoutProviders>[0];
 let KeybindingsManager: new () => Parameters<typeof createLogoutSelector>[0];
-let CredentialSynchronizationError: new (id: string, operation: "logout", credential: undefined, options: ErrorOptions) => Error;
+let CredentialSynchronizationError: new (id: string, operation: "login" | "logout", credential: unknown, options: ErrorOptions) => Error;
 beforeAll(async () => {
   ({ KeybindingsManager } = await import(pathToFileURL(resolve("packages/agent-pi/node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js")).href));
   ({ CredentialSynchronizationError } = await import(pathToFileURL(resolve("packages/agent-pi/node_modules/@earendil-works/pi-coding-agent/dist/core/model-runtime.js")).href));
@@ -18,6 +18,44 @@ afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, {
 const signal = () => new AbortController().signal;
 
 describe("native stored credential logout", () => {
+  it("offers native API key providers including ambient auth and supports search/cancel", () => {
+    const runtime = { getProviders: () => [
+      { id: "oauth-only", name: "OAuth", auth: { oauth: {} } },
+      { id: "key", name: "Key", auth: { apiKey: { login: () => undefined } } },
+      { id: "ambient", name: "Ambient", auth: { apiKey: {} } }
+    ] } as unknown as Runtime;
+    const providers = listApiKeyProviders(runtime);
+    expect(providers.map(p => [p.id, p.interactive])).toEqual([["ambient", false], ["key", true]]);
+    const done = vi.fn();
+    const menu = createLoginSelector(new KeybindingsManager(), providers, done);
+    menu.handleInput?.("key"); menu.handleInput?.("\r");
+    expect(done).toHaveBeenLastCalledWith(providers[1]);
+    createLoginSelector(new KeybindingsManager(), providers, done).handleInput?.("\u001b");
+    expect(done).toHaveBeenLastCalledWith();
+  });
+  it("does not expose login credentials or provider failures in public errors", async () => {
+    const sentinel = "synthetic-login-exception-secret";
+    const runtime = { login: vi.fn().mockRejectedValue(new Error(sentinel)) } as unknown as Runtime;
+    try {
+      await saveApiKey(runtime, "test", { signal: signal(), prompt: async () => sentinel, notify: () => undefined });
+      throw new Error("expected failure");
+    } catch (error) {
+      expect(String(error)).toContain("未确认凭据已保存");
+      expect(String(error)).not.toContain(sentinel);
+      expect(error).not.toHaveProperty("cause");
+      expect(error).not.toHaveProperty("credential");
+    }
+    vi.mocked(runtime.login).mockRejectedValue(new CredentialSynchronizationError("test", "login", { type: "api_key", key: sentinel }, { cause: new Error(sentinel) }));
+    try {
+      await saveApiKey(runtime, "test", { signal: signal(), prompt: async () => sentinel, notify: () => undefined });
+      throw new Error("expected synchronization failure");
+    } catch (error) {
+      expect(String(error)).toContain("API key 已保存");
+      expect(String(error)).not.toContain(sentinel);
+      expect(error).not.toHaveProperty("cause");
+      expect(error).not.toHaveProperty("credential");
+    }
+  });
   it("lists metadata only, sorts native names and preserves search/cancel semantics", async () => {
     const runtime = { listCredentials: vi.fn().mockResolvedValue([{ providerId: "z", type: "oauth" }, { providerId: "unknown", type: "api_key" }]),
       getProvider: (id: string) => id === "z" ? { name: "Alpha" } : undefined } as unknown as Runtime;

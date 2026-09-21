@@ -1,5 +1,7 @@
 # 原生运行、内容归属与同步补充契约
 
+API key 登录以 configure Operation 承载：`/login [provider]` 使用原生 provider API key 方式和 ModelRuntime.login；无参数复用原生 provider 菜单。无交互 login 方法的 provider 保留外部环境鉴权提示。秘密 input 的答复只在主进程/worker 内存中传递，由 SDK 存入 auth.json；鉴权异常不传播含 credential/cause 的对象。保存后更新模型可用状态，unknown 模型按原生默认模型选择，并后台刷新 provider 目录；失败保留缓存且不伪装登录失败。OAuth 浏览器/设备码/回调及鉴权富文本通知仍待独立非持久化显示适配，当前不宣称完整 `/login` parity。
+
 状态：V1 实现契约，已按代码审核修订桥接和恢复路径；具体验证见[修复记录](reviews/2026-09-15-code-review-fixes.md)。与[协议](protocol-v1.md)、[数据模型](data-model.md)和[参考 SQL](schema-v1.sql)共同约束实现；下面是确定的适配工作，不能以禁用扩展代替。源码核对不等于真实 SDK 验收。
 
 ## 1. Operation、Run 和外部 Command

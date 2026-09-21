@@ -623,6 +623,7 @@ function handleInteractionRequested(state: ReducerState, event: Extract<Protocol
   ensureEnvelopeOwnership(state, operationId, event.runId);
   const payload = event.payload;
   if (payload.operationId !== operationId) fail(`interaction ${payload.interactionId} operation mismatch`);
+  if (payload.sensitive && (payload.kind !== "input" || payload.prefill !== undefined)) fail("sensitive interactions require input without prefill");
   if (payload.origin !== operation.kind) fail(`interaction ${payload.interactionId} origin does not match operation kind`);
   if (state.interactions[payload.interactionId]) fail(`interaction ${payload.interactionId} already exists`);
   const interaction: InteractionProjection = {
@@ -631,6 +632,7 @@ function handleInteractionRequested(state: ReducerState, event: Extract<Protocol
     origin: payload.origin,
     kind: payload.kind,
     title: payload.title,
+    ...(payload.sensitive ? { sensitive: true as const } : {}),
     ...(payload.options !== undefined ? { options: structuredClone(payload.options) } : {}),
     ...(payload.message !== undefined ? { message: payload.message } : {}),
     ...(payload.placeholder !== undefined ? { placeholder: payload.placeholder } : {}),
@@ -652,7 +654,11 @@ function handleInteractionResolved(state: ReducerState, event: Extract<ProtocolE
   if (!interaction) fail(`interaction ${event.payload.interactionId} does not exist`);
   if (interaction.operationId !== operationId || interaction.runId !== event.runId) fail(`interaction resolution ownership mismatch`);
   if (interaction.status !== "pending") fail(`interaction ${interaction.interactionId} was already ${interaction.status}`);
-  if (event.payload.status === "resolved" && event.payload.response === undefined) {
+  if (interaction.sensitive && (event.payload.response !== undefined || (event.payload.status === "resolved" && !event.payload.redacted))) {
+    fail("sensitive interaction resolution must be redacted");
+  }
+  if (!interaction.sensitive && event.payload.redacted) fail("ordinary interaction cannot have a redacted response");
+  if (!interaction.sensitive && event.payload.status === "resolved" && event.payload.response === undefined) {
     fail(`resolved interaction ${interaction.interactionId} needs a response`);
   }
   interaction.status = event.payload.status;

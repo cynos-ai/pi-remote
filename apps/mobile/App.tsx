@@ -73,6 +73,7 @@ import { createSecureCredentialsStore } from "./src/storage/secure-store";
 
 import { EditorSync } from "./src/editor-sync";
 import { PendingCommands, type PendingCommand } from "./src/pending-commands";
+import { submitSecretResponse } from "./src/secret-response";
 import { applyExtensionNotice, emptyExtensionUi, type ExtensionUiState, type ExtensionNotice } from "./src/extension-ui";
 
 type Screen = "projects" | "sessions" | "history";
@@ -967,8 +968,13 @@ function InteractionCard({
   const [value, setValue] = useState(interaction.prefill ?? "");
   const expired = interaction.expiresAt !== undefined && Date.parse(interaction.expiresAt) <= Date.now();
   useEffect(() => { setValue(interaction.prefill ?? ""); }, [interaction.interactionId, interaction.prefill]);
+  useEffect(() => {
+    if (!interaction.sensitive) return;
+    const listener = AppState.addEventListener("change", state => { if (state !== "active") setValue(""); });
+    return () => listener.remove();
+  }, [interaction.sensitive]);
   const disabled = busy || expired;
-  const answer = (response: InteractionResponse) => { void onRespond(interaction, response); };
+  const answer = (response: InteractionResponse) => { if (interaction.sensitive) setValue(""); void onRespond(interaction, response); };
   return (
     <View style={styles.interactionCard}>
       <View style={styles.timelineHeadingRow}>
@@ -1004,6 +1010,11 @@ function InteractionCard({
           <TextInput
             editable={!disabled}
             multiline={interaction.kind === "editor"}
+            secureTextEntry={interaction.sensitive === true}
+            autoCorrect={interaction.sensitive ? false : undefined}
+            autoCapitalize={interaction.sensitive ? "none" : undefined}
+            autoComplete={interaction.sensitive ? "off" : undefined}
+            importantForAutofill={interaction.sensitive ? "no" : undefined}
             onChangeText={setValue}
             placeholder={interaction.placeholder}
             placeholderTextColor={colors.placeholder}
@@ -1040,6 +1051,7 @@ function ExecutionScreen({
   const pendingStore = useMemo(() => cache ? new PendingCommands(cache, accountKey, api, (text) => editorSync.update(text)) : null, [cache, accountKey, api, editorSync]);
   const [pendingSubmits, setPendingSubmits] = useState<PendingCommand[]>([]);
   const submissionLock = useRef(false);
+  const secretSubmissionLocks = useRef(new Set<string>());
   const [explicitNew, setExplicitNew] = useState(false);
   const [extensionUi, setExtensionUi] = useState(emptyExtensionUi);
   const extensionUiRef = useRef(emptyExtensionUi());
@@ -1377,7 +1389,18 @@ function ExecutionScreen({
   };
 
   const respondToInteraction = async (interaction: InteractionProjection, response: InteractionResponse) => {
+    if (secretSubmissionLocks.current.has(interaction.interactionId)) return;
     setRespondingId(interaction.interactionId);
+    if (interaction.sensitive) {
+      secretSubmissionLocks.current.add(interaction.interactionId);
+      try {
+        if (!cache) throw new Error("本地请求标识存储不可用，未发送秘密回答");
+        await submitSecretResponse(api, cache, accountKey, session.id, interaction, response);
+        setError(null);
+      } catch (caught) { setError(errorText(caught)); }
+      finally { secretSubmissionLocks.current.delete(interaction.interactionId); setRespondingId(null); }
+      return;
+    }
     await submitCommand({
       kind: "respond",
       payload: { interactionId: interaction.interactionId, operationId: interaction.operationId, response }

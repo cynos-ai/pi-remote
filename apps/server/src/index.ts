@@ -9,6 +9,7 @@ import { parseEnv, type ServerEnv } from "./config.js";
 import { MaintenanceError, readMaintenanceState } from "./maintenance.js";
 import { installErrorHandler, registerRoutes } from "./routes.js";
 import { CommandService } from "./services/commands.js";
+import { loadSecretFingerprintKey } from "./secret-fingerprint.js";
 import { ResourceService } from "./services/resources.js";
 import { openServerDatabaseSync } from "./storage/database.js";
 import { WorkerManager } from "./runtime/manager.js";
@@ -63,6 +64,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     manager: workerManager
   });
   const commands = new CommandService(database, workerManager, {
+    secretFingerprintKey: loadSecretFingerprintKey(env.PI_REMOTE_PI_DIR),
     maxQueuedCommands: env.PI_REMOTE_MAX_QUEUED_COMMANDS
   });
   const app = fastify({

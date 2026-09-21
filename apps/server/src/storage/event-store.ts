@@ -243,6 +243,7 @@ function syncInteractionRows(database: DatabaseSync, state: ReducerState, sessio
       ...(interaction.message !== undefined ? { message: interaction.message } : {}),
       ...(interaction.placeholder !== undefined ? { placeholder: interaction.placeholder } : {}),
       ...(interaction.prefill !== undefined ? { prefill: interaction.prefill } : {}),
+      ...(interaction.sensitive ? { sensitive: true } : {}),
       ...(interaction.expiresAt !== undefined ? { expiresAt: interaction.expiresAt } : {})
     };
     const existing = database.prepare("SELECT id, session_id FROM interactions WHERE id = ?").get(interaction.interactionId) as Row | undefined;

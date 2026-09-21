@@ -135,6 +135,7 @@ export interface InteractionProjection {
   message?: string;
   placeholder?: string;
   prefill?: string;
+  sensitive?: true;
   expiresAt?: string;
   status: "pending" | InteractionResolutionStatus;
   response?: InteractionResponse;
@@ -437,6 +438,7 @@ export const interactionProjectionSchema = z.object({
   message: z.string().optional(),
   placeholder: z.string().optional(),
   prefill: z.string().optional(),
+  sensitive: z.literal(true).optional(),
   expiresAt: timestampSchema.optional(),
   status: z.union([z.literal("pending"), interactionResolutionStatusSchema]),
   response: interactionResponseSchema.optional(),
@@ -444,7 +446,7 @@ export const interactionProjectionSchema = z.object({
   runId: idSchema.nullable(),
   commandId: idSchema.nullable(),
   updatedSeq: positiveIntSchema
-}).strict();
+}).strict().refine(value => !value.sensitive || (value.kind === "input" && value.prefill === undefined && value.response === undefined), "Sensitive snapshot cannot contain an answer or prefill");
 
 export const inputProjectionSchema = z.object({
   inputId: idSchema,

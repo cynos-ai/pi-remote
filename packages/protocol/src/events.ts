@@ -327,9 +327,10 @@ export const interactionRequestedPayloadSchema = z
     message: boundedTextSchema.optional(),
     placeholder: z.string().max(32768).optional(),
     prefill: z.string().max(32768).optional(),
+    sensitive: z.literal(true).optional(),
     expiresAt: timestampSchema.optional()
   })
-  .strict();
+  .strict().refine(value => !value.sensitive || (value.kind === "input" && value.prefill === undefined), "Sensitive input cannot have prefill");
 
 export const interactionResolutionStatusSchema = z.enum(["resolved", "cancelled", "expired"]);
 export type InteractionResolutionStatus = z.infer<typeof interactionResolutionStatusSchema>;
@@ -337,10 +338,11 @@ export const interactionResolvedPayloadSchema = z
   .object({
     interactionId: idSchema,
     status: interactionResolutionStatusSchema,
+    redacted: z.literal(true).optional(),
     response: interactionResponseSchema.optional(),
     reason: z.string().max(200).optional()
   })
-  .strict();
+  .strict().refine(value => !value.redacted || value.response === undefined, "Redacted resolution cannot contain a response");
 
 export const queueStateSchema = z.enum(["ready", "paused"]);
 export type QueueState = z.infer<typeof queueStateSchema>;

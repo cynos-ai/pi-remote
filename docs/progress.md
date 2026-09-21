@@ -2,6 +2,15 @@
 
 最后更新：2026-09-21。
 
+### 2026-09-21 API key 登录与秘密回答（本次提交）
+
+- 基线 `725896b`；接入 `/login [provider]` 原生 API key 方法、configure Operation、敏感 input、服务器脱敏/HMAC 幂等、手机遮罩和清空/仅存请求标识，以及原生默认模型与目录刷新。无需 SQL migration；协议 JSON 字段和 reducer/快照验证同步修改。OAuth 浏览器/设备码/回调与鉴权富文本通知仍未适配。
+- 环境：WSL 2 Linux、Node 24.19.0、pnpm 10.28.0、SDK 0.85.1；临时合成密钥和本地 HTTP provider，无真实模型调用。首轮 `login-process.log` 0/2，实际查出 interactions.payload_json 丢失 sensitive 标记导致 commands 泄漏；已修复持久元数据并保留失败证据。最初 build 的登录回调类型错误已修复。
+- 已运行：`pnpm build:server` 成功（`test-results/login-build-final.log`）；协议/手机缓存/SDK/指纹文件定向 25/25（`login-targeted-final.log`）；原生备份恢复 3/3（`login-backup.log`）。最终服务器构建及真实进程登录 2/2（`login-server-final.log`、`login-process-release.log`），覆盖原生保存、整个临时目录除 auth.json 外无秘密值、取消/存储失败、幂等冲突和服务重启回执。指纹文件放在 pi 目录以纳入现有备份，恢复后值保持一致。
+- `pnpm verify:S07`：13 passed / 3 failed（`test-results/login-s07.log`、`s07/report.json`）；构建、命令 contract、真实表单/会话进程、lint、文档均通过。失败项为新增测试的类型导入路径以及已有 live-commands / parity-tui-commands 报告源码身份过期；类型导入已修复，后续最终检查结果另记，不改写该失败报告。
+- 最终鉴权菜单/异常测试 6/6（`login-selector-final.log`），测试类型检查通过（`login-test-types-final.log`）。`pnpm verify:S10` 的手机 contract、Android/iOS JS export、lint、完整 typecheck、文档均 passed；Android/iOS device 为 not_run，阶段状态 blocked（`login-s10.log`、`s10/report.json`）。完整类型检查已覆盖并确认 S07 中的导入错误修复。未重跑无新修改的完整进程集；最终目录配置的登录/重启路径已单独重跑通过。
+- 未覆盖：真实 provider 凭据有效性、原生交互 TUI 对照、Android/iOS 键盘/后台及设备使用；JS/合成或真实本地进程测试均不能代替这些验收。
+
 ## 当前状态
 
 S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过；S02 的真实 SDK contract、DeepSeek 工具调用和单模型 thinking 已通过，但第二模型、完整异常/长任务、原生 TUI 和完整 parity 仍未完成，因此保持 `blocked`；S03 的公共 schema、S04 的 SQLite 存储 contract 及 S05 的鉴权 / 资源 API 均已通过验证。S06 的 worker、调度与恢复已实现，但原生 TUI / live provider 对照仍待真实条件；S07 的命令控制与全阶段交互桥接已实现并完成可重复契约测试，真实 provider / 原生 TUI 对照仍待外部条件，因此保持 `blocked`。S08 的 WSS / HTTPS 回放、S09 的移动端本地验证和 S10 的移动端实时/执行页面合同验证已完成；S11 的双设备和弱网合同测试已完成；2026-09-15 另补实际 server / worker 进程故障集成测试；S12 的 Docker 交付也已通过完整 WSL 生命周期验证。S13 的发布就绪检查入口已补齐，真实 provider 已有部分通过证据，但完整模型矩阵、原生 TUI 和 Android / iOS 实机仍未完成，因此保持 `blocked`。参考 SQL 和尚未接入的示例事件不代表已经部署的业务功能。

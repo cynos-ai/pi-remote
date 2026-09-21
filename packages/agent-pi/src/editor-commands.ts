@@ -9,11 +9,11 @@ export const EDITOR_COMMANDS = {
   fork: "选择用户消息分叉", clone: "克隆当前分支到叶节点（包含该节点）", new: "新会话", compact: "原生手动压缩", resume: "恢复会话",
   quit: "退出远程编辑器，后端会话继续运行", import: "确认后导入 JSONL（工作目录须存在）", reload: "清理旧扩展 UI 并重载资源",
   trust: "当前目录/父目录的原生信任决定；保存后重启 worker 生效",
-  logout: "选择 provider 并移除已保存凭据；环境变量和模型配置不变"
+  logout: "选择 provider 并移除已保存凭据；环境变量和模型配置不变",
+  login: "API key 登录（秘密输入）；OAuth 浏览器授权与设备码待适配"
 } as const;
 export const PENDING_EDITOR_COMMANDS: Record<string, string> = {
   share: "待接入 GitHub 登录状态、分享预览及发布确认；可先用 /export 导出到服务端",
-  login: "待接入 provider 鉴权和 OAuth 回调；目前在服务端配置模型凭据，不要在聊天中粘贴密钥",
 };
 const cache = await import(new URL("./core/cache-stats.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href) as {
   computeCacheWaste(entries: ReturnType<AgentSession["sessionManager"]["getEntries"]>, runtime: AgentSession["modelRuntime"]): unknown;

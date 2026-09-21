@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { backupDeployment, doctorDeployment, initializeDeployment, restoreDeployment } from "../../apps/server/src/deployment.js";
 import { parseEnv } from "../../apps/server/src/config.js";
+import { loadSecretFingerprintKey } from "../../apps/server/src/secret-fingerprint.js";
 import { openServerDatabaseSync } from "../../apps/server/src/storage/database.js";
 import { OwnerRepository, ProjectRepository, SessionRepository } from "../../apps/server/src/storage/index.js";
 
@@ -76,9 +77,11 @@ describe("S12 deployment lifecycle", () => {
     await chmod(join(source.pi, "models.json"), 0o600);
 
     const backupPath = join(source.root, "backups", "first");
+    const fingerprintKey = loadSecretFingerprintKey(source.pi);
     const backup = await backupDeployment(source.env, backupPath);
     expect(backup.manifest.trees.pi.map((file) => file.path)).toEqual([
       "models.json",
+      "secret-response.key",
       "sessions/nested/history.jsonl"
     ]);
     expect(backup.manifest.trees.outputs.map((file) => file.path)).toEqual(["run-1/result.txt"]);
@@ -102,7 +105,8 @@ describe("S12 deployment lifecycle", () => {
       PI_REMOTE_LIVE_TESTS: "0"
     });
     const restored = await restoreDeployment(restoredEnv, backupPath);
-    expect(restored.restoredFiles).toBe(4);
+    expect(restored.restoredFiles).toBe(5);
+    expect(loadSecretFingerprintKey(restoredEnv.PI_REMOTE_PI_DIR)).toBe(fingerprintKey);
     expect(await readFile(join(restoredEnv.PI_REMOTE_PI_DIR, "sessions", "nested", "history.jsonl"), "utf8")).toBe("header\n");
     expect(await readFile(join(restoredEnv.PI_REMOTE_STATE_DIR, "outputs", "run-1", "result.txt"), "utf8")).toBe("S12 artifact\n");
 

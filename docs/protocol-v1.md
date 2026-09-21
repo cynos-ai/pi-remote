@@ -6,6 +6,10 @@
 
 ## 1. 通用约定
 
+秘密输入补充：`interaction.requested` 可带 `sensitive: true`，只允许 `kind: input`，禁止 `prefill`。请求使用现有 respond DTO 经 HTTPS/IPC 传递；服务端从已持久化表单判断敏感性，不能由调用方关闭。其 Command payload 只存 `{redacted:true,fingerprint}`，fingerprint 是独立服务器密钥对会话及规范化原请求的 HMAC，持久回执和一次性 claim 语义不变。相同幂等键/回答返回原回执，改答冲突；崩溃后不从脱敏记录重发回答。`interaction.resolved` 使用 `redacted:true` 且禁止 response；敏感快照禁止 prefill/response。reducer 在事件入库前校验。见[秘密输入示例](examples/secret-input.json)。这是未发布 V1 草案的同步修订，服务端与手机需一起更新。
+
+手机敏感输入遮罩显示，提交或进入后台清空；只持久保存请求标识，不进入 PendingCommands、编辑器草稿或离线自动重发。连接结果不确定时刷新表单，可重新输入同一内容并复用原标识；关闭原登录后重新开始可建立新请求。原生 SDK 的 auth.json 是登录成功后的凭据存储，依照部署权限保护；不把“未写入业务历史”误称为凭据完全不落盘。
+
 首次信任表单沿用 initialize Operation 和 interaction.requested/resolved，无新增协议字段。表单可以早于 native session_mapping：原生标题摘要保留在 title，完整信任说明与目录在 message，选择值沿 SDK 原样发送；响应通过相同 operationId/interactionId 及 worker epoch 校验、幂等与重放。SDK handle 尚未创建不影响回答已有表单。
 
 - 前缀 `/v1`；JSON UTF-8；字段 camelCase。Project / Session / Run / Command / Operation / Interaction / Artifact ID 使用服务端 UUID；messageId、blockId、toolCallId 为最长 128 字符的不透明引用，可来自 SDK 或适配器映射。

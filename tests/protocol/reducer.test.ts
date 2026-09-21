@@ -105,6 +105,21 @@ describe("S03 protocol schemas", () => {
     expect(snapshot.session.status).toBe("idle");
   });
 
+  it("requires secret resolutions to be redacted and rejects secret snapshot prefill", async () => {
+    const data = await fixture("initialization-dialog.json");
+    const events = expandEvents(data, data.events ?? [], { sessionId: data.sessionId });
+    events[1] = { ...events[1], payload: { ...(events[1]!.payload as object), kind: "input", sensitive: true } };
+    const pending = replayEvents(data.sessionId!, events.slice(0, 3));
+    const snapshot = toSnapshot(pending);
+    expect(snapshot.pendingInteractions[0]?.sensitive).toBe(true);
+    expect(() => snapshotSchema.parse({ ...snapshot, pendingInteractions: [{ ...snapshot.pendingInteractions[0], prefill: "must-not-persist" }] })).toThrow();
+    expect(() => replayEvents(data.sessionId!, events)).toThrow("redacted");
+    events[3] = { ...events[3], payload: { interactionId: "63333333-3333-4333-8333-333333333333", status: "resolved", redacted: true } };
+    const state = replayEvents(data.sessionId!, events);
+    expect(state.interactions["63333333-3333-4333-8333-333333333333"]?.response).toBeUndefined();
+    expect(snapshotSchema.parse(toSnapshot(state)).pendingInteractions).toHaveLength(0);
+  });
+
   it("replays mixed native-runtime sessions independently", async () => {
     const data = await fixture("native-runtime.json");
     const scenario = data.scenarios![1]!;
@@ -156,4 +171,3 @@ describe("S03 reducer sequencing", () => {
     expect(state.timelineItems.filter((item) => item.itemId === "tool-1")).toHaveLength(1);
   });
 });
-

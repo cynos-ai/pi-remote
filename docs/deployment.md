@@ -1,5 +1,7 @@
 # 统一 Linux 与 Docker 部署约定
 
+秘密表单的幂等密钥：服务首次启动在 pi 目录生成 `secret-response.key`（Linux 0600），它独立于 cursor secret，由现有 pi 目录备份/恢复流程一同保存且不得提交仓库。它用于回答的 HMAC 校验，不是模型 API key。文件损坏会阻止启动；不要通过删除文件修复已有命令的幂等一致性。模型 API key 由原生 SDK 保存到 pi 目录的 auth.json；手机、事件历史和离线命令缓存均不应保存此回答。
+
 状态：默认部署方案，S12 已实现并在 WSL 2 / Docker 上通过完整生命周期验证。下列文件、CLI 和命令对应仓库当前实际入口；真实 provider、Android / iOS 实机和发布候选验收仍由 S13 完成。
 
 ## 1. 拓扑

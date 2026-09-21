@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   commandReceiptSchema,
@@ -226,14 +226,16 @@ export class CommandService {
   private readonly now: () => number;
   private readonly compactStopTimeoutMs: number;
   private readonly maxQueuedCommands: number | undefined;
+  private readonly secretFingerprintKey: string;
 
   constructor(
     private readonly database: DatabaseSync,
     private readonly manager: WorkerManager,
-    options: { now?: () => number; compactStopTimeoutMs?: number; maxQueuedCommands?: number } = {}
+    options: { now?: () => number; compactStopTimeoutMs?: number; maxQueuedCommands?: number; secretFingerprintKey?: string } = {}
   ) {
     this.commands = new CommandRepository(database);
     this.interactions = new InteractionRepository(database);
+    this.secretFingerprintKey = options.secretFingerprintKey ?? randomBytes(32).toString("hex");
     this.now = options.now ?? (() => Date.now());
     this.compactStopTimeoutMs = options.compactStopTimeoutMs ?? 30_000;
     if (options.maxQueuedCommands !== undefined && (!Number.isSafeInteger(options.maxQueuedCommands) || options.maxQueuedCommands < 0)) {
@@ -258,7 +260,7 @@ export class CommandService {
   ): Promise<CommandMutationResult> {
     const request = commandRequestSchema.parse(requestBody);
     const scope = `POST:/v1/sessions/${sessionId}/commands`;
-    const envelope = commandEnvelope(request);
+    const envelope = this.storageEnvelope(sessionId, request);
     const existing = this.replay(actor.userId, scope, idempotencyKey, envelope);
     if (existing) return existing;
 
@@ -304,6 +306,14 @@ export class CommandService {
       throw new CommandServiceError("STORAGE_UNAVAILABLE", "stored command receipt is unavailable");
     }
     return { status: record.responseStatus, body: commandReceiptSchema.parse(record.response) };
+  }
+
+  private storageEnvelope(sessionId: string, request: CommandRequest): ReturnType<typeof commandEnvelope> {
+    if (request.kind !== "respond" || this.interactions.get(sessionId, request.payload.interactionId)?.payload.sensitive !== true) return commandEnvelope(request);
+    const fingerprint = createHmac("sha256", this.secretFingerprintKey)
+      .update("pi-remote-secret-response-v1\0").update(sessionId).update(stableJsonStringify(request)).digest("hex");
+    return { kind: "respond", payload: { operationId: request.payload.operationId, interactionId: request.payload.interactionId,
+      response: { redacted: true, fingerprint } } };
   }
 
   private plan(request: CommandRequest, actor: AuthContext, sessionId: string): {

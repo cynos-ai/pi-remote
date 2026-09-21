@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { PendingCommands } from "../../apps/mobile/src/pending-commands";
+import { submitSecretResponse } from "../../apps/mobile/src/secret-response";
+import type { InteractionProjection } from "../../packages/protocol/src/index.js";
 import { PiRemoteApi } from "../../apps/mobile/src/api/client";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -85,6 +87,23 @@ afterEach(async () => {
 });
 
 describe("S09 SQLite cache", () => {
+  it("keeps only secret request identity on disk and reuses it after a lost response", async () => {
+    const { cache, root } = await createFixture();
+    const sentinel = "synthetic-secret-mobile-answer";
+    const calls: string[] = [];
+    const api = new PiRemoteApi({ baseUrl: "https://example.test", deviceId: "test", deviceToken: "test", user: { id: "owner", displayName: "owner" } }, { fetchImpl: async (_url, init) => {
+      expect(String(init?.body)).toContain(sentinel);
+      calls.push(new Headers(init?.headers).get("idempotency-key")!);
+      throw new Error(sentinel);
+    } });
+    const interaction = { sensitive: true, interactionId: "secret-form", operationId: "secret-operation" } as InteractionProjection;
+    for (let i = 0; i < 2; i++) await expect(submitSecretResponse(api, cache, "owner", "session", interaction, { value: sentinel })).rejects.toThrow("秘密回答未确认");
+    expect(calls).toHaveLength(4);
+    expect(new Set(calls).size).toBe(1);
+    expect(await new PendingCommands(cache, "owner", api).list("session")).toEqual([]);
+    expect(JSON.stringify(await cache.listResources("owner", "secret-response:"))).not.toContain(sentinel);
+    expect((await readFile(join(root, "mobile.sqlite"))).includes(Buffer.from(sentinel))).toBe(false);
+  });
   it("serializes overlapping draft, snapshot and pending writes without nested transactions", async () => {
     const { cache } = await createFixture();
     await Promise.all([

@@ -15,3 +15,4 @@ test-results/
 *.jsonl
 *.log
 *.pid
+secret-response.key
