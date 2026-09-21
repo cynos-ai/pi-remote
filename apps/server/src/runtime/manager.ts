@@ -164,7 +164,7 @@ interface SessionRuntimeRow {
 interface ManagedWorker {
   envelopeSessionId: string;
   ownedSessionIds: Set<string>;
-  replacementIntents: Map<string, { sourceSessionId: string; sourceOperationId?: string; kind: "new" | "switch" | "fork"; targetFile?: string; targetPiSessionId?: string; targetCwd?: string; projectId: string; destinationSessionId?: string }>;
+  replacementIntents: Map<string, { sourceSessionId: string; sourceOperationId?: string; kind: "new" | "switch" | "fork" | "import"; targetFile?: string; targetPiSessionId?: string; targetCwd?: string; projectId: string; destinationSessionId?: string }>;
   workerId: string;
   sessionId: string;
   workspaceKey: string;
@@ -1162,7 +1162,7 @@ export class WorkerManager {
         await this.handleReplacementIntent(worker, message.payload);
         return;
       case "session_replaced":
-        this.handleReplacementBound(worker, message.payload);
+        await this.handleReplacementBound(worker, message.payload);
         return;
       case "models":
         worker.models = { items: message.payload.items, availableThinkingLevels: message.payload.availableThinkingLevels };
@@ -1258,7 +1258,7 @@ export class WorkerManager {
     let targetPiSessionId: string | undefined;
     let targetCwd: string | undefined;
     let nativeLocation: { rootPath: string; rootIdentity: string; workspaceKey: string; gitCommonDir: string | null } | undefined;
-    if (payload.kind === "switch") {
+    if (payload.kind === "switch" || payload.kind === "import") {
       if (!payload.targetFile) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "native switch requires a target history");
       const inspected = await inspectPiSessionFile(payload.targetFile);
       if (inspected.kind !== "persisted") throw new WorkerManagerError("HISTORY_UNAVAILABLE", "native switch target history is invalid or missing");
@@ -1277,7 +1277,7 @@ export class WorkerManager {
       nativeLocation = { rootPath: targetCwd, rootIdentity: `${info.dev}:${info.ino}`, workspaceKey: gitCommonDir ? `git:${gitCommonDir}` : `path:${targetCwd}`, gitCommonDir };
       const target = this.database.prepare("SELECT id, project_id, pi_session_id, pi_session_file FROM sessions WHERE pi_session_file = ? OR pi_session_id = ?").get(targetFile, targetPiSessionId) as Row | undefined;
       if (target) {
-        if (projects.getOwnerId(String(target.project_id)) !== ownerId || target.pi_session_id !== targetPiSessionId || target.pi_session_file !== targetFile) {
+        if (projects.getOwnerId(String(target.project_id)) !== ownerId || target.pi_session_id !== targetPiSessionId || (payload.kind === "switch" && target.pi_session_file !== targetFile)) {
           throw new WorkerManagerError("HISTORY_UNAVAILABLE", "native target mapping has a different owner or identity");
         }
         const targetProject = projects.get(String(target.project_id))!;
@@ -1318,7 +1318,7 @@ export class WorkerManager {
     this.send(worker, "session_replace_ack", { requestId: payload.requestId, phase: "intent", appSessionId: worker.sessionId });
   }
 
-  private handleReplacementBound(worker: ManagedWorker, payload: Extract<WorkerOutboundMessage, { type: "session_replaced" }>["payload"]): void {
+  private async handleReplacementBound(worker: ManagedWorker, payload: Extract<WorkerOutboundMessage, { type: "session_replaced" }>["payload"]): Promise<void> {
     const intent = worker.replacementIntents.get(payload.requestId);
     if (!intent) throw new WorkerManagerError("WORKER_PROTOCOL_ERROR", "replacement mapping has no acknowledged intent");
     if (intent.destinationSessionId) {
@@ -1328,23 +1328,33 @@ export class WorkerManager {
       return;
     }
     const source = this.sessions.get(intent.sourceSessionId)!;
+    if (intent.kind === "import") {
+      const imported = await inspectPiSessionFile(payload.piSessionFile);
+      if (imported.kind !== "persisted" || imported.header.id !== intent.targetPiSessionId
+        || payload.piSessionId !== intent.targetPiSessionId || realpathSync(imported.header.cwd) !== intent.targetCwd) {
+        throw new WorkerManagerError("HISTORY_UNAVAILABLE", "imported history does not match the inspected identity and cwd");
+      }
+    }
     if (intent.kind === "switch" && (payload.piSessionId !== intent.targetPiSessionId || payload.piSessionFile !== intent.targetFile)) {
       throw new WorkerManagerError("HISTORY_UNAVAILABLE", "native replacement did not bind the inspected target history");
     }
     const destinationId = withTransaction(this.database, () => {
-      const existing = this.database.prepare("SELECT id, project_id, pi_session_id FROM sessions WHERE pi_session_id = ? OR pi_session_file = ?").all(payload.piSessionId, payload.piSessionFile) as Row[];
+      const existing = this.database.prepare("SELECT id, project_id, pi_session_id, pi_session_file FROM sessions WHERE pi_session_id = ? OR pi_session_file = ?").all(payload.piSessionId, payload.piSessionFile) as Row[];
       if (existing.length > 1) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "replacement identity and path have different owners");
       let sessionId: string;
       if (existing[0]) {
         if (existing[0].project_id !== intent.projectId || existing[0].pi_session_id !== payload.piSessionId) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "replacement history belongs to another session");
         sessionId = String(existing[0].id);
-        if (intent.kind !== "switch" && sessionId === intent.sourceSessionId) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "new/fork replacement reused source identity");
+        if (intent.kind !== "switch" && intent.kind !== "import" && sessionId === intent.sourceSessionId) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "new/fork replacement reused source identity");
       } else {
         sessionId = this.sessions.create({ projectId: intent.projectId, title: source.title, now: this.now() }).id;
       }
       const active = this.workers.get(sessionId);
       if (active && active !== worker) throw new WorkerManagerError("SESSION_BUSY", "replacement target already has a worker");
-      this.sessions.setPiMapping({ id: sessionId, piSessionId: payload.piSessionId, piSessionFile: payload.piSessionFile, persistenceState: payload.persistenceState, now: this.now() });
+      if (intent.kind === "import" && existing[0]) {
+        this.sessions.rebindImportedHistory({ id: sessionId, piSessionId: payload.piSessionId,
+          previousFile: String(existing[0].pi_session_file), piSessionFile: payload.piSessionFile, now: this.now() });
+      } else this.sessions.setPiMapping({ id: sessionId, piSessionId: payload.piSessionId, piSessionFile: payload.piSessionFile, persistenceState: payload.persistenceState, now: this.now() });
       this.appendReplacementNotice(worker, intent.sourceSessionId, "bound", { ...payload, appSessionId: sessionId });
       return sessionId;
     });

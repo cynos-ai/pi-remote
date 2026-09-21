@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 会话导入、克隆与资源重载批次
+
+基于 `e92f05b`，接入 `/clone` 的原生 fork(leafId, position=at)，目标映射 ACK 后清草稿，不产生新模型请求。`/import` 先确认，完整校验 JSONL 与 cwd，再经独立 import 意图、原生复制、目标 ID/cwd 二次校验、映射 ACK 接通新上下文。同项目已映射原生 ID 复用应用 Session 并更新文件路径，保留原输入/旧副本；目标占用和 owner 校验沿现有映射规则执行。补同步目标原生标题，事件不借用源 Operation。内部 IPC 增加 import 种类，公共协议/schema 无字段新增、无数据库迁移；同步协议、数据模型、计划和验收矩阵。
+
+`/reload` 按原生非 streaming/compacting 条件执行，按 Session 清理旧控件、终端监听、页脚/widget/status 和包装补全；shutdown hook 可以正常请求表单，session_start 前再清理 shutdown hook 安装的旧 UI，然后安装新默认编辑器/键位，让新扩展重建 UI。新 hook 表单保持可回答，失败不复用旧扩展工厂，资源/model 配置错误可见。草稿使用当时实际值，不覆盖重载期间的新输入。原生资源重载不代表尚未适配的主题/终端像素设置已经生效。
+
+发现并明确保留一个局部缺口：固定 SDK import 的 cwdOverride 不写回 JSONL header，后续持久恢复会因 cwd 不一致失败；当前拒绝缺失目录的导入，提示恢复目录，保留源会话与文件。新增直接 SDK 复现测试证明该差异；后续仍需显式选择目录、导入副本的持久目录修订和崩溃恢复，不能声称缺失目录迁移已支持。当前命令清单为 19 个已接入、trust/login/logout/share 4 个流程待接入；完整第 1 大节点仍有剩余事项。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：构建通过（`test-results/session-tools-build.log`、`session-tools-build-final.log`）。首轮进程 42/44（`session-tools-sessions.log`）：导入 IPC 白名单漏加 import，重载测试使用了 SDK 不自动发现的 .mjs 后缀；分别补齐校验和改为 SDK 支持的 .js 后缀，未放宽断言。随后全量会话进程 44/44（`session-tools-sessions-debug.log`），定向四场景 4/4（`session-tools-focus.log`）。初次定向 85/85（`session-tools-targeted.log`），增加 IPC/导入检查后 86/86（`session-tools-targeted-final.log`），lint 通过（`session-tools-lint.log`）。补充同 ID 重复导入、旧页脚清理与直接 SDK cwdOverride 复现，以最终阶段验证记录为准。
+
+首次阶段验证为 13 passed / 3 failed（`session-tools-s07.log`、`session-tools-s07-initial-report.json`），其中会话进程 43/44：新增重复导入同 ID 的断言暴露存储层仍禁止 persisted 路径更新；定向复现为 3/4（`session-tools-focus-boundaries.log`）。增加只用于已验证导入的旧路径/同 ID CAS 更新，常规 setPiMapping 仍拒绝更换 persisted 路径；正常更新、错误 ID 与过期旧路径保护的存储测试 7/7（`session-tools-storage.log`）。直接 SDK cwdOverride 与历史回归 29/29（`session-tools-cwd-regression.log`）。保留所有初始失败。最终 `pnpm verify:S07` 为 **14 passed / 2 failed**（`test-results/session-tools-s07-final.log`、`test-results/s07/report.json`）：构建、命令合同、原生表单、44 项会话进程、lint、全量类型与文档检查通过；两项失败为旧 live-commands / parity-tui-commands 报告源码身份失效。最终文档和差异格式检查通过。本批基于 `e92f05b`，实现提交可从本节文件历史追溯。未读取密钥或调用付费 provider；真实模型、原生 TUI、Android/iOS、完整导入故障矩阵未运行，S07 保持 blocked。
+
 ## 2026-09-21 内置命令与远程退出交付节点
 
 基于 `f235cf5`，新增 `/session`、`/name`、`/copy`、`/export`、`/changelog`、`/hotkeys`、`/compact` 与 `/quit` 编辑器入口，并接通原生复制键、空草稿退出键、双 Ctrl+C 和历史选择器退出。统计直接取 SDK 全会话用量、模型费用分组和缓存重复计费；信息使用可翻页文本窗口。导出保留原生 HTML/JSONL 与引号路径解析，文件留在服务端，不自动上传。复制使用手机文本框，不声称写入服务器剪贴板；超长回复明确提示文本框上限及完整导出方式。手动压缩直接走 SDK，不套用 stop 清队列或自动重试。

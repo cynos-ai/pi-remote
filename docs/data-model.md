@@ -33,6 +33,8 @@ pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目�
 
 首次落盘通知通过 IPC 由主进程确认并持久化标记。应用初次创建 manager 时先确认映射再执行；原生 fork / import 可能先写文件再返回 manager，因此先持久化替换意图，取得目标后校验并认领映射，再绑定会产生新执行的回调。失败时保留可识别的未认领文件，不盲目重做 fork。new / switch / fork / import 的旧、新 Session 时间线不混用；runtime factory / setRebindSession 交接见补充契约第 5 节。
 
+编辑器原生 import 与手机 history-imports 认领不同：前者由 SDK 复制输入文件并保留其原生 ID。主进程先核对输入 ID/cwd/owner，再核对复制后的 ID/cwd；同项目已有原生 ID 复用应用 Session，事务更新 pi_session_file，保留已有事件时间线和旧原生副本。目标被另一活动 worker 使用时不能抢占。新 ID 按实际 cwd 所属项目创建映射。该路径使用现有表和唯一性约束，无 schema 迁移；缺失 cwd 不使用仅存在于内存的覆盖值冒充持久恢复成功。
+
 启动或重新加载时，即使标记仍是 unflushed，也先检查原路径：有效且匹配的文件认领为 persisted，覆盖“文件已写、标记未提交”的窗口，然后恢复真实配置。首次 assistant 触发自动落盘的观察不能用作所有合法文件的必要条件。
 
 任何状态下已有文件为空、损坏、身份不符或仅有首次写入残片，都设置 `history_error_code=HISTORY_UNAVAILABLE` 并阻止 SDK open 与执行，保留原文件等待运维恢复。persisted 文件缺失同样阻断；只有 uninitialized / unflushed 且文件确实不存在才允许空初始化。数据库标记不是授权覆盖损坏文件的理由。S02 / S06 分别验证 SDK 行为与应用恢复策略。

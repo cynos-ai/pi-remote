@@ -35,6 +35,83 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('editor clone includes the current leaf and preserves source history without prompting', { timeout: 120000 }, async t => {
+  const { h, command, extension, key } = await treeHarness(t);
+  await command('prompt', { text: 'CLONE_FIRST' }); await command('prompt', { text: 'CLONE_LAST' });
+  const source = mapping(h), original = await readFile(source.pi_session_file, 'utf8');
+  const leaf = (await history(source.pi_session_file)).at(-1);
+  await extension('/r16-editor'); await extension('/r16-editor-draft /clone'); await key('扩展编辑器', 'Enter');
+  const destination = await until(() => h.query('SELECT id, pi_session_file FROM sessions WHERE id != ? AND pi_session_file IS NOT NULL', source.id)[0], 'clone mapping', 5000);
+  assert.equal(await readFile(source.pi_session_file, 'utf8'), original);
+  assert.ok((await history(destination.pi_session_file)).some(row => row.id === leaf.id), 'clone includes current leaf');
+  assert.equal(h.provider.requests.length, 2);
+  h.sessionId = destination.id; await command('prompt', { text: 'CLONE_CONTINUE' });
+  assert.ok(JSON.stringify(h.provider.requests.at(-1)).includes('CLONE_LAST'));
+});
+
+test('editor import confirms, validates and maps copied history to its native identity', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, answer, key } = await treeHarness(t);
+  await command('prompt', { text: 'IMPORT_SOURCE' }); const source = mapping(h);
+  const entries = await history(source.pi_session_file), id = randomUUID();
+  const input = join(h.project, 'external history.jsonl');
+  const content = entries.map(row => JSON.stringify(row.type === 'session' ? { ...row, id } : row)).join('\n') + '\n';
+  await writeFile(input, content); await extension('/r16-editor');
+  const open = async path => { await extension(`/r16-editor-draft /import "${path}"`); await key('扩展编辑器', 'Enter'); return next('导入会话'); };
+  await open(input); await answer('导入会话', { confirmed: false });
+  assert.equal(h.query('SELECT COUNT(*) AS n FROM sessions')[0].n, 1);
+  await open(input); await answer('导入会话', { confirmed: true });
+  const destination = await until(() => h.query('SELECT id, pi_session_file FROM sessions WHERE pi_session_id = ?', id)[0], () => `import mapping: ${JSON.stringify(h.query("SELECT payload_json FROM events WHERE type = 'runtime.notice' ORDER BY seq DESC LIMIT 8"))}`, 5000);
+  assert.notEqual(destination.pi_session_file, input); assert.equal(await readFile(input, 'utf8'), content);
+  assert.equal((await history(destination.pi_session_file))[0].id, id);
+  assert.equal(h.provider.requests.length, 1);
+  h.sessionId = destination.id; await command('prompt', { text: 'IMPORT_CONTINUE' });
+  assert.ok(JSON.stringify(h.provider.requests.at(-1)).includes('IMPORT_SOURCE'));
+  const previous = mapping(h), previousContent = await readFile(previous.pi_session_file, 'utf8');
+  await extension('/r16-editor'); await open(input); await answer('导入会话', { confirmed: true });
+  await until(() => mapping(h).pi_session_file !== previous.pi_session_file, 'same-id import rebinds copied file', 5000);
+  assert.equal(mapping(h).id, destination.id); assert.equal(mapping(h).pi_session_id, id);
+  assert.equal(await readFile(previous.pi_session_file, 'utf8'), previousContent);
+  assert.equal(h.provider.requests.length, 2, 're-import does not replay model input');
+});
+
+test('editor import rejects corrupt and missing-cwd histories without replacing the source', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, answer, key, draft } = await treeHarness(t);
+  await command('prompt', { text: 'IMPORT_VALID_SOURCE' }); const source = mapping(h), pid = await h.workerPid();
+  const entries = await history(source.pi_session_file); await extension('/r16-editor');
+  for (const [name, content] of [['corrupt.jsonl', JSON.stringify(entries[0]) + '\ninvalid'], ['missing-cwd.jsonl', JSON.stringify({ ...entries[0], id: randomUUID(), cwd: join(h.project, 'missing') }) + '\n']]) {
+    const input = join(h.project, name); await writeFile(input, content);
+    const text = `/import "${input}"`; await extension(`/r16-editor-draft ${text}`); await key('扩展编辑器', 'Enter'); await next('导入会话'); await answer('导入会话', { confirmed: true });
+    await until(async () => await draft() === text, 'failed import draft', 5000);
+    assert.deepEqual(mapping(h), source); assert.equal(await readFile(input, 'utf8'), content); assert.equal(await h.workerPid(), pid);
+  }
+  await command('prompt', { text: 'IMPORT_SOURCE_STILL_WORKS' });
+});
+
+test('reload resets old UI, loads fresh resources and keeps new hook forms answerable', { timeout: 120000 }, async t => {
+  const { h, command, extension, snapshot, next, answer, key, combo } = await treeHarness(t);
+  await command('prompt', { text: 'RELOAD_SOURCE' }); const source = mapping(h);
+  await extension('/r16-surface'); await extension('/r16-editor');
+  await writeFile(join(h.agent, 'extensions', 'reload-new.js'), `export default function(pi) {
+    pi.registerCommand('after-reload', { description: 'Fresh command', handler: async (_args, ctx) => { pi.setSessionName('Reloaded command'); ctx.ui.notify('new resource executed'); } });
+    pi.on('session_start', async (event, ctx) => { if (event.reason === 'reload') { await ctx.ui.confirm('reload-new-form', 'Continue reload?'); ctx.ui.setStatus('reload-test', 'fresh'); } });
+  }`);
+  await writeFile(join(h.agent, 'keybindings.json'), JSON.stringify({ 'app.message.copy': 'ctrl+alt+y' }));
+  await extension('/r16-editor-draft /reload'); await key('扩展编辑器', 'Enter');
+  const form = await next('reload-new-form').catch(error => { throw new Error(`${error.message}: ${JSON.stringify(h.query("SELECT payload_json FROM events WHERE type = 'runtime.notice' ORDER BY seq DESC LIMIT 12"))}`); }); assert.equal(form.runId, null);
+  await next('扩展编辑器'); await answer('reload-new-form', { confirmed: true });
+  await until(async () => (await snapshot()).notices.some(n => n.message.startsWith('已重载扩展')), 'reload completed', 5000);
+  assert.deepEqual(mapping(h), source);
+  for (const method of ['setHeader', 'setFooter']) assert.equal((await snapshot()).notices.filter(n => n.details?.method === method).at(-1).details.args[0], null);
+  await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+alt+y'); await next('复制最后回复'); await answer('复制最后回复', { cancelled: true });
+  await extension('/r16-editor-draft /after-reload'); await key('扩展编辑器', 'Enter');
+  await until(() => h.query('SELECT title FROM sessions WHERE id = ?', h.sessionId)[0].title === 'Reloaded command', 'new extension command executed', 5000);
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' }); await until(() => h.provider.requests.length === 2, 'active reload guard', 5000);
+  await extension('/r16-editor-draft /reload'); await key('扩展编辑器', 'Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('原生前置条件')), 'native reload streaming guard', 5000);
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  const stop = await h.command('abort', { targetRunId: active.runId }); await h.terminal(stop.commandId); await h.terminal(active.commandId, 'cancelled');
+});
+
 test('editor information, title, copy and exports stay local and preserve failure drafts', { timeout: 120000 }, async t => {
   const { h, command, extension, snapshot, next, answer, key, combo, draft } = await treeHarness(t);
   await command('prompt', { text: 'BUILTIN_SOURCE' }); await extension('/r16-editor');
@@ -57,8 +134,8 @@ test('editor information, title, copy and exports stay local and preserve failur
   await until(async () => (await h.lines('builtin history.html')).join('\n').includes('<!DOCTYPE html>'), 'HTML export', 5000);
   await submit('/export /dev/null/fail.jsonl');
   await until(async () => await draft() === '/export /dev/null/fail.jsonl', 'export failure draft preserved', 5000);
-  await submit('/reload');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('不完整重载') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
+  await submit('/trust');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('项目级信任') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
   assert.equal(h.provider.requests.length, 1, 'builtin information and exports never prompt the model');
 });
 
@@ -868,9 +945,9 @@ test('real CustomEditor edits, completes and submits once; reset invalidates old
   await draft('!!printf editor-shell'); await key('Enter');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.command === 'printf editor-shell' && item.message.excludeFromContext === true), 'editor native Bash');
   assert.ok(h.query("SELECT seq FROM events WHERE type = 'operation.updated' AND json_extract(payload_json, '$.kind') = 'bash'").length > 0);
-  await draft('/clone'); await key('Enter');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/clone') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
-  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/clone');
+  await draft('/trust'); await key('Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/trust') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/trust');
   assert.equal(h.provider.requests.length, 1, 'Bash and terminal menus never become model prompts');
   await draft('keep');
   await key('Home');

@@ -132,6 +132,18 @@ const count = (database: DatabaseSync, table: string): number => {
 describe("S04 SQLite storage contract", () => {
   const databases: TestDatabase[] = [];
 
+  it("relocates an imported ID only with the expected old path, without relaxing startup mapping", async () => {
+    const fixture = await openTestDatabase(); databases.push(fixture);
+    seedOwner(fixture.database, { ownerId: OWNER_A, deviceId: DEVICE_A, projectId: PROJECT_A, sessionIds: [SESSION_A], rootSuffix: "import-cas" });
+    const sessions = new SessionRepository(fixture.database);
+    sessions.setPiMapping({ id: SESSION_A, piSessionId: "native-id", piSessionFile: "/old.jsonl", persistenceState: "persisted" });
+    expect(() => sessions.setPiMapping({ id: SESSION_A, piSessionId: "native-id", piSessionFile: "/new.jsonl", persistenceState: "persisted" })).toThrow(/different pi mapping/);
+    expect(() => sessions.rebindImportedHistory({ id: SESSION_A, piSessionId: "other-id", previousFile: "/old.jsonl", piSessionFile: "/new.jsonl" })).toThrow(/changed/);
+    sessions.rebindImportedHistory({ id: SESSION_A, piSessionId: "native-id", previousFile: "/old.jsonl", piSessionFile: "/new.jsonl" });
+    expect(sessions.getRow(SESSION_A)?.pi_session_file).toBe("/new.jsonl");
+    expect(() => sessions.rebindImportedHistory({ id: SESSION_A, piSessionId: "native-id", previousFile: "/old.jsonl", piSessionFile: "/stale.jsonl" })).toThrow(/changed/);
+  });
+
   afterEach(async () => {
     while (databases.length > 0) {
       const database = databases.pop();

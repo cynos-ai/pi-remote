@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inspectPiSessionFile, openPiSessionFile } from "../../packages/agent-pi/src/session-file.js";
-import { createPiAgentSession, createPiWorkerSession, readPiModelCatalog } from "../../packages/agent-pi/src/runtime.js";
+import { createPiAgentSession, createPiAgentRuntime, createPiWorkerSession, readPiModelCatalog } from "../../packages/agent-pi/src/runtime.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -134,13 +134,34 @@ it("R09 worker facade runs native actions and gates continuations on mapping", a
     expect(handle.session.sessionId).toBe("recorded-id");
     await actions.reload();
     expect(handle.session.sessionId).toBe("recorded-id");
+    const importedPath = join(f.cwd, "imported.jsonl");
+    await writeFile(importedPath, jsonl([{ ...header(f.cwd), id: "imported-id" }]));
+    await handle.importFromJsonl!(importedPath);
+    expect(handle.session.sessionId).toBe("imported-id");
+    expect(handle.session.sessionFile).not.toBe(importedPath);
+    expect(observations).toContain("intent:import");
     const badPath = join(f.sessionDir, "bad.jsonl");
     await writeFile(badPath, jsonl([header(f.cwd)]) + "broken");
     await expect(actions.switchSession(badPath)).rejects.toThrow(/line 2/);
-    expect(handle.session.sessionId).toBe("recorded-id");
+    expect(handle.session.sessionId).toBe("imported-id");
   } finally { await handle.shutdown(); }
 });
 
+
+it("records the pinned SDK import cwd override recovery mismatch", async () => {
+  const f = await fixture();
+  const input = join(f.cwd, "moved.jsonl"), missing = join(f.cwd, "missing-directory");
+  await writeFile(input, jsonl([{ ...header(missing), id: "moved-id" }]));
+  const handle = await createPiAgentRuntime({ ...f, sessionFile: undefined });
+  try {
+    await handle.runtime.importFromJsonl(input, f.cwd);
+    expect(handle.runtime.session.sessionManager.getCwd()).toBe(f.cwd);
+    const path = handle.runtime.session.sessionFile!;
+    const state = await inspectPiSessionFile(path);
+    expect(state.kind === "persisted" && state.header.cwd).toBe(missing);
+    await expect(openPiSessionFile({ path, cwd: f.cwd, sessionId: "moved-id", persistenceState: "persisted" })).rejects.toThrow(/belongs to/);
+  } finally { await handle.runtime.dispose(); }
+});
 
 it("reads custom model capabilities without allocating a session", async () => {
   const f = await fixture();

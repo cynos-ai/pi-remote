@@ -215,7 +215,7 @@ function parseOutboundPayload(type: string, value: unknown): unknown {
       if (!Array.isArray(payload.availableThinkingLevels) || !payload.availableThinkingLevels.every((level) => typeof level === "string" && level.length > 0)) throw new IpcProtocolError("invalid thinking levels");
       return { requestId: requiredString(payload.requestId, "requestId"), items: modelsResponseSchema.parse({ items: payload.items }).items, availableThinkingLevels: payload.availableThinkingLevels };
     case "session_replace_intent":
-      if (!["new", "switch", "fork"].includes(String(payload.kind))) throw new IpcProtocolError("invalid replacement kind");
+      if (!["new", "switch", "fork", "import"].includes(String(payload.kind))) throw new IpcProtocolError("invalid replacement kind");
       return {
         requestId: requiredString(payload.requestId, "requestId"), kind: payload.kind,
         piSessionId: requiredString(payload.piSessionId, "piSessionId"), piSessionFile: payloadText(payload.piSessionFile, "piSessionFile"),

@@ -18,12 +18,16 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
+import { stat } from "node:fs/promises";
 import { inspectPiSessionFile, openPiSessionFile, PiSessionHistoryError, type PiSessionFileState } from "./session-file.js";
 
 type SdkModel = Parameters<AgentSession["setModel"]>[0];
 type SdkThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
 type SdkResourceLoaderOptions = ConstructorParameters<typeof DefaultResourceLoader>[0];
 type ExtensionBindings = Parameters<AgentSession["bindExtensions"]>[0];
+const nativePaths = await import(new URL("./utils/paths.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href) as {
+  resolvePath(path: string): string;
+};
 
 export interface PiAgentSessionOptions {
   cwd: string;
@@ -55,6 +59,7 @@ export interface PiAgentSessionHandle extends CreateAgentSessionResult {
   dispose(): void;
   bindExtensions(bindings: ExtensionBindings): Promise<void>;
   onEvent(listener: (event: AgentSessionEvent) => void): () => void;
+  importFromJsonl?(path: string): Promise<{ cancelled: boolean }>;
 }
 
 async function resolveSessionManager(options: PiAgentSessionOptions): Promise<{
@@ -221,7 +226,7 @@ export function subscribePiSession(
 }
 
 export interface PiSessionReplacementRequest {
-  kind: "new" | "switch" | "fork";
+  kind: "new" | "switch" | "fork" | "import";
   session: AgentSession;
   sessionPath?: string;
   entryId?: string;
@@ -324,6 +329,17 @@ export async function createPiWorkerSession(options: PiWorkerSessionOptions): Pr
   };
   return {
     runtime,
+    importFromJsonl: (inputPath: string) => replace(async () => {
+      const path = nativePaths.resolvePath(inputPath);
+      const state = await inspectPiSessionFile(path);
+      if (state.kind !== "persisted") throw new Error(`导入历史不可用：${state.kind === "invalid" ? state.reason : state.kind}`);
+      // A cwd override is not written back by the pinned SDK. Do not accept an
+      // in-memory repair that would fail durable recovery on the next worker.
+      const cwd = await stat(state.header.cwd).catch(() => undefined);
+      if (!cwd?.isDirectory()) throw new Error(`导入工作目录不存在：${state.header.cwd}；请恢复该目录后重试。持久化 cwd 重定位仍待适配`);
+      await before({ kind: "import", sessionPath: path });
+      return runtime.importFromJsonl(path);
+    }),
     get session() { return runtime.session; },
     get sessionManager() { return runtime.session.sessionManager; },
     get services() { return runtime.services; },

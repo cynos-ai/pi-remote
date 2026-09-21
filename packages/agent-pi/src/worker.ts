@@ -40,6 +40,7 @@ import {
   type PiAgentSessionOptions
 } from "./runtime.js";
 import { inspectPiSessionFile, PiSessionHistoryError, type PiSessionFileState } from "./session-file.js";
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import type {
   AgentSession,
   AgentSessionEvent,
@@ -201,7 +202,7 @@ export type WorkerInboundMessage =
   | IpcEnvelope<"shutdown", { reason?: string }>;
 
 export type WorkerOutboundMessage =
-  | IpcEnvelope<"session_replace_intent", { requestId: string; kind: "new" | "switch" | "fork"; sourceOperationId?: string; piSessionId: string; piSessionFile: string; targetFile?: string }>
+  | IpcEnvelope<"session_replace_intent", { requestId: string; kind: "new" | "switch" | "fork" | "import"; sourceOperationId?: string; piSessionId: string; piSessionFile: string; targetFile?: string }>
   | IpcEnvelope<"session_replaced", { requestId: string; piSessionId: string; piSessionFile: string; persistenceState: "unflushed" | "persisted" }>
   | IpcEnvelope<"models", { requestId: string; items: ModelInfo[]; availableThinkingLevels: string[] }>
   | IpcEnvelope<"editor_state_ack", { requestId: string }>
@@ -397,6 +398,9 @@ export class PiWorker {
   private readonly surfaceHosts = new Map<string, SurfaceHost>();
   private agentDir?: string;
   private readonly customControllers = new Set<AbortController>();
+  private readonly controllerOwners = new Map<AbortController, string>();
+  private readonly extensionUiKeys = new Map<string, { widgets: Set<string>; statuses: Set<string> }>();
+  private readonly reloading = new Set<string>();
   private currentSessionId: string;
   private readonly persistedMappings = new Set<string>();
   private readonly replacementRequests = new WeakMap<PiSessionReplacementRequest, string>();
@@ -623,7 +627,11 @@ export class PiWorker {
     // Expansion belongs to the surviving UI runtime, but the destination
     // needs its own durable projection after the mapping is acknowledged.
     const context = this.createStandaloneOperation(this.currentSessionId);
-    this.uiContextStorage.run(context, () => this.emitUi("setToolsExpanded", [this.toolsExpanded]));
+    this.uiContextStorage.run(context, () => {
+      this.emitUi("setToolsExpanded", [this.toolsExpanded]);
+      const name = session.sessionManager.getSessionName();
+      if (name) this.onSessionEvent({ type: "session_info_changed", name });
+    });
     this.standaloneOperations.delete(context.operationId);
     this.emitOperationStatus("completed", context);
     await this.sendModels({ requestId: "runtime-state" });
@@ -1134,6 +1142,13 @@ export class PiWorker {
 
   private emitUi(method: string, args: unknown[]): void {
     const context = this.operationContext();
+    const owner = context ? this.operationSessions.get(context.operationId) ?? this.currentSessionId : this.currentSessionId;
+    if ((method === "setWidget" || method === "setStatus") && typeof args[0] === "string") {
+      let keys = this.extensionUiKeys.get(owner);
+      if (!keys) { keys = { widgets: new Set(), statuses: new Set() }; this.extensionUiKeys.set(owner, keys); }
+      const set = method === "setWidget" ? keys.widgets : keys.statuses;
+      if (args[1] === undefined || args[1] === null) set.delete(args[0]); else set.add(args[0]);
+    }
     // Functions are terminal renderers; do not pretend they were rendered remotely.
     const seen = new WeakSet<object>();
     const serializableArgs: unknown = JSON.parse(JSON.stringify(args, (_key, value: unknown) => {
@@ -1413,6 +1428,24 @@ export class PiWorker {
     }
   }
 
+  private resetReloadUi(owner: string, operationId: string): void {
+    for (const [controller, sessionId] of this.controllerOwners) if (sessionId === owner) controller.abort();
+    for (const [id, pending] of this.pendingInteractions) {
+      if (pending.operationId !== operationId && this.operationSessions.get(pending.operationId) === owner)
+        this.finishInteraction(id, undefined, "cancelled", "extension_reload");
+    }
+    this.terminalInputs.get(owner)?.clear();
+    this.editorHost.reset();
+    this.surfaceHosts.get(owner)?.dispose(); this.surfaceHosts.delete(owner);
+    this.emitUi("setHeader", [null]); this.emitUi("setFooter", [null]);
+    const keys = this.extensionUiKeys.get(owner);
+    for (const key of [...keys?.widgets ?? []]) { this.widgetHost.remove(JSON.stringify([owner, key])); this.emitUi("setWidget", [key, null]); }
+    for (const key of [...keys?.statuses ?? []]) this.emitUi("setStatus", [key, null]);
+    this.extensionUiKeys.delete(owner);
+    this.emitUi("setWorkingMessage", [null]); this.emitUi("setWorkingVisible", [true]);
+    this.emitUi("setWorkingIndicator", [null]); this.emitUi("setHiddenThinkingLabel", [null]);
+  }
+
   private async commandFromEditor(owner: string, text: string, signal: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
     const context = this.createStandaloneOperation(owner);
@@ -1424,6 +1457,52 @@ export class PiWorker {
         const name = text.split(/\s/, 1)[0]!;
         const argument = text.slice(name.length).trim();
         const notify = (message: string) => this.createUiContext().notify(message, "info");
+        if (name === "/reload") {
+          if (session.isStreaming || session.isCompacting) throw new Error("请等待当前回复或压缩结束后重载（原生前置条件）");
+          if (this.reloading.has(owner)) throw new Error("资源正在重载");
+          this.reloading.add(owner);
+          try {
+            this.resetReloadUi(owner, context.operationId);
+            await session.reload({ beforeSessionStart: async () => {
+              if (owner !== this.currentSessionId) throw new Error("重载期间会话已切换");
+              // Shutdown hooks may have installed additional old-runtime UI.
+              // Clear that before startup hooks install the new runtime's UI.
+              this.resetReloadUi(owner, context.operationId);
+              this.setEditor((tui, theme, keys) => new CustomEditor(tui, theme, keys));
+            } });
+            if (owner !== this.currentSessionId) return;
+            this.editorHost.refreshAutocomplete();
+            await this.sendModels({ requestId: "runtime-state" });
+            for (const error of session.resourceLoader.getExtensions().errors) this.createUiContext().notify(`扩展加载失败：${error.path}: ${error.error}`, "error");
+            const modelError = session.modelRuntime.getError();
+            if (modelError) this.createUiContext().notify(`模型配置加载失败：${modelError}`, "error");
+            notify("已重载扩展、键位、skills、提示模板和上下文；远程显示设置仍遵循当前适配能力");
+          } finally {
+            this.reloading.delete(owner);
+            if (owner === this.currentSessionId && !this.editorHost.getFactory())
+              this.setEditor((tui, theme, keys) => new CustomEditor(tui, theme, keys));
+          }
+          return;
+        }
+        if (name === "/import") {
+          const path = editorPathArgument(text, name);
+          if (!path) throw new Error("用法：/import <服务端路径.jsonl>");
+          const answer = await this.requestInteraction("confirm", "导入会话", { message: `从 ${path} 导入并切换当前会话？原生会话 ID 保留，手机不会回填原历史时间线。` }, { signal });
+          if (!answer?.confirmed || signal.aborted || owner !== this.currentSessionId) { notify("导入已取消"); return; }
+          if (!this.handle?.importFromJsonl) throw new Error("当前运行时不支持受管导入");
+          const result = await this.handle.importFromJsonl(path);
+          if (result.cancelled) notify("导入已取消");
+          return;
+        }
+        if (name === "/clone") {
+          const leaf = session.sessionManager.getLeafId();
+          if (!leaf) { notify("当前会话没有可克隆的历史"); return; }
+          const result = await session.extensionRunner.createCommandContext().fork(leaf, {
+            position: "at", withSession: async ctx => { ctx.ui.setEditorText(""); ctx.ui.notify("已克隆到新会话", "info"); }
+          });
+          if (result.cancelled) notify("克隆已取消");
+          return;
+        }
         if (name === "/name") {
           if (argument) session.setSessionName(argument);
           notify(session.sessionManager.getSessionName() ? `会话标题：${session.sessionManager.getSessionName()}` : "用法：/name <标题>");
@@ -1714,6 +1793,7 @@ export class PiWorker {
     this.causalCommands.delete(context.operationId);
     const controller = new AbortController();
     this.customControllers.add(controller);
+    this.controllerOwners.set(controller, owner);
     let lastClear: number | undefined;
     let lastEscape = 0;
     let modelMenu: Promise<void> | undefined;
@@ -1833,8 +1913,8 @@ export class PiWorker {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
             if (text === "/quit") { closeEditor(); return; }
-            if (["/session", "/hotkeys", "/changelog", "/copy"].includes(text)
-              || ["/name", "/export", "/compact"].some(command => text === command || text.startsWith(`${command} `))) {
+            if (["/session", "/hotkeys", "/changelog", "/copy", "/clone", "/reload"].includes(text)
+              || ["/name", "/export", "/import", "/compact"].some(command => text === command || text.startsWith(`${command} `))) {
               await openCommand(text); return;
             }
             if (text === "/scoped-models") {
@@ -1871,7 +1951,7 @@ export class PiWorker {
       } catch (error) {
         failure(error);
         this.emitOperationStatus("failed", context);
-      } finally { controller.abort(); this.customControllers.delete(controller); }
+      } finally { controller.abort(); this.customControllers.delete(controller); this.controllerOwners.delete(controller); }
     });
   }
 
@@ -1976,6 +2056,7 @@ export class PiWorker {
         this.standaloneOperations.delete(context.operationId);
         const controller = new AbortController();
         this.customControllers.add(controller);
+        this.controllerOwners.set(controller, this.operationSessions.get(context.operationId) ?? this.currentSessionId);
         return this.uiContextStorage.run(context, async () => {
           try {
             const result = await runCustomUi<T>(factory, {
@@ -1991,7 +2072,7 @@ export class PiWorker {
             this.emitOperationStatus("completed", context);
             return result;
           } catch (error) { this.emitOperationStatus("failed", context); throw error; }
-          finally { this.customControllers.delete(controller); }
+          finally { this.customControllers.delete(controller); this.controllerOwners.delete(controller); }
         });
       },
       pasteToEditor: (text: string) => { this.editorHost.paste(text); this.editorText = this.editorHost.getText(); this.emitUi("setEditorText", [this.editorText]); },

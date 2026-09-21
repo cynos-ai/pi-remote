@@ -533,12 +533,20 @@ export class SessionRepository {
     return (this.database.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as Row | undefined) ?? null;
   }
 
+  /** Only a validated, acknowledged native import may relocate a persisted ID. */
+  rebindImportedHistory(input: { id: string; piSessionId: string; previousFile: string; piSessionFile: string; now?: number }): void {
+    if (!input.piSessionId || !input.previousFile || !input.piSessionFile) throw new Error("import mapping requires the previous identity and both paths");
+    const result = this.database.prepare(`
+      UPDATE sessions SET pi_session_file = ?, pi_persistence_state = 'persisted', history_error_code = NULL, last_activity_at = ?
+      WHERE id = ? AND pi_session_id = ? AND pi_session_file = ?
+    `).run(input.piSessionFile, input.now ?? Date.now(), input.id, input.piSessionId, input.previousFile);
+    if (result.changes !== 1) throw new Error("import mapping changed before acknowledgement");
+  }
+
   /**
-   * Persist the SDK mapping before the worker is allowed to execute commands.
-   * An unflushed same-ID session may reallocate its missing file path.
-   * A persisted mapping is immutable; a native replacement must
-   * create/claim a different application Session instead of rebinding the
-   * existing history in place.
+   * Persist the SDK mapping before execution. An unflushed same-ID session
+   * may reallocate its missing path. Ordinary startup cannot change a
+   * persisted path; validated imports use rebindImportedHistory explicitly.
    */
   setPiMapping(input: {
     id: string;

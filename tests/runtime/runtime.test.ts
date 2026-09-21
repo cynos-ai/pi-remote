@@ -220,6 +220,13 @@ function sessionMappingHandler(message: WorkerInboundMessage, child: FakeChild):
 }
 
 describe("S06 scheduler and IPC contracts", () => {
+  it("round-trips import intents and rejects unknown replacement kinds", () => {
+    const message = makeIpcEnvelope("session", "epoch", "session_replace_intent", {
+      requestId: "import", kind: "import" as const, piSessionId: "source", piSessionFile: "/tmp/source.jsonl", targetFile: "/tmp/import.jsonl"
+    });
+    expect(decodeWorkerOutbound(JSON.parse(encodeIpcMessage(message)))).toEqual(message);
+    expect(() => decodeWorkerOutbound({ ...message, payload: { ...message.payload, kind: "unknown" } })).toThrow(IpcProtocolError);
+  });
   it("round-trips long native input and diagnostics without the identity-length cap", () => {
     const text = "开发上下文".repeat(1000);
     const execute = makeIpcEnvelope("session", "epoch", "execute", { commandId: "command", operationId: "operation", kind: "prompt" as const, text });
