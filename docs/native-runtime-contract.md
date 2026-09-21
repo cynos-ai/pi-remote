@@ -1,6 +1,6 @@
 # 原生运行、内容归属与同步补充契约
 
-API key / OAuth 登录以 configure Operation 承载：`/login [provider]` 使用原生 provider API key / OAuth 方式和 ModelRuntime.login；无参数复用原生 provider 菜单。无交互 login 方法的 provider 保留外部环境鉴权提示。秘密 input 的答复只在主进程/worker 内存中传递，由 SDK 存入 auth.json；鉴权异常不传播含 credential/cause 的对象。保存后更新模型可用状态，unknown 模型按原生默认模型选择，并后台刷新 provider 目录；失败保留缓存且不伪装登录失败。OAuth 授权链接、设备码、信息/进度通知和账户选项走独立内存展示接口；所有原生 text/secret/manual_code/select 提示的回答走 sensitive input。登录控制可随时取消，结束/编辑器取消后清除展示。SDK 回调原文不改写、不自行开放公网回调或增加 relay；需要本机浏览器回调且没有手动回退的 provider 仍须同环境实测，当前不宣称真实 provider/TUI parity。
+API key / OAuth 登录以 configure Operation 承载：`/login [provider]` 使用原生 provider API key / OAuth 方式和 ModelRuntime.login；无参数复用原生 provider 菜单。无交互 login 方法的 provider 保留外部环境鉴权提示。秘密 input 的答复只在主进程/worker 内存中传递，由 SDK 存入 auth.json；鉴权异常不传播含 credential/cause 的对象。保存后更新模型可用状态，unknown 模型按原生默认模型选择，并后台刷新 provider 目录；失败保留缓存且不伪装登录失败。OAuth 授权链接、设备码、信息/进度通知和账户选项走独立内存展示接口；所有原生 text/secret/manual_code/select 提示的回答走 sensitive input。登录控制可随时取消，结束/编辑器取消后清除展示。SDK 回调原文不改写、不自行开放公网回调或增加 relay；需要本机浏览器回调且没有手动回退的 provider 仍须同环境实测，当前不宣称真实 provider 或设备流程已通过。
 
 状态：V1 实现契约，已按代码审核修订桥接和恢复路径；具体验证见[修复记录](reviews/2026-09-15-code-review-fixes.md)。与[协议](protocol-v1.md)、[数据模型](data-model.md)和[参考 SQL](schema-v1.sql)共同约束实现；下面是确定的适配工作，不能以禁用扩展代替。源码核对不等于真实 SDK 验收。
 
@@ -12,7 +12,7 @@ Operation 标识一次初始化、配置、模型执行、用户 Bash 或扩展�
 
 custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异步 done 共享该归属，单个按键表单结束不关闭整个组件。done 关闭当时仍待答的控制表单并返回原值，用户明确取消返回 undefined；扩展自己的 Esc 语义不由适配器替代。异常向上报告并清理组件，worker 退出中止回调，迟到工厂不重新打开控件。此 UI 生命周期不是模型 Run，也不同于下文 custom 消息内容。
 
-每个 custom 使用独立 80×24 虚拟 TUI。overlay 合成、onHandle、隐藏/恢复及焦点输入由原生 TuiMainScreen 实现；输入经过原生 addInputListener 和当前焦点组件，不直接绕过路由调用根组件。overlayOptions 回调按固定 SDK 在安装时求值一次，普通 custom 忽略 overlay 配置。应用级 onTerminalInput 按下文绑定到同 Session 的交互表面；跨实例共享焦点仍未接入。
+每个 custom 使用独立 80×24 虚拟 TUI。overlay 合成、onHandle、隐藏/恢复及焦点输入由原生 TuiMainScreen 实现；输入经过原生 addInputListener 和当前焦点组件，不直接绕过路由调用根组件。overlayOptions 回调按固定 SDK 在安装时求值一次，普通 custom 忽略 overlay 配置。应用级 onTerminalInput 按下文绑定到同 Session 的交互表面；跨实例共享焦点不属于 V1。
 
 header/footer 为无焦点组件，工厂及 FooterDataProvider 留在 worker，以安装时 Session 为归属。异步刷新若原 Operation 已关闭，创建同 Session 的新 Operation；不能沿用后来目标会话的归属。替换/清除销毁旧组件，worker 退出清理 provider 的 Git watcher。footer 状态数据来自 setStatus，可用 provider 数量按原生 scopedModels 或 available snapshot 计算，不为渲染额外发起模型请求。
 
@@ -26,11 +26,11 @@ onTerminalInput 订阅按 Session 隔离，直接注册到各原生交互 TUI；
 
 模型前后循环与思考等级循环调用 SDK cycleModel/cycleThinkingLevel，遵循原生可用模型/作用域、能力约束和默认 persist=false，不另加空闲条件。每个动作有独立 configure Operation、无外部 Command 和 Run；model_select 的 awaited 表单全部结束后才完成动作，thinking_level_select 的 fire-and-forget 表单沿用异步子操作规则。已关闭的 AsyncLocalStorage 来源不回退到其他活动 Run，迟到表单保留原配置父操作及 Session 归属。模型 hook 替换会话后不把目标配置发布到源会话。无可循环模型或不支持思考等级时显示通知，键位冲突仍由原生 CustomEditor 处理。
 
-app.model.select 复用固定 SDK ModelSelectorComponent，搜索、目录刷新、作用域、选择/取消/保存默认键均由原组件处理；主题使用现有固定文本主题，原生全局 TUI 键位使用该 worker 的 agent 配置。菜单有独立 configure Operation 与 custom.render/select/input 控制，重复打开复用同一菜单任务。选中后关闭菜单表面，再在同一配置 Operation 调用 setModel；标准扩展表单可继续待答，编辑器仍可接收其他操作。普通选择 persist=false，保存默认选择 persist=true 并等待 SettingsManager.flush。取消不切模型、不清草稿、不停止 Run。编辑器关闭/替换或 Session 替换会取消尚未选择的菜单，旧响应不得用于新 Session；已经确认的配置仍按 SDK hook 完成。菜单与编辑器是独立虚拟表面，尚不等同于原生终端共享焦点。
+app.model.select 复用固定 SDK ModelSelectorComponent，搜索、目录刷新、作用域、选择/取消/保存默认键均由原组件处理；主题使用现有固定文本主题，原生全局 TUI 键位使用该 worker 的 agent 配置。菜单有独立 configure Operation 与 custom.render/select/input 控制，重复打开复用同一菜单任务。选中后关闭菜单表面，再在同一配置 Operation 调用 setModel；标准扩展表单可继续待答，编辑器仍可接收其他操作。普通选择 persist=false，保存默认选择 persist=true 并等待 SettingsManager.flush。取消不切模型、不清草稿、不停止 Run。编辑器关闭/替换或 Session 替换会取消尚未选择的菜单，旧响应不得用于新 Session；已经确认的配置仍按 SDK hook 完成。菜单与编辑器是独立虚拟表面；原生终端共享焦点不属于 V1。
 
 app.session.resume/new 和编辑器中的完整 `/resume`、`/new` 分别进入原生历史选择与新建流程；快捷键沿原生默认保持未绑定，可由用户配置。菜单使用 SessionSelectorComponent 和 SessionManager 原生 current/all 列表，保留搜索、排序、命名过滤、路径显示、重命名和删除确认。当前历史禁止删除由原组件执行。重命名前校验持久文件；当前 Session 调用 setSessionName 以同步事件，其他文件校验后 appendSessionInfo，不允许缺失/损坏历史被 open 重建。非当前历史的手机标题在后续加载时同步；删除原生 JSONL 不删除手机事件记录，后续打开缺失历史仍失败，不自动重建。
 
-选择或新建通过已绑定的 SDK commandContextActions 执行，保留会话替换串行、持久 intent、目标校验和映射 ACK；不直接调用未包装的 runtime.switchSession。动作占独立无 Command/Run 的 extension Operation，取消只完成该操作；失败通知原编辑器并保留源 Session。编辑器关闭或会话替换后未完成菜单失效，已选中后的标准 hook 遵循原生生命周期。退出终端仍显示待适配，树导航/分叉菜单和跨虚拟表面焦点另验。
+选择或新建通过已绑定的 SDK commandContextActions 执行，保留会话替换串行、持久 intent、目标校验和映射 ACK；不直接调用未包装的 runtime.switchSession。动作占独立无 Command/Run 的 extension Operation，取消只完成该操作；失败通知原编辑器并保留源 Session。编辑器关闭或会话替换后未完成菜单失效，已选中后的标准 hook 遵循原生生命周期。退出终端和跨虚拟表面焦点不属于 V1；树导航与分叉使用已有手机流程。
 
 会话替换后的扩展异常也保持原 Operation 的 Session 归属。内部 extension_error IPC 携带 sessionId，主服务只接受该 worker 已拥有的 Session；旧格式缺省回到 worker 当前 Session。原生 ctx 已失效时仍保留 SDK 错误，不因为命令 completed 就判断回调成功，也不把错误写入新会话。
 

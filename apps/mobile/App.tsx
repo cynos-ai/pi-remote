@@ -1639,7 +1639,7 @@ function ExecutionScreen({
               <ActionButton disabled={actionBusy || !canRun("set_thinking")} key={level} kind={state?.session.thinkingLevel === level ? "primary" : "secondary"} onPress={() => void setThinking(level)} title={level} />
             )) : <Text style={styles.muted}>服务器尚未返回 thinking 等级；不臆造可用值。</Text>}
           </View>
-          {capabilities?.nativeCapabilities.some((capability) => capability.status === "needs_adapter") ? <Text style={styles.warningText}>部分终端专属 UI 尚无手机组件；需要扩展提供文本或标准表单回退。</Text> : null}
+          {capabilities?.nativeCapabilities.some((capability) => capability.status === "needs_adapter") ? <Text style={styles.warningText}>部分常用能力仍在适配；请查看服务器返回的能力说明。</Text> : null}
         </View>
       ) : null}
       {showMenu ? (

@@ -1,6 +1,6 @@
 # pi SDK 验证记录
 
-状态：S02 的无模型 contract smoke 已通过；真实 provider、thinking、原生 TUI 和完整 live 对照仍未运行。本文只记录实际观察，不把 SDK 源码或合成 fixture 当作 live 证据。
+状态：S02 的无模型 contract smoke 已通过；真实 provider、thinking 和完整范围内 live 对照仍未运行。本文只记录实际观察，不把 SDK 源码或合成 fixture 当作 live 证据。
 
 ## 环境与命令
 
@@ -29,7 +29,7 @@ pnpm run test:tui-parity -- --target sdk
 
 - `pnpm test:live -- --suite sdk`：需要运营者在仓库外提供至少两个真实模型，其中一个能够返回 thinking。
 - 真实 provider 的重试、自动压缩、工具调用、错误修复和最终 settle。
-- 原生 pi TUI 的实际 smoke 及 B02–B08 / T01–T08 的完整对照。
+- B02–B08 / T01–T08 的范围内真实行为对照；完整终端显示不在 V1 范围。
 - 真实长 Bash、后台服务跨 Run 行为和 worker SIGKILL 故障窗口。
 
 因此 S02 状态仍为 `blocked`，不能把 contract smoke 或确定性 Bash 对照升级为完整 AT02、AT03、AT26、AT31、AT32 通过。
@@ -39,4 +39,4 @@ pnpm run test:tui-parity -- --target sdk
 
 ## 2026-09-18 runner 更新
 
-live 已支持 sdk / commands / realtime；完整 Bash / TUI 入口支持 sdk / runtime / commands / realtime / docker 的逐项证据导入。`--smoke` 仅生成独立的确定性报告，完整矩阵缺项仍阻塞。S02 消费完整报告并检查当前源码指纹，不能仅靠 SDK smoke 通过。具体配置、自动覆盖边界、人工对照采集及报告规则见[验收入口说明](acceptance-runners.md)。
+live 已支持 sdk / commands / realtime；Bash / 常用行为对照入口支持 sdk / runtime / commands / realtime / docker 的逐项证据导入。`--smoke` 仅生成独立的确定性报告，范围内矩阵缺项仍阻塞。S02 消费完整报告并检查当前源码指纹，不能仅靠 SDK smoke 通过。具体配置、自动覆盖边界、人工对照采集及报告规则见[验收入口说明](acceptance-runners.md)。

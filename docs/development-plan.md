@@ -1,18 +1,18 @@
 # 分步骤开发计划
 
-状态：执行规格，S01–S12 已有工作树实现，S02/S06–S11 的外部 live / 原生 TUI / 设备子集仍按报告状态执行。每一步的命令由该步实现；不要把下面的命令复制进 README 当作已有产品使用说明。
+状态：执行规格，S01–S12 已有工作树实现，S02/S06–S11 的外部 live / Docker / 设备子集仍按报告状态执行。每一步的命令由该步实现；不要把下面的命令复制进 README 当作已有产品使用说明。
 
-先读[整体 TUI 体验原则](tui-experience.md)、[架构](v1-design.md)、[协议](protocol-v1.md)、[数据](data-model.md)、[Bash 兼容要求](bash-compatibility.md)及[验收矩阵](acceptance.md)。阶段通过后在 [progress.md](progress.md) 保存真实证据，再继续下一个前置条件满足的阶段。
+先读[常用移动流程原生行为基线](tui-experience.md)、[架构](v1-design.md)、[协议](protocol-v1.md)、[数据](data-model.md)、[Bash 兼容要求](bash-compatibility.md)及[验收矩阵](acceptance.md)。阶段通过后在 [progress.md](progress.md) 保存真实证据，再继续下一个前置条件满足的阶段。
 
 ## 0. 通用完成条件
 
-鉴权入口分阶段验证：退出登录复用原生凭据元数据菜单和 ModelRuntime.logout，覆盖取消、读取/删除失败、删除成功但本地同步失败、当前模型与活动 Run 保留、环境/模型配置未改及错误内容不泄露。API key 登录已接入秘密 input、原生 ModelRuntime.login 和手机内存提交路径；不能把回答放入普通 Command、Interaction response、离线待发缓存或错误日志。验证脱敏字段完整持久化、同键重试/改答冲突、重启幂等、取消与存储异常。OAuth 链接、设备码、回调、账户选择和信息/进度通知已接入内存展示及秘密输入；验证 HTTP no-store/归属、IPC 禁止 spool、结束/取消/重启清除、后台迟到响应抑制。真实 provider、原生 TUI 和设备测试独立记录。
+鉴权入口分阶段验证：退出登录复用原生凭据元数据菜单和 ModelRuntime.logout，覆盖取消、读取/删除失败、删除成功但本地同步失败、当前模型与活动 Run 保留、环境/模型配置未改及错误内容不泄露。API key 登录已接入秘密 input、原生 ModelRuntime.login 和手机内存提交路径；不能把回答放入普通 Command、Interaction response、离线待发缓存或错误日志。验证脱敏字段完整持久化、同键重试/改答冲突、重启幂等、取消与存储异常。OAuth 链接、设备码、回调、账户选择和信息/进度通知已接入内存展示及秘密输入；验证 HTTP no-store/归属、IPC 禁止 spool、结束/取消/重启清除、后台迟到响应抑制。真实 provider 和设备测试独立记录。
 
 项目信任菜单采用固定 SDK TrustSelectorComponent / ProjectTrustStore，当前/父目录决定与继承均保留；worker 重启后读取保存决定，活动 runtime 不自动重启。同宿主 cwd 缓存遵循原生语义。首次启动先引导用户级扩展，沿原生 resolveProjectTrusted 执行 hook、存储、默认回退和 ask，再加载项目资源。覆盖预映射表单、长等待/重连/幂等、取消、hook 出错后回退、仅本次缓存、存储错误与项目资源实际加载；真实 TUI/设备另行验收。
 
 S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和文本宿主实现，并验证异步生命周期、重放、清除及源会话归属。编辑器工厂另需输入、提交与自动补全契约，不能用静态画面通过代替可交互验收。
 
-编辑器适配复用持久表单送入原生输入路由，验证安装返回、草稿同步及光标保留、补全包装、提交与独立 Run/无 Run Bash、替换/取消和旧回调失效。follow-up/dequeue、完整 editor 表单和思考显示动作须覆盖原生队列顺序、失败草稿及手机重放。图片动作通过 image 表单上传真实 artifact 并转成 SDK ImageContent；共享服务的挂起动作保持任务运行且不发送 SIGTSTP。终端菜单、系统剪贴板差异与原生 TUI 对照保持单独缺口，不通过隐藏入口或误发模型文本绕过。
+编辑器适配复用持久表单送入原生输入路由，验证安装返回、草稿同步及光标保留、补全包装、提交与独立 Run/无 Run Bash、替换/取消和旧回调失效。follow-up/dequeue、完整 editor 表单和思考显示动作须覆盖原生队列顺序、失败草稿及手机重放。图片动作通过 image 表单上传真实 artifact 并转成 SDK ImageContent；共享服务的挂起动作保持任务运行且不发送 SIGTSTP。终端菜单像素和服务器系统剪贴板不属于 V1；范围内动作不能通过隐藏入口或误发模型文本绕过。
 
 应用级输入增量覆盖 onTerminalInput 的原生顺序/消费/转换、晚注册/取消、同 Session 表面绑定及原生替换清理；扩展快捷键覆盖 getShortcuts 冲突规则、CustomEditor 自定义覆盖、异步回调异常和无模型副作用。组合键编码以固定版本原生 matcher 验证，SDK 的修饰功能键限制独立记录；默认应用动作按命令状态表持续接入，图片和远程挂起语义完成后仍需真机与原生 TUI 对照验收。
 
@@ -70,13 +70,13 @@ S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和�
 5. 用测试 extension 在执行、session_start、model_select、thinking_level_select 及独立回调触发四种表单。验证无 Run 等待、initialize 未 ready 可 respond；thinking 方法返回后表单仍可回答。订阅 ExtensionRunner 的错误通道，验证 hook 抛错不一定 reject setModel，实际配置仍正确。DefaultResourceLoader 按原生配置 / trust 加载资源。
 6. 在 Linux 运行原生 Bash 的长任务及已正常返回的后台服务，记录 worker / shell 的 PID、PGID、启动标识；验证 SDK abort 对当前调用的原生行为，区分未完成调用 SIGKILL 与正常后台进程。测试 harness 清理自己的临时服务，不把测试范围变成生产限制。
 7. 按 Bash 兼容文档 B01–B08 建立可复用对照夹具：工具 schema / 结果、复杂 shell、网络 / 依赖、无默认 timeout、后台服务、非零退出后继续修复、原生大输出。用默认 SDK 执行器作确定性基线，并记录同环境 pi TUI 的实际 smoke；不通过替换为受限 Bash 工具取得测试通过。
-8. 按 T01–T08 建立整体能力清单及 `pnpm test:tui-parity` 入口，记录原生 API、适配方式、阶段和证据。覆盖工具、扩展、skills、templates、上下文、附件、用户 Bash（`!` / `!!`）、会话树 / fork / 导入导出、扩展命令 / widget；状态为 available / needs_adapter / disabled_by_owner / upstream_unavailable。验证 streaming 期间扩展命令即时执行；needs_adapter 必须有实施步骤，不能以默认禁用代替适配。新增 DTO 在相应适配实施前同步协议、schema、示例与测试。
+8. 按 T01–T08 建立常用移动流程能力清单及 `pnpm test:tui-parity` 入口，记录原生 API、适配方式、阶段和证据。覆盖工具、扩展、skills、templates、上下文、附件、用户 Bash（`!` / `!!`）、会话树 / fork / 导入导出、扩展命令及 widget 文本投影；状态为 available / needs_adapter / disabled_by_owner / upstream_unavailable。验证 streaming 期间扩展命令即时执行；范围内的 needs_adapter 必须有实施步骤，不能以默认禁用代替适配。终端像素、共享焦点、全屏重绘、主题、硬件光标和低频 TUI 快捷键不进入 V1 能力清单。新增 DTO 在相应适配实施前同步协议、schema、示例与测试。
 9. 按 [原生运行契约](native-runtime-contract.md) 验证 triggerTurn=false 的 custom、streaming 中延迟交付、自主扩展 prompt、一条扩展命令 compact 后 prompt、用户 Bash / user_bash hook / abortBash 的 Session 范围；记录真实归属，不能造 Run 或 HTTP 请求。验证扩展 setSessionName 事件与异步回声。
 10. 对 AgentSessionRuntime 的 new / switch / fork / import 记录文件创建、factory、setRebindSession、session_start 和 withSession 顺序；验证源 S1 命令可在目标 S2 启动 Run，映射确认后才绑定目标执行回调。测试目标文件已写但映射未确认的窗口，保留可恢复结果，不重放 fork。
 
 **验证**：`pnpm verify:S02` 执行无需模型的边界验证，`pnpm test:bash-parity -- --target sdk` 和 `pnpm test:tui-parity -- --target sdk` 执行 Linux 对照夹具；`pnpm test:live -- --suite sdk` 执行真实模型与工具验证。检查真实文件和 session JSONL；模拟 provider 失败，再用真实 provider 完成至少一次流程。测试使用临时项目和自己的总时限，产品 Bash 未传 timeout 时仍无默认时限。
 
-**通过**：AT02、AT03、AT26 及 AT31 / AT32 的 SDK / TUI 基线子集均有证据；异常例包括无模型凭据、等级有效值校准、缺失 / 空文件静默初始化、hook 抛错。无 Run 对话框的等待 / 回答是必测正常路径。真实请求或 TUI 基线缺失时阶段不通过；待后续移动适配的条目不能提前标为 available。
+**通过**：AT02、AT03、AT26 及 AT31 / AT32 的 SDK / 原生语义基线子集均有证据；异常例包括无模型凭据、等级有效值校准、缺失 / 空文件静默初始化、hook 抛错。无 Run 对话框的等待 / 回答是必测正常路径。真实请求或范围内行为基线缺失时阶段不通过；待后续移动适配的条目不能提前标为 available。
 
 ## S03 — 公共协议、规范事件与 reducer
 
@@ -155,7 +155,7 @@ S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和�
 3. stop / ctx.abort 先捕获并 clearQueue，再 abort；完整未消费输入变可取回草稿，不靠返回字符串猜附件或去重。测试迟到旧输入、停止窗口 crash 与 unknown。compact 按 S02 的原生队列行为等待旧执行实际结束后创建压缩 Run，不额外 clearQueue，不预设旧 Run 必然 aborted。
 4. initialize / configure / run / bash / extension 各自支持四类表单、CAS、取消、到期及重连。setThinkingLevel 返回后异步 hook 的子 Operation 继续有效；Run 结束不误关独立表单。操作锁不跨 UI 等待，worker 退出只关闭失效回调。
 5. 实现原生资源与 UI 适配、无 Run custom / 用户 Bash / user_bash hook 及 Session 级 abortBash；延迟 custom 交付保持独立 Operation。自主扩展可无 Command，一条命令可顺序产生多个 Run；GET command 返回完整 runs 列表，跨 Session 因果关联只限同 owner。接通 S06 的原生 new / switch / fork / import 回调及后续执行，源时间线不改绑。其他附件 / 导出等按 S02 核实 API 补齐 DTO，不用任意方法反射。
-6. custom UI 与 custom 消息分别验收：组件通过现有标准表单接收按键/文本，done 原值留在 worker；覆盖连续输入、同键重试、旧控件失效、异步工厂/完成、用户取消和退出清理。手机以匹配 Operation 的待答控件承载画面；独立 80×24 TUI 验证原生 overlay/onHandle、隐藏输入隔离、焦点切换和输入监听。组合键、应用级监听和跨实例焦点后续单独适配。
+6. custom UI 与 custom 消息分别验收：组件通过现有标准表单接收按键/文本，done 原值留在 worker；覆盖连续输入、同键重试、旧控件失效、异步工厂/完成、用户取消和退出清理。手机以匹配 Operation 的待答控件承载画面；独立 80×24 TUI 验证原生 overlay/onHandle、隐藏输入隔离、实例内焦点切换和输入监听。常用组合键和应用级监听接入移动操作；跨 custom 实例焦点与终端像素效果不属于 V1。
 
 **验证**：`pnpm verify:S07`、`pnpm test:live -- --suite commands` 和 `pnpm test:tui-parity -- --target commands`；AT04、AT05、AT11、AT14、AT15、AT16 及 AT32 控制子集。运行时 steer、切模型 / 等级、扩展命令与 targeted abort；旧 runId 不得停新任务。覆盖旧队列暂停、新 prompt 可用但不恢复旧项、取消最后一项变 ready、过期版本及重启。并发重复 prompt / follow_up / respond 同收据且仅生效一次，复用 S05 竞态 harness。压缩的先停止 / 保留上下文、默认值显式持久化分别验证。session_start / model_select 的表单真正等待、回答后完成；另测 hook 抛错后实际配置校准。
 
@@ -208,7 +208,7 @@ S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和�
 6. 按 AT31 在两平台展示长 Bash、工具错误后的自动修复、后台服务启动结果及后续访问；服务存活不把已完成工具一直显示成 running，应用不增加每条 Bash 的批准弹窗。
 7. 渲染无 Run custom / 用户 Bash，遵循 display / excludeFromContext；独立内容中断后停止转圈。区分用户 Bash 停止与模型 stop，展示可恢复输入含附件及 unknown 草稿，重新发送产生新命令；自主 / 多 Run 和原生会话切换的实际归属可查看。验证重连及 snapshot 后与服务器一致。
 
-**验证**：`pnpm verify:S10`；AT18、AT21、AT22 的执行页面部分及 AT31 / AT32 的手机子集。合成 fixture 与真实后端分别验证；模拟 HTTP 响应丢失保持原幂等键。运行中切模型后等级列表更新，压缩明确展示先停止的行为，全阶段表单不能因断网自动确认。复用整体 TUI / Bash 夹具验证两平台资源、输入、并发、归档、长运行 / 后台服务和断线观察；缺适配明确记录及落实步骤，不静默吞掉入口。真实设备缺失仍记录 not_run。
+**验证**：`pnpm verify:S10`；AT18、AT21、AT22 的执行页面部分及 AT31 / AT32 的手机子集。合成 fixture 与真实后端分别验证；模拟 HTTP 响应丢失保持原幂等键。运行中切模型后等级列表更新，压缩明确展示先停止的行为，全阶段表单不能因断网自动确认。复用常用流程 / Bash 夹具验证两平台资源、输入、并发、归档、长运行 / 后台服务和断线观察；范围内缺适配明确记录及落实步骤，不静默吞掉入口。真实设备缺失仍记录 not_run。
 
 **通过**：手机能从真实后端发 prompt 并展示工具、配置与交互。模拟器覆盖和真实设备覆盖分别记录。
 
@@ -238,7 +238,7 @@ S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和�
 4. 完成停止 / 备份 / 恢复流程，验证新卷恢复；明确操作会终止哪些 Run，保留中断结果。
 5. 按 pi 配置加载原生工具、扩展、skills、templates、上下文和用户默认值，提供 HOME / PATH / 缓存 / 网络与项目工具链。无默认并发或回收上限。记录实际残留进程诊断及必要时定向处理 / 容器重启的步骤；不要求启动登记、清理证明或 helper 才可继续工作。
 
-**验证**：`pnpm verify:S12`；AT19 的 Docker 子集、AT23、AT24、AT25、AT28 及 AT31 / AT32 部署子集。干净主机执行 build→docker compose up -d→doctor→配对→真实任务→重建→旧会话→备份→新卷恢复。用 `pnpm test:bash-parity -- --target docker` 和 `pnpm test:tui-parity -- --target docker` 对照同一镜像内原生 pi TUI 的工具、资源、控制与开发环境；后台服务跨 Run / 可选回收继续。未返回 Bash SIGKILL 后保留 unknown、不自动重放旧命令，新明确操作无需清理证明；实际测试容器重启后的进程退出及状态恢复，停止失败如实报告。验证非 root、授权挂载、无 privileged / 默认 Docker socket。
+**验证**：`pnpm verify:S12`；AT19 的 Docker 子集、AT23、AT24、AT25、AT28 及 AT31 / AT32 部署子集。干净主机执行 build→docker compose up -d→doctor→配对→真实任务→重建→旧会话→备份→新卷恢复。用 `pnpm test:bash-parity -- --target docker` 和 `pnpm test:tui-parity -- --target docker` 对照同一镜像内 pi 的工具、资源、控制与开发环境语义；不验收完整终端显示。后台服务跨 Run / 可选回收继续。未返回 Bash SIGKILL 后保留 unknown、不自动重放旧命令，新明确操作无需清理证明；实际测试容器重启后的进程退出及状态恢复，停止失败如实报告。验证非 root、授权挂载、无 privileged / 默认 Docker socket。
 
 **通过**：部署命令可重现，容器重建不丢历史；TERM / 停止超时 / 并发主实例处理准确，重启影响的其他 Run 也变 interrupted，只有非空旧队列暂停。默认原生资源可用；故障与备份恢复有实际验证，不能只检查文件存在。本阶段不依赖 S11 手机，其 Docker 结果与手机组合在 S13 验收。
 
@@ -254,7 +254,7 @@ S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和�
 
 **验证**：`pnpm verify:S13` 检查所有必需报告存在且通过，然后运行 `pnpm test:e2e`、必要的 live 回归和双端验收；AT30。缺凭据、缺设备、skip 或只有截图但缺关键步骤证据均不能通过。
 
-**通过**：所有 FR 有实际实现与验证，未知调用不会自动重复、断线不丢已提交记录，整体 TUI 与 Bash 的 AT32 / AT31 对照全部通过。原生资源、控制、标准交互与会话入口完成适配，新增限制都有实际依据；不能用永久 needs_adapter 绕过基础能力发布要求。记录实际局限，尚未完成的自定义 TUI 渲染明确列出适配步骤，不禁用其整个扩展，也不声称已完全实现。
+**通过**：所有 FR 有实际实现与验证，未知调用不会自动重复、断线不丢已提交记录，常用移动流程与 Bash 的 AT32 / AT31 对照全部通过。原生资源、控制、标准交互与会话入口完成适配，新增功能限制都有实际依据；不能用永久 needs_adapter 绕过范围内能力。发布说明明确完整终端模拟不在 V1 范围，且不因此禁用扩展或其工具。
 
 ## 交给下一位 AI 的启动指令
 

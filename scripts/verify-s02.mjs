@@ -68,11 +68,23 @@ if (build.code === 0) {
 
   const capabilities = api.getNativeCapabilities();
   const capabilityIds = new Set(capabilities.map((capability) => capability.id));
-  const hasAdapterItems = capabilities.some((capability) => capability.status === "needs_adapter");
-  if (capabilities.length >= 10 && capabilityIds.has("bash.native-executor") && hasAdapterItems) {
-    record("S02-capability-inventory", "passed", "getNativeCapabilities()", [`${capabilities.length} capabilities`]);
+  const commonWorkflowIds = [
+    "session.prompt",
+    "model.selection",
+    "model.compaction",
+    "input.steer-follow-up",
+    "input.attachments",
+    "extension.commands",
+    "extension.interactions",
+    "extension.custom-renderers",
+    "bash.native-executor",
+    "ui.mobile-touch-projections"
+  ];
+  const unfinishedCommonWorkflow = capabilities.some((capability) => capability.status === "needs_adapter");
+  if (capabilities.length >= 10 && commonWorkflowIds.every((id) => capabilityIds.has(id)) && !unfinishedCommonWorkflow) {
+    record("S02-capability-inventory", "passed", "getNativeCapabilities()", [`${capabilities.length} capabilities`, "common mobile workflow adapters complete"]);
   } else {
-    record("S02-capability-inventory", "failed", "getNativeCapabilities()", [], "inventory is incomplete or hides adapter work");
+    record("S02-capability-inventory", "failed", "getNativeCapabilities()", [], "common mobile workflow inventory is incomplete or still needs an adapter");
   }
 }
 

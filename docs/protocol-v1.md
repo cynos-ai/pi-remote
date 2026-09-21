@@ -1,6 +1,6 @@
 # V1 HTTP、事件与 IPC 契约
 
-状态：待实现规范，S03 落为公共 schema、类型及 reducer。遵循[整体 TUI 体验原则](tui-experience.md)，手机不直接消费 pi 内部类型。示例包括[正常流](examples/stream.json)、[中断流](examples/interrupted.json)、[无 Run 初始化表单](examples/initialization-dialog.json)和[原生运行与输入恢复](examples/native-runtime.json)。当前无发布客户端，可直接修订 V1 草案；发布后同类语义变更需升级协议。
+状态：待实现规范，S03 落为公共 schema、类型及 reducer。遵循[常用移动流程原生行为基线](tui-experience.md)，手机不直接消费 pi 内部类型。示例包括[正常流](examples/stream.json)、[中断流](examples/interrupted.json)、[无 Run 初始化表单](examples/initialization-dialog.json)和[原生运行与输入恢复](examples/native-runtime.json)。当前无发布客户端，可直接修订 V1 草案；发布后同类语义变更需升级协议。
 
 原生自主执行、无 Run 内容、停止输入、标题与历史替换的补充契约见 [native-runtime-contract.md](native-runtime-contract.md)，属于必须实施的协议部分。
 
@@ -53,7 +53,7 @@ SDK 接受之后发生的错误通过 command / run 事件及 GET command 报告
 | GET `/v1/me` | 鉴权 | `{user,device}`，不回显 token |
 | GET `/v1/devices` | 鉴权 | 当前 owner 的设备与吊销状态 |
 | DELETE `/v1/devices/:id` | 幂等键 | 200 `{id,revokedAt}`；立即关闭该设备的 WSS |
-| GET `/v1/capabilities` | 鉴权，`sessionId?` | `{protocolVersion:1,commands,limits,features,nativeCapabilities}`；按实际加载资源返回扩展命令及 available / needs_adapter / disabled_by_owner / upstream_unavailable 状态 |
+| GET `/v1/capabilities` | 鉴权，`sessionId?` | `{protocolVersion:1,commands,limits,features,nativeCapabilities}`；按实际加载资源返回扩展命令及 V1 范围内能力的 available / needs_adapter / disabled_by_owner / upstream_unavailable 状态；终端专属视觉效果不作为未完成能力上报 |
 | GET `/v1/models` | 鉴权 | `{items:[{model:ModelRef,name,thinkingLevels,contextWindow}]}`；仅已配置模型，无凭据 |
 | GET `/v1/projects` | `cursor?,limit?` | `{items:ProjectSummary[],nextCursor}` |
 | POST `/v1/projects` | `{name,rootPath,defaultModel?,defaultThinkingLevel?}` | 201 `{project,commandId}`；同一真实目录已注册则 200 返回已有项目，不覆盖其配置；rootPath 位于容器内允许根 |

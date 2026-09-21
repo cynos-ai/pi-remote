@@ -14,7 +14,7 @@
 | `/hotkeys` | 当前编辑器加载的原生键位及已接入/待接入命令；原生键位存在不意味着对应远程动作均可用 |
 | `/compact [说明]` | 原生手动压缩，不套用 stop 的清队列行为；空历史、取消和 hook 失败沿 SDK 报错，不自动重试 |
 | `/quit` | 退出当前远程编辑器及其待答子菜单，保留草稿；后台模型/Bash 继续，可用手机输入框或由扩展重新打开编辑器 |
-| `/settings` | 原生设置菜单；具体显示/启动项的待适配边界见整体 TUI 文档 |
+| `/settings` | 原生设置菜单；V1 显示/启动项边界见常用移动流程文档 |
 | `/model [引用]` | 模型选择与精确引用，原生作用域和 hook |
 | `/thinking [等级]` | 当前模型思考等级选择，显式保存默认值 |
 | `/scoped-models` | 模型范围、排序和显式保存 |
@@ -34,15 +34,15 @@
 
 ## 分享及剩余流程边界
 
-23 个托管内置命令均已有入口，不代表完整原生 TUI 或设备验收完成。`/share` 先选择目标：GitHub 使用服务端 gh 的 github.com 登录与原生 Secret Gist HTML 格式；Radius 使用原生凭据、当前分支 JSONL 和 pi.share 系统提示/工具元数据，以 organization 可见性上传。不会因存在 Radius 凭据而跳过目标选择，不会在失败后自动切换目标。
+23 个托管内置命令均已有入口；完整原生 TUI 不属于 V1，设备验收仍未完成。`/share` 先选择目标：GitHub 使用服务端 gh 的 github.com 登录与原生 Secret Gist HTML 格式；Radius 使用原生凭据、当前分支 JSONL 和 pi.share 系统提示/工具元数据，以 organization 可见性上传。不会因存在 Radius 凭据而跳过目标选择，不会在失败后自动切换目标。
 
 分享预览展示完整待上传文件原文（HTML 为源码，尚无手机 HTML 浏览器预览），支持分页和首尾导航；关闭预览后仍需独立发布确认。确认列出字节数、SHA-256、可见范围与内容范围，Secret Gist 持链接者可访问，不等同于私有授权。导出一次后固定字节，即使会话继续生成也不替换确认内容；临时导出文件读取后删除，待答副本仅在 worker 内存。已浏览的预览页沿普通 UI 通知持久化，分享内容可能含路径、工具结果、图片和系统提示，使用前需检查。结果返回 Gist/查看链接或 Radius 链接，不自动打开；gh 错误细节不进入事件。上传开始后断线、取消、服务崩溃或响应失败可能留下远端内容，提示先检查账号，不自动重试。关闭编辑器或切换 Session 使未确认表单失效，不上传。未新增协议字段或 SQL migration；使用已有独立 Operation、select/confirm 和 custom.render。
 
 退出登录只读取凭据元数据，未知 provider 以原 ID 展示；取消/关闭编辑器不删除，重复打开复用菜单。删除沿 SDK 原生 15 秒鉴权操作期限及编辑器取消信号，成功后更新本 worker 的模型目录、补全和页脚；其他已加载 worker 的内存状态不在此流程中自动广播刷新。SDK 明确报告“凭据已删除但模型同步失败”时单独提示这一结果，不误报成删除失败或自动重试；鉴权异常原文不写入会话事件。真实 OAuth/provider 与设备仍需独立验收。
 
-API key / OAuth 登录使用带 sensitive 标记的专用 input：命令保存脱敏 HMAC、事件/快照不保存回答，手机只缓存请求标识并在提交/后台清空输入。断线后可重填同一内容确认原请求，不能从离线队列自动恢复秘密。原生 auth.json 仍保存凭据；模型默认选择和目录刷新沿原生语义，错误不暴露 credential/cause。OAuth 的链接、设备码、提示文本/账户选择和通知通过独立 no-store 接口在前台临时显示，结束/取消清除，切后台后重新获取；不会自动打开浏览器。SDK 回调原样传入，不新增公网回调/relay。实现和合成 provider 验证不代表真实 OAuth/provider 或完整 TUI parity 已完成。
+API key / OAuth 登录使用带 sensitive 标记的专用 input：命令保存脱敏 HMAC、事件/快照不保存回答，手机只缓存请求标识并在提交/后台清空输入。断线后可重填同一内容确认原请求，不能从离线队列自动恢复秘密。原生 auth.json 仍保存凭据；模型默认选择和目录刷新沿原生语义，错误不暴露 credential/cause。OAuth 的链接、设备码、提示文本/账户选择和通知通过独立 no-store 接口在前台临时显示，结束/取消清除，切后台后重新获取；不会自动打开浏览器。SDK 回调原样传入，不新增公网回调/relay。实现和合成 provider 验证不代表真实 OAuth/provider 或设备流程已完成。
 
-`/trust` 保存成功后提示重启该会话 worker，不自行中断任务。同一 runtime 宿主按 cwd 缓存信任决定，new/fork/resume/import 不重复询问已经决定的 cwd；重启重新读取。首次遇到有需信任资源的目录，先加载用户级扩展，再沿原生优先级处理 project_trust hook、保存决定、全局 always/never/ask 回退与询问。支持当前/父目录持久决定、仅本次决定、取消；拒绝或取消仅跳过原生需信任项目资源，不禁止普通对话或 Bash。hook 可在 SDK handle 和映射建立前使用 select/confirm/input/notify，标准交互支持长等待、重连和幂等。没有需信任资源时沿原生语义可信；自定义 SettingsManager/ResourceLoader 或未提供信任 UI 的底层调用保留调用者原有控制路径。损坏信任文件、保存失败和 hook 错误按原生行为呈现，真实 TUI/设备对照仍单独验收。
+`/trust` 保存成功后提示重启该会话 worker，不自行中断任务。同一 runtime 宿主按 cwd 缓存信任决定，new/fork/resume/import 不重复询问已经决定的 cwd；重启重新读取。首次遇到有需信任资源的目录，先加载用户级扩展，再沿原生优先级处理 project_trust hook、保存决定、全局 always/never/ask 回退与询问。支持当前/父目录持久决定、仅本次决定、取消；拒绝或取消仅跳过原生需信任项目资源，不禁止普通对话或 Bash。hook 可在 SDK handle 和映射建立前使用 select/confirm/input/notify，标准交互支持长等待、重连和幂等。没有需信任资源时沿原生语义可信；自定义 SettingsManager/ResourceLoader 或未提供信任 UI 的底层调用保留调用者原有控制路径。损坏信任文件、保存失败和 hook 错误按原生行为呈现，真实设备对照仍单独验收。
 
 导入的原 cwd 不存在时，确认页明确原路径，再用普通 input 选择当前 owner 已注册项目目录；默认预填当前项目，但仍需用户提交。worker 在受管 session 目录用排他创建生成只改 header.cwd 的副本，完整校验 ID/cwd 后将该路径交给固定 SDK，避免再次复制；副本在映射前已经具有持久 cwd，源 JSONL 字节不变。原 cwd 仍存在时不接受重定位，避免无意改变会话归属；未注册、其他 owner、非目录和无效历史在 SDK 切换前拒绝，负向 intent ACK 使当前 runtime 与草稿继续可用。
 

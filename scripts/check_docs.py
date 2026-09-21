@@ -99,9 +99,9 @@ def check_traceability() -> None:
             == {"S02", "S06", "S08", "S10", "S12"}, "Bash parity stage ownership differs")
     tui_parity = (ROOT / "docs/tui-experience.md").read_text(encoding="utf-8")
     require(re.findall(r"^\| (T\d{2})\b", tui_parity, re.M) == [f"T{i:02d}" for i in range(1, 9)],
-            "Whole TUI comparison matrix differs")
+            "Common mobile workflow comparison matrix differs")
     require({stage for stage, check in plan_edges if check == "AT32"}
-            == {"S02", "S06", "S07", "S10", "S12"}, "Whole TUI parity stage ownership differs")
+            == {"S02", "S06", "S07", "S10", "S12"}, "Common mobile workflow parity stage ownership differs")
 
 
 def check_run_operation(events: list[dict], run_id: str, expected: dict) -> None:
@@ -586,7 +586,7 @@ def main() -> None:
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
     require("MIT License" in license_text and 'THE SOFTWARE IS PROVIDED "AS IS"' in license_text,
             "MIT license missing")
-    print(f"PASS: {count} Markdown files and links; 13 stages; 14 requirements; 32 acceptance cases; 8 Bash + 8 whole TUI comparison cases.")
+    print(f"PASS: {count} Markdown files and links; 13 stages; 14 requirements; 32 acceptance cases; 8 Bash + 8 common mobile workflow comparison cases.")
     print(f"PASS: {events} synthetic events; {tables} SQLite reference tables and integrity constraints; MIT license.")
     print("This command checks documentation/contracts only; application, live provider, Docker and device results are recorded separately.")
 

@@ -1,6 +1,6 @@
 # Live 与原生对照验收入口
 
-这些入口分别记录自动断言和运营者实际采集的对照证据。报告校验能检查覆盖、版本、文件完整性，不能证明人工观察的真实性；必须保留实际操作和采集内容供复核。合成回归只验证 runner，不代表真实模型或 TUI 通过。
+这些入口分别记录自动断言和运营者实际采集的对照证据。报告校验能检查覆盖、版本、文件完整性，不能证明人工观察的真实性；必须保留实际操作和采集内容供复核。合成回归只验证 runner，不代表真实模型或常用移动流程通过。
 
 ## 范围与执行方式
 
@@ -55,7 +55,7 @@ commands/realtime 使用生产 server/worker 和真实 HTTPS/WSS，绑定临时�
 
 控制场景失败时额外保留脱敏结构：输入的 queued/consumed/returned 状态、原生历史中的合成指令标记、工具名称/错误标记及合成副作用顺序。只有固定允许列表中的标签进入报告，原始用户消息、模型回答、任意工具参数和输出均不复制。该结构用于区分输入交付与模型执行差异，不能把模型正常结束直接判定为所要求的工具执行成功。
 
-`--suite commands --scenario compact` 比较直接 SDK `session.compact()` 与生产后端：双方先建立上下文、在真实 Bash 调用中加入 steer / native followUp，再压缩并继续写文件。至少允许 8 次顶层操作（双方各 seed / gate / compact / 后续 prompt），队列继续执行及工具循环可能产生额外 HTTP 请求。测试将专用 agent 配置复制到临时目录，双方使用相同的 `keepRecentTokens=64` / `reserveTokens=2048` 来验证小上下文压缩；不改动运营者原配置或产品默认值。检查原生输入去向、旧 Run 的真实终态、持久 compaction 和摘要保留的标记。自动结果使用 `AUTO-CMD-compact-native-queue`；它不替代交互式 TUI、压缩取消、所有扩展和应用后续队列的完整对照。无待消费输入和空历史失败恢复另由本地真实进程回归覆盖。
+`--suite commands --scenario compact` 比较直接 SDK `session.compact()` 与生产后端：双方先建立上下文、在真实 Bash 调用中加入 steer / native followUp，再压缩并继续写文件。至少允许 8 次顶层操作（双方各 seed / gate / compact / 后续 prompt），队列继续执行及工具循环可能产生额外 HTTP 请求。测试将专用 agent 配置复制到临时目录，双方使用相同的 `keepRecentTokens=64` / `reserveTokens=2048` 来验证小上下文压缩；不改动运营者原配置或产品默认值。检查原生输入去向、旧 Run 的真实终态、持久 compaction 和摘要保留的标记。自动结果使用 `AUTO-CMD-compact-native-queue`；它不替代压缩取消、扩展和应用后续队列的完整范围内对照。无待消费输入和空历史失败恢复另由本地真实进程回归覆盖。
 
 `--suite commands --scenario compact-cancel` 要求至少 8 次顶层操作，双方各执行两轮准备对话 / compact / 后续 prompt。在临时原生 `session_before_compact` 扩展的待答窗口中，分别调用 SDK `abortCompaction()` 和后端定向 abort；检查取消终态、待答关闭、无摘要落盘以及原上下文仍可用于写文件。该场景记为 `AUTO-CMD-compact-cancel-before-summary`，只覆盖摘要生成前的取消，不代表 provider 摘要流中断或交互式 TUI 已验证。
 
@@ -65,7 +65,7 @@ commands/realtime 使用生产 server/worker 和真实 HTTPS/WSS，绑定临时�
 
 `--suite commands --scenario defaults` 至少需要 4 次顶层操作。比较 SDK 与后端的 persist=true：命令完成后默认配置可读，新会话继承默认值，已经加载的其他会话仍按旧配置实际调用模型。后端空会话单独设置不同于默认值的等级，确认历史文件未落盘，再通过测试入口启用真实 idle reaper，检查旧 worker 正常退出、新 worker 加载后保留会话配置并完成文件写入。测试开关仅在隔离入口使用，不新增生产端点或默认回收策略。
 
-该场景记 `AUTO-CMD-persist-empty-recovery`。若配置两个不同模型，还会用临时扩展抛出 model_select 错误，核对原生 setModel 未 reject、实际模型已改变，后端保留完成收据并持久化关联 Operation 的错误提示，记 `AUTO-CMD-model-select-error`。同模型重复选择不触发原生事件，单模型时这一项诚实记 not_run。两项子集均不能代替完整 `CMD-model-thinking` 或交互式 TUI。
+该场景记 `AUTO-CMD-persist-empty-recovery`。若配置两个不同模型，还会用临时扩展抛出 model_select 错误，核对原生 setModel 未 reject、实际模型已改变，后端保留完成收据并持久化关联 Operation 的错误提示，记 `AUTO-CMD-model-select-error`。同模型重复选择不触发原生事件，单模型时这一项诚实记 not_run。两项子集均不能代替完整 `CMD-model-thinking` 或设备入口验收。
 
 ## 无付费模型的真实进程表单回归
 
@@ -81,11 +81,11 @@ Linux 下运行 `node scripts/test-real-process-e2e.mjs --sessions-only`，或�
 
 这些崩溃测试由独立测试入口在真实 manager 方法边界执行 SIGSTOP，再由父测试发送 SIGKILL；只控制时序，不替换 SDK、IPC 消息、持久化或恢复实现。故障开关只存在于 tests，生产接口未增加故障注入能力。未映射文件的恢复路径由夹具记录并显式传入，不代表已有手机端自动发现或找回入口。
 
-这些测试使用本地合成 provider，不代替真实 `CMD-native-session-title` / `CMD-autonomous-multiple-runs`。移动端可操作的恢复流程、旧标题回声延迟与新原生标题竞争、无人为暂停的网络/进程时序及完整真实模型/TUI矩阵仍需各自证据。
+这些测试使用本地合成 provider，不代替真实 `CMD-native-session-title` / `CMD-autonomous-multiple-runs`。移动端可操作的恢复流程、旧标题回声延迟与新原生标题竞争、无人为暂停的网络/进程时序及完整真实模型/常用行为矩阵仍需各自证据。
 
 ## 采集和导入人工对照
 
-在同一 Linux、SDK、模型、资源与配置下，对原生 pi TUI 和待测 target 分别操作。使用 `script` 等终端记录工具或已有测试 harness 保存实际输出；清洗秘密及私有内容，记录可复核的结果。B03 必须实际运行超过 300 秒；B08 的故障必须施加到测试进程。按 [Bash 对照](bash-compatibility.md) 和 [整体 TUI 对照](tui-experience.md) 完成步骤，不能凭截图或退出码猜结果。
+在同一 Linux、SDK、模型、资源与配置下，对原生 pi 和待测 target 分别操作范围内流程。使用 `script` 等终端记录工具或已有测试 harness 保存实际输出；清洗秘密及私有内容，记录可复核的结果。B03 必须实际运行超过 300 秒；B08 的故障必须施加到测试进程。按 [Bash 对照](bash-compatibility.md) 和 [常用移动流程对照](tui-experience.md) 完成步骤，不能凭截图或退出码猜结果；不采集终端像素、共享焦点或完整 TUI 模拟证据。
 
 将清单补充为 schemaVersion 1 的证据 manifest：
 

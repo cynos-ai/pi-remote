@@ -2,7 +2,7 @@
 
 状态：待实现的规范。2026-09-12。已确认目标为统一 Linux 执行环境，默认使用 Docker Compose。本文替代此前以开发电脑原生运行为默认的草案。
 
-接口与事件以 [protocol-v1.md](protocol-v1.md) 为准，存储以 [data-model.md](data-model.md) 为准，开发顺序以 [development-plan.md](development-plan.md) 为准。[整体 TUI 体验原则](tui-experience.md)适用于所有 pi 能力，[Bash 对照](bash-compatibility.md)是其中一部分。
+接口与事件以 [protocol-v1.md](protocol-v1.md) 为准，存储以 [data-model.md](data-model.md) 为准，开发顺序以 [development-plan.md](development-plan.md) 为准。[常用移动流程的原生行为基线](tui-experience.md)适用于 V1 的 pi 能力，[Bash 对照](bash-compatibility.md)是其中一部分。
 
 ## 1. 产品目标与边界
 
@@ -25,11 +25,11 @@
 | FR11 | Linux Docker 部署、状态持久化、权限、停止与备份恢复 |
 | FR12 | Android / iOS 实际设备的完整使用闭环 |
 | FR13 | 原生 Bash 与本地 pi TUI 对齐：命令、开发工具、网络、超时、后台服务及模型可见的工具结果 |
-| FR14 | 整体以 pi TUI 为兼容基线，原生资源、控制、会话和交互默认保留，额外限制须有实际问题或用户配置依据 |
+| FR14 | 常用移动流程以 pi 原生行为为基线，原生资源、控制、会话和标准交互默认保留；终端专属视觉效果不属于 V1 发布范围，额外功能限制须有实际问题或用户配置依据 |
 
 Session 不设固定业务角色。开发、审核、分析等只作为标题；首版不实现基于角色的工作流或权限。项目关联真实代码目录，多个 Session 拥有独立上下文，但共享项目文件。
 
-后续产品扩展包括多机 runner、Matrix、PG / Redis、自动 worktree、agent 编排、系统推送、自助注册、计费及公开多租户沙箱。原生附件、会话树、扩展命令和 UI 按 S02 的能力清单逐项适配；初始页面的实现顺序不构成后端能力白名单，不能因缺少某种终端组件就关闭整个扩展。
+后续产品扩展包括多机 runner、Matrix、PG / Redis、自动 worktree、agent 编排、系统推送、自助注册、计费、公开多租户沙箱和完整终端模拟。原生附件、会话树、扩展命令和常用 UI 按 S02 的能力清单逐项适配；初始页面的实现顺序不构成后端能力白名单，不能因缺少某种终端组件就关闭整个扩展。
 
 项目会话列表提供“找回历史会话”：读取服务管理目录中此项目尚未映射的有效历史，用户选择后确认认领并打开。不会自动恢复 unknown 命令；继续对话时沿用原生上下文。当前手机时间线不回填旧 JSONL 内容，界面明确说明此限制。该入口不替代原生 switch/fork 的通用能力，也不扩大 agent 执行边界；详情见协议中的 recoverable-history / history-imports。
 

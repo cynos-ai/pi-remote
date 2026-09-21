@@ -25,7 +25,7 @@
 
 项目默认使用国内源：Node / pnpm 依赖由根 `.npmrc` 固定到 `https://registry.npmmirror.com`，CI 同时设置 `NPM_CONFIG_REGISTRY`，避免 CI 回退到公共 npm registry。S12 的 Dockerfile、Compose 和 CI 镜像步骤默认使用 `docker.m.daocloud.io` 作为 Docker Hub 镜像前缀；镜像源应通过显式变量保留可运维覆盖能力，凭据不得写入仓库。S12 已在 WSL 2 上实际完成 npm / Docker 国内源检查和镜像构建。
 
-这里的容器是用户的 Linux 开发环境，所有 pi 能力遵循[整体 TUI 体验原则](tui-experience.md)，Bash 另有[逐项对照](bash-compatibility.md)。原生资源、扩展、开发工具和网络按相同配置加载，工具链、网络与权限应按项目配置齐全。
+这里的容器是用户的 Linux 开发环境，V1 常用 pi 能力遵循[移动流程原生行为基线](tui-experience.md)，Bash 另有[逐项对照](bash-compatibility.md)。原生资源、扩展、开发工具和网络按相同配置加载，工具链、网络与权限应按项目配置齐全。
 
 ## 2. 镜像与目录
 

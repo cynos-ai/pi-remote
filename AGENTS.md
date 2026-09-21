@@ -15,7 +15,7 @@
 - V1 的执行目标是统一 Linux 环境，Docker Compose 为默认交付方式。移动端仍包含 Android 和 iOS；iOS 编译与设备验收需要 macOS / 云构建或已有安装包。
 - 保持单主服务、按需 session worker、SQLite、pi JSONL 的边界。默认不增加 PG、Redis、Matrix、云 relay 或独立 runner。
 - pi SDK 固定为 0.85.1；先通过 S02 验证再升级。只有 packages/agent-pi 可以导入 pi SDK 类型，公共协议不可泄漏其内部类型。
-- 整体以同环境本地 pi TUI 为基线，原生工具、资源、扩展、模型、会话和交互默认保留。只有真实复现问题或用户配置才增加局部限制；不能因适配困难而默认关闭或自动取消。
+- 以同环境本地 pi 的常用能力和操作语义为基线，原生工具、资源、扩展、模型、会话和标准交互默认保留。只有真实复现问题或用户配置才增加局部限制；不能因适配困难而默认关闭或自动取消。V1 不要求终端像素排版、跨 custom 实例共享终端焦点、聊天区清屏重绘、完整主题、硬件光标、全屏/滚动区或所有低频 TUI 快捷键。
 - 无 Run 内容用 Operation；Run 的外部 Command 可空且可有多个因果 Run。原生会话替换、标题事件、合法 header-only 历史及异步 hook 均按 native-runtime-contract 接入，不能用原有表约束删掉这些能力。
 - stop 先取回未消费 SDK 输入再 abort，完整草稿不自动重发；compact 单独对照原生队列路径。恢复先检查旧 target_run_id，活动输入型 prompt 不变成新 Run。
 - 服务端先持久化再广播。不同 Session 默认可并行；同 Session 输入按原生 steer / follow-up 处理，控制命令不被长 prompt 或待答表单阻塞。容量、工作区串行和回收仅为按实际需求配置的选项。

@@ -26,8 +26,10 @@ export interface NativeCapability {
 
 /**
  * The S02 inventory is intentionally data, not a feature gate. A
- * needs_adapter item remains an implementation task and is not silently
- * disabled by the server.
+ * needs_adapter item remains an implementation task for the common mobile
+ * workflows and is not silently disabled by the server. Terminal-only visual
+ * fidelity is outside the V1 product scope and is not reported as unfinished
+ * mobile work.
  */
 export const NATIVE_CAPABILITIES: readonly NativeCapability[] = [
   {
@@ -145,16 +147,16 @@ export const NATIVE_CAPABILITIES: readonly NativeCapability[] = [
     evidence: "contract_smoke",
     sdkEntryPoints: ["registerMessageRenderer", "registerEntryRenderer", "ExtensionUIContext.setWidget", "setFooter", "setHeader"],
     adapterPlan: "S07 renders native components to bounded 80-column text; S10 persists and labels the mobile projection.",
-    notes: "Message fallback and entry failure semantics follow SDK 0.85.1; terminal pixels, colors, and device parity remain separate evidence."
+    notes: "Message fallback and entry failure semantics follow SDK 0.85.1; device readability remains separate evidence, while terminal pixels and colors are outside V1."
   },
   {
-    id: "tui.terminal-components",
+    id: "ui.mobile-touch-projections",
     area: "ui",
-    status: "needs_adapter",
-    evidence: "sdk_api",
-    sdkEntryPoints: ["ExtensionUIContext.custom", "setEditorComponent", "setWidget"],
-    adapterPlan: "S02 records component ownership; S07/S10 implement touch equivalents where semantics are observable.",
-    notes: "Terminal pixel layout and keyboard shortcuts are not copied into the mobile protocol."
+    status: "available",
+    evidence: "contract_smoke",
+    sdkEntryPoints: ["ExtensionUIContext.custom", "setEditorComponent", "setWidget", "setHeader", "setFooter"],
+    adapterPlan: "S07/S10 expose observable interaction semantics through text projections, touch controls, forms, and direct mobile actions.",
+    notes: "V1 does not emulate terminal pixel layout, shared terminal focus, hardware cursors, themes, scroll regions, or every TUI-only shortcut."
   }
 ] as const;
 

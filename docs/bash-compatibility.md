@@ -1,6 +1,6 @@
 # Bash 与本地 pi TUI 的兼容要求
 
-状态：V1 必须实现的产品约束。Bash 是[整体 TUI 体验原则](tui-experience.md)的一个具体对照项，原生能力优先适用于工具、资源、会话、控制和交互全部方面。本约束适用于 [架构](v1-design.md)、[协议](protocol-v1.md)、[进程恢复](deployment.md)及[开发计划](development-plan.md)；早期限制普通 Bash 或后台服务的表述已撤回。
+状态：V1 必须实现的产品约束。Bash 是[常用移动流程原生行为基线](tui-experience.md)的一个具体对照项，原生能力优先适用于工具、资源、会话、控制和交互全部方面。本约束适用于 [架构](v1-design.md)、[协议](protocol-v1.md)、[进程恢复](deployment.md)及[开发计划](development-plan.md)；早期限制普通 Bash 或后台服务的表述已撤回。
 
 ## 1. 兼容基线
 

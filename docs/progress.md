@@ -64,18 +64,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | 阶段 | 状态 | 证据 |
 | --- | --- | --- |
 | S01 | passed | Linux 冻结安装、lint、typecheck、单测、构建、Android / iOS JS bundle、healthz |
-| S02 | blocked | SDK contract、DeepSeek 真实工具与单模型 thinking 通过；第二个不同模型、异常/长任务和原生 TUI / 完整 parity 待验收 |
+| S02 | blocked | SDK contract、DeepSeek 真实工具与单模型 thinking 通过；第二个不同模型、异常/长任务和范围内原生行为基线待验收 |
 | S03 | passed | 公共 DTO/schema、正常/异常/无 Run/native fixture reducer 与序号边界测试 |
 | S04 | passed | SQLite 迁移、事件事务、live projection、快照和历史分页 |
 | S05 | passed | 鉴权、项目和会话 API |
-| S06 | blocked | worker、调度与恢复合同测试通过；原生 TUI / live provider 对照未运行 |
-| S07 | blocked | 合同及 DeepSeek 基础命令、stop/steer/follow-up、compact 队列、生成前及受控摘要流取消子集通过；完整 compact/交互及原生 TUI 对照待验收 |
+| S06 | blocked | worker、调度与恢复合同测试通过；范围内 live provider 生命周期对照尚未完整运行 |
+| S07 | blocked | 合同及 DeepSeek 基础命令、stop/steer/follow-up、compact 队列、生成前及受控摘要流取消子集通过；完整 compact/交互矩阵待验收 |
 | S08 | blocked | 合同及 DeepSeek 真实流/工具、断线继续与持久事件回放子集通过；完整实时矩阵及原生对照待验收 |
 | S09 | blocked | 移动端配对、资源列表、归档、历史与本地缓存实现；真实 Android / iOS 设备未运行 |
 | S10 | blocked | 移动端实时、时间线、命令与表单已实现；真实 Android / iOS 流程未运行 |
 | S11 | blocked | 双设备/弱网合同与实际 server/worker 进程故障集成通过；真实 Android / iOS 设备未运行 |
-| S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
-| S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
+| S12 | blocked | Docker 部署生命周期子集已有通过证据；当前源码的干净 Compose、升级、备份恢复及范围内 Bash/行为复验待完成 |
+| S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；范围内模型矩阵、部署复验和 Android / iOS 实机仍未完成 |
 
 ## 2026-09-21 退出登录与原生凭据状态
 
@@ -670,3 +670,13 @@ next: <下一阶段>
 - `pnpm verify:S10`：17 passed / 2 not_run；Android / iOS JavaScript 构建、移动合同、lint、typecheck 和 docs 通过。Android 设备 / 模拟器与 Xcode / iOS Simulator 不可用，两个设备项保持 not_run。
 
 本节点提交信息为 `feat: project custom renderers to mobile`，完成后推送 `cynos-ai/pi-remote` 的 `main`。仍未运行真实 provider、交互式原生 TUI、Android / iOS 真机及完整 Docker 组合验收。
+
+## 2026-09-22 V1 常用移动流程范围收口
+
+用户明确 V1 不复刻完整 TUI，以手机常用功能可直接完成为目标。FR14 / AT32 / T01–T08 现按原生工具与 Bash、输入和队列、模型/思考/压缩、Session 管理、图片、标准扩展交互、常用 slash 命令及断线恢复验收。终端像素排版、跨 custom 实例共享终端焦点、聊天区域清屏/重绘、完整主题、硬件光标、全屏/滚动区和所有低频 TUI 快捷键列为非目标，不再阻塞 S13。
+
+能力清单删除过宽的 `tui.terminal-components: needs_adapter`，改为已完成的 `ui.mobile-touch-projections: available / contract_smoke`。其含义限于有界文本投影、触控操作、标准表单及直接手机入口，不宣称完整终端模拟。S02 校验改为要求十项常用流程能力全部存在且没有范围内 `needs_adapter`；手机不再因终端专属视觉效果显示全局未完成警告。完整终端非目标不能用于关闭扩展、工具或标准交互。
+
+本节点只调整范围、能力元数据、验收和验证入口，不修改协议事件、状态机或 SQLite schema。Windows、Node 24.19.0、pnpm 10.28.0 的验证结果：文档检查通过（23 个 Markdown、13 阶段、14 FR、32 AT、8 项 Bash + 8 项常用移动流程、135 个合成事件、12 张表）；全仓 typecheck 与 lint 通过；`pnpm verify:S02` 为 10 passed / 3 failed，其中新能力清单通过，失败仍是 live-sdk、parity-bash-sdk、parity-tui-sdk 报告源码身份过期，未改成 skip 或成功。
+
+额外 Windows 全量单测为 265/279 通过。14 项失败集中在目录 `fsync` 的 EPERM、创建符号链接权限、Windows 绝对路径 staging 及其派生的 artifact/backlog 流程；这些测试以 Linux 为交付环境，本节点没有放宽断言或据此覆盖此前 WSL 40 文件 / 279 项通过的证据。真实 provider 剩余流程、当前源码 Docker/升级/恢复复验及 Android/iOS 真机仍未完成。
