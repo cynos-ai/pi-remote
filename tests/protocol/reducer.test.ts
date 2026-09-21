@@ -66,6 +66,31 @@ describe("S03 protocol schemas", () => {
     })).toThrow();
   });
 
+  it("accepts image-picker interactions and bounded attachment responses", () => {
+    expect(commandRequestSchema.parse({
+      kind: "respond",
+      payload: {
+        interactionId: "image-form",
+        operationId: "image-operation",
+        response: { attachments: [{ artifactId: "image-artifact", mimeType: "image/png" }] }
+      }
+    })).toMatchObject({ kind: "respond", payload: { response: { attachments: [{ mimeType: "image/png" }] } } });
+    expect(parseProtocolEvent({
+      schemaVersion: 1,
+      sessionId: "session-image",
+      seq: 1,
+      runId: null,
+      operationId: "image-operation",
+      type: "interaction.requested",
+      timestamp: "2026-09-21T00:00:00.000Z",
+      payload: { interactionId: "image-form", operationId: "image-operation", origin: "extension", kind: "image", title: "粘贴图片" }
+    }).payload).toMatchObject({ kind: "image" });
+    expect(() => commandRequestSchema.parse({
+      kind: "respond",
+      payload: { interactionId: "image-form", operationId: "image-operation", response: { attachments: [] } }
+    })).toThrow();
+  });
+
   it("replays the normal stream with cumulative tool snapshots", async () => {
     const data = await fixture("stream.json");
     const events = expandEvents(data, data.events ?? [], { sessionId: data.sessionId });

@@ -346,6 +346,9 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
     if ("attachments" in body.payload && body.payload.attachments) {
       context.realtime.validateAttachments(actor, sessionId, body.payload.attachments);
     }
+    if (body.kind === "respond" && "attachments" in body.payload.response) {
+      context.realtime.validateAttachments(actor, sessionId, body.payload.response.attachments);
+    }
     const result = await context.commands.submit(
       actor,
       sessionId,

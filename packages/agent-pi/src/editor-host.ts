@@ -13,6 +13,7 @@ type Bridge = Parameters<typeof runCustomUi>[1] & {
   autocompleteMaxVisible?: number;
   shortcuts?(keys: KeybindingsManager): (data: string) => boolean;
   actions?: ReadonlyMap<string, () => void | Promise<void>>;
+  pasteImage?: () => void | Promise<void>;
 };
 
 /** Keep editor state and callbacks in the worker; use one-shot controls for input. */
@@ -115,6 +116,12 @@ export class EditorHost {
           this.refresh = () => tui.requestRender();
           const custom = editor as EditorComponent & {
             actionHandlers?: Map<unknown, unknown>; onExtensionShortcut?: (data: string) => boolean;
+            onPasteImage?: () => void;
+          };
+          custom.onPasteImage = () => {
+            if (this.component !== editor || controller.signal.aborted) return;
+            try { void Promise.resolve(bridge.pasteImage?.()).catch(bridge.failure); }
+            catch (error) { bridge.failure(error); }
           };
           if (custom.actionHandlers instanceof Map) {
             if (!custom.onExtensionShortcut) custom.onExtensionShortcut = bridge.shortcuts?.(keys);

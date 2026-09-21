@@ -31,7 +31,7 @@
 
 统一输入区支持普通输入及 SDK 处理的扩展 slash 命令；运行中输入提供 steer / follow-up，扩展命令保留原生即时处理路径。按钮和命令面板是入口，不构成后端命令白名单。模型、等级、压缩及会话操作使用对应 SDK API，而非将命令文本误发给模型。
 
-标准 select / confirm / input / editor 对话框在所有生命周期阶段可回答、取消和重连恢复。notify、状态 / 文本 widget、编辑器内容等先适配为手机组件。初始化尚未 ready 也必须能处理 respond；UI 等待不持有其他控制命令需要的锁。扩展的任意终端渲染函数不能当作 JSON 直接发送，S02 记录实际 API，S07 / S10 做对应适配，不假称完整渲染已实现。
+标准 select / confirm / input / editor 对话框在所有生命周期阶段可回答、取消和重连恢复；image 表单用于选择并上传当前设备的真实图片 artifact。notify、状态 / 文本 widget、编辑器内容等先适配为手机组件。初始化尚未 ready 也必须能处理 respond；UI 等待不持有其他控制命令需要的锁。扩展的任意终端渲染函数不能当作 JSON 直接发送，S02 记录实际 API，S07 / S10 做对应适配，不假称完整渲染已实现。
 
 输入附件、用户 Bash（`!` / `!!`）、会话树 / fork / 导出 / 导入、扩展命令和自定义工具都进入 S02 能力清单，沿用 SDK 已有能力逐项接入；初稿中的“文本输入”“任意 TUI 留待后续”等不再作为后端永久拒绝规则。涉及新 DTO 时，在实现该适配前同步协议、schema、示例及测试，不用未定义的任意方法反射调用作为捷径。
 
@@ -76,13 +76,13 @@ ctx.ui.onTerminalInput 已接入当前 Session 的 custom/editor 虚拟终端，
 
 普通提交经 SDK prompt，运行中使用 steer；扩展 slash 保留即时处理；`!` / `!!` 使用原生用户 Bash hook 和执行器，不误发为模型文本。后续用户提交不归因于早先安装编辑器的扩展命令：独立 Operation、原生因果 Run，外部 Command 可空。提交异常保留文本为草稿，不自动重发、不覆盖用户较新的草稿。取消编辑器控件/恢复默认/会话替换会关闭旧按键并保留草稿；停止编辑器不停止已开始的模型任务。worker 重启不恢复内存回调。
 
-编辑器内置命令以[命令与快捷键状态表](editor-command-status.md)为当前清单。已接入入口使用独立操作；尚未接入的流程逐项说明缺口并保留文本，不能当普通 prompt 发给模型。follow-up/dequeue 已覆盖压缩/生成使用同一 SDK 队列路径，但真实原生 TUI 对照、图片剪贴板、进程挂起及真机键盘手感仍待验收，现有手机附件及模型/会话/压缩入口继续独立使用。本适配不宣称完整交互式 TUI 已通过。
+编辑器内置命令以[命令与快捷键状态表](editor-command-status.md)为当前清单。已接入入口使用独立操作；尚未接入的流程逐项说明缺口并保留文本，不能当普通 prompt 发给模型。follow-up/dequeue 已覆盖压缩/生成使用同一 SDK 队列路径；图片粘贴复用手机 artifact 上传并进入 SDK 图片输入；挂起在共享服务架构中保持任务运行。真实原生 TUI 对照、系统剪贴板语义及真机键盘/图片选择仍待验收。本适配不宣称完整交互式 TUI 已通过。
 
 应用输入监听按注册顺序安装到原生 TUI，支持 consume、data 改写、晚注册和取消订阅；组件自身的 tui.addInputListener 保持原生相对顺序。会话替换清理旧应用监听，仍待答的源 custom 组件保留自己的局部监听和按键能力；新 Session 不继承旧监听。worker 退出释放全部订阅。扩展 registerShortcut 使用原生 getShortcuts 的冲突处理及 matchesKey，绑定到具有 actionHandlers 的 CustomEditor；保留扩展自定义 onExtensionShortcut。快捷键回调使用 SDK createContext，异步不阻塞输入，错误归属原编辑器 Session，不能把快捷键注册套到所有普通 custom 组件。
 
 控制表单新增“组合键”输入，支持 ctrl/alt/shift 与字符、方向/导航键及 F1–F12，例如 ctrl+k、ctrl+alt+j、shift+enter。无效键名提示后回到控件，不关闭组件或向模型发送文本。固定 SDK 0.85.1 的 matchesKey 对带修饰键的 F1–F12 恒返回 false；适配仍传递标准终端字节供原始监听/组件处理，但不声称它们能通过原生扩展快捷键匹配。
 
-CustomEditor 默认应用动作沿用用户 keybindings 配置。Esc 先取消补全，再按当前阶段停止模型/Bash 或取消压缩/重试；模型停止时未消费文本恢复到编辑器且不自动重发。空白草稿在原生前置操作均未触发时，两次 Esc 间隔小于 500ms 按 doubleEscapeAction 打开树（默认）、分叉或不操作；成功触发后清空双击计时，单次停止不作为空闲双击计数。自定义 onEscape 和扩展快捷键仍优先。Ctrl+C 清草稿；Ctrl+O 切换工具展开。follow-up 在活动时排到原生 follow-up 队列、空闲时等同普通提交；dequeue 一次取回 steering/follow-up 并置于现有草稿前，不自动发送。外部编辑动作打开手机完整 editor 表单，思考显示动作同步 SDK 设置与手机投影。空草稿 Ctrl+D、500ms 内双 Ctrl+C 与 `/quit` 关闭远程编辑器及子菜单，后端任务继续运行；非空 Ctrl+D 保持向前删除。挂起/恢复和图片剪贴板仍明确待适配；真机按键仍需验收，不能把当前子集当成完整应用热键已通过。
+CustomEditor 默认应用动作沿用用户 keybindings 配置。Esc 先取消补全，再按当前阶段停止模型/Bash 或取消压缩/重试；模型停止时未消费文本恢复到编辑器且不自动重发。空白草稿在原生前置操作均未触发时，两次 Esc 间隔小于 500ms 按 doubleEscapeAction 打开树（默认）、分叉或不操作；成功触发后清空双击计时，单次停止不作为空闲双击计数。自定义 onEscape 和扩展快捷键仍优先。Ctrl+C 清草稿；Ctrl+O 切换工具展开。follow-up 在活动时排到原生 follow-up 队列、空闲时等同普通提交；dequeue 一次取回 steering/follow-up 并置于现有草稿前，不自动发送。外部编辑动作打开手机完整 editor 表单，思考显示动作同步 SDK 设置与手机投影。空草稿 Ctrl+D、500ms 内双 Ctrl+C 与 `/quit` 关闭远程编辑器及子菜单，后端任务继续运行；非空 Ctrl+D 保持向前删除。挂起键显示服务持续运行通知；图片粘贴键打开手机 image 表单并附到下一条模型输入。真机按键、图片选择权限与系统剪贴板差异仍需验收，不能把当前子集当成完整应用热键已通过。
 
 模型循环现已接入原生 app.model.cycleForward/cycleBackward（Linux 默认 Ctrl+P / Ctrl+Shift+P），思考等级循环接入 app.thinking.cycle（默认 Shift+Tab）；用户 keybindings 和显式历史键优先级保留。支持运行中切换，配置同步到手机并由 SDK 写入当前会话历史，不改全局默认值，也不重启当前模型请求。只有一个可用模型或当前模型不支持思考等级时提示原因。配置 hook 的表单独立于编辑器控制表单和模型 Run，可正常作答/取消；思考块显示切换已接入，原生终端聊天重绘仍待对照。
 

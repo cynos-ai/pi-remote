@@ -2,13 +2,21 @@
 
 最后更新：2026-09-21。
 
+### 2026-09-21 图片附件与远程挂起语义（本次提交）
+
+- 基线 `b102906`；接通 `app.clipboard.pasteImage` 的真实图片路径。CustomEditor 的专用 onPasteImage 回调打开新增 image interaction，手机复用 Expo 图片选择和 artifact 上传后一次性回答。服务端验证 owner、精确 Session 和已存 MIME，仅在私有 IPC 中传递受控 artifact 文件路径；worker 校验 PNG/JPEG/GIF/WebP 文件签名并构造固定 SDK `ImageContent`，公共事件和持久命令只保存 artifact 引用，不保存路径或图片字节。
+- 普通 prompt、steer、follow-up 与编辑器提交统一把图片送入 SDK。编辑器图片随下一条模型输入发送，成功后才清除；取消选择、旧编辑器回调或提交失败保留现有草稿/图片。stop/dequeue 继续保留持久输入的完整附件引用，私有图片文件身份随已知队列项恢复。`app.suspend` 正式定义为远程任务继续运行并显示通知，不向共享 server/worker 进程组发送 `SIGTSTP`。
+- 协议增加 image interaction 与 `{attachments:[...]}` response，无 SQL migration。聚焦协议、编辑器、真实 SDK worker 和 API 回归 43/43，服务端构建、lint、全仓 typecheck 和文档检查通过；真实 SDK 用临时 PNG 字节验证模型上下文获得 base64 ImageContent，并覆盖伪造 MIME/文件签名拒绝。测试使用临时目录和本地确定性模型，不读取模型凭据或调用付费 provider。
+- 最终 `pnpm verify:S07`：14 passed / 2 failed；构建、命令合同、真实表单/会话进程、lint、全仓 typecheck 和文档均通过，失败仍为已有 live-commands / parity-tui-commands 报告源码身份过期。最终 `pnpm verify:S10`：17 passed / 2 not_run；移动合同、Android/iOS JS、lint、typecheck 和文档通过，Android/iOS 设备缺失。本节点未用合成结果替代报告身份或设备验收。
+- 尚未运行 Android/iOS 真机的图片选择权限、后台恢复与物理快捷键，也未做原生 TUI/系统剪贴板对照或真实 provider 图片识别。image action 的远程语义是“在当前设备选择图片”，不声称读取手机或服务器系统剪贴板。
+
 ### 2026-09-21 编辑器队列、完整编辑与思考显示动作（本次提交）
 
 - 基线 `5da1606`；接入 `app.message.followUp`、`app.message.dequeue`、`app.editor.external`、`app.thinking.toggle`。follow-up 在 streaming/compacting 时进入固定 SDK 原生 follow-up 队列，空闲时复用普通提交；dequeue 原子取回 steering 后接 follow-up 并置于当前草稿前，不自动重发。完整编辑使用现有持久 editor 表单回填，不在服务器启动 `$EDITOR`。思考显示先保存 SDK hideThinkingBlock，再用可重放的 `setThinkingVisible` 通知同步手机。无公共 Session DTO、核心事件或 SQL migration。
 - 保持混合队列的持久输入边界：编辑器自产项没有外部 Command 身份；clearQueue 仍恢复全部文本，但只有完整返回队列与已有持久输入槽位精确一致时才标 returned，无法证明时标记 unknown，不按文本去重或猜 inputId。替代提交统一保存历史、清空草稿，失败时只恢复未被后续编辑覆盖的文本。
 - WSL 2 Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。分组定向 SDK/手机回归 32/32，最终 worker 相关 23/23 重跑，并通过服务端构建与移动端 typecheck。隔离 Linux 临时目录中的真实 server/worker 1/1，通过空闲 follow-up、活动队列、编辑器自产与持久 steering 混合 dequeue、SDK 设置落盘、手机显示通知及完整 editor 表单回填；本地确定性 provider，不是付费/真实 provider。
 - 最终 `pnpm verify:S07`：14 passed / 2 failed（`test-results/editor-actions-s07-final.log`、`s07/report.json`）；构建、命令合同、完整真实表单/会话进程、lint、全仓 typecheck、文档均通过。失败仍是 live-commands / parity-tui-commands 报告源码身份过期，未用合成结果替代。最终 `pnpm verify:S10`：17 passed / 2 not_run（`test-results/editor-actions-s10-final.log`、`s10/report.json`）；手机合同、Android/iOS JS、lint、typecheck、文档通过，Android/iOS 设备缺失使阶段保持 blocked。
-- 仍未接入 `app.clipboard.pasteImage` 与 `app.suspend`。前者需要设备剪贴板图片字节而现有手机附件入口已独立可用；后者原生会向进程组发 SIGTSTP，不适用于共享 server/worker 生命周期。真实 provider、原生交互 TUI、Android/iOS 设备快捷键与显示仍未运行。
+- 后续节点已接入 `app.clipboard.pasteImage` 并正式定义 `app.suspend` 的远程持续运行语义；本节点当时的缺口记录保留为历史。真实 provider、原生交互 TUI、Android/iOS 设备快捷键与显示仍未运行。
 
 ### 2026-09-21 导入缺失 cwd 的持久重定位（本次提交）
 

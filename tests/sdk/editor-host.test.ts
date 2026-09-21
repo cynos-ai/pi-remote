@@ -64,7 +64,9 @@ describe("native extension editor host", () => {
     const h = setup(), e = editor();
     const calls: string[] = [];
     const onEscape = () => { calls.push("override"); };
-    const component = { ...e.component, actionHandlers: new Map<string, () => void>([["app.clear", () => { calls.push("old"); }]]), onEscape };
+    const component = { ...e.component, actionHandlers: new Map<string, () => void>([["app.clear", () => { calls.push("old"); }]]), onEscape,
+      onPasteImage: undefined as (() => void) | undefined };
+    h.bridge.pasteImage = () => { calls.push("paste-image"); };
     h.bridge.actions = new Map([
       ["app.clear", () => { calls.push("clear"); }],
       ["app.interrupt", () => { calls.push("stop"); }],
@@ -72,19 +74,21 @@ describe("native extension editor host", () => {
     ]);
     const result = h.host.run(() => component, h.bridge); await tick();
     expect(component.onEscape).toBe(onEscape);
-    component.onEscape(); component.actionHandlers.get("app.clear")!();
+    component.onEscape(); component.actionHandlers.get("app.clear")!(); component.onPasteImage!();
     component.actionHandlers.get("app.tools.expand")!(); await tick();
-    expect(calls).toEqual(["override", "clear"]);
+    expect(calls).toEqual(["override", "clear", "paste-image"]);
     expect(h.failures).toHaveLength(1);
     expect(h.host.getFactory()).toBeDefined();
     const staleClear = component.actionHandlers.get("app.clear")!;
+    const stalePaste = component.onPasteImage!;
     h.host.stop(); await result;
+    stalePaste();
     component.actionHandlers.get("app.clear")!();
     component.actionHandlers.get("app.interrupt")!();
-    expect(calls).toEqual(["override", "clear"]);
+    expect(calls).toEqual(["override", "clear", "paste-image"]);
     const reinstalled = h.host.run(() => component, h.bridge); await tick();
     staleClear(); component.actionHandlers.get("app.clear")!();
-    expect(calls).toEqual(["override", "clear", "clear"]);
+    expect(calls).toEqual(["override", "clear", "paste-image", "clear"]);
     h.host.stop(); await reinstalled;
   });
   it("installs shortcuts only on native CustomEditor-shaped components and preserves overrides", async () => {

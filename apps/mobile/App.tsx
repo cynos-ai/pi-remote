@@ -866,6 +866,7 @@ function interactionKindLabel(kind: InteractionProjection["kind"]): string {
     case "confirm": return "确认";
     case "input": return "输入";
     case "editor": return "编辑";
+    case "image": return "图片";
   }
 }
 
@@ -964,13 +965,15 @@ function InteractionCard({
   authPrompt,
   customLines,
   busy,
-  onRespond
+  onRespond,
+  onPickImages
 }: {
   interaction: InteractionProjection;
   authPrompt?: AuthDisplay["prompt"];
   customLines?: string[];
   busy: boolean;
   onRespond: (interaction: InteractionProjection, response: InteractionResponse) => Promise<void>;
+  onPickImages: (interaction: InteractionProjection) => Promise<void>;
 }) {
   const [value, setValue] = useState(interaction.prefill ?? "");
   const expired = interaction.expiresAt !== undefined && Date.parse(interaction.expiresAt) <= Date.now();
@@ -1035,6 +1038,12 @@ function InteractionCard({
             <ActionButton disabled={disabled} kind="secondary" onPress={() => answer({ cancelled: true })} title="取消" />
           </View>
         </>
+      ) : null}
+      {interaction.kind === "image" ? (
+        <View style={styles.buttonRow}>
+          <ActionButton disabled={disabled} onPress={() => void onPickImages(interaction)} title="选择并上传图片" />
+          <ActionButton disabled={disabled} kind="secondary" onPress={() => answer({ cancelled: true })} title="取消" />
+        </View>
       ) : null}
       {interaction.kind === "select" || authPrompt?.options ? <ActionButton disabled={disabled} kind="quiet" onPress={() => answer({ cancelled: true })} title="取消这次请求" /> : null}
     </View>
@@ -1424,6 +1433,26 @@ function ExecutionScreen({
     setRespondingId(null);
   };
 
+  const pickInteractionImages = async (interaction: InteractionProjection) => {
+    setActionBusy(true);
+    setError(null);
+    try {
+      const result = await ExpoFile.pickFileAsync({ multipleFiles: true, mimeTypes: ["image/*"] });
+      if (result.canceled) return;
+      const files = Array.isArray(result.result) ? result.result : [result.result];
+      const uploaded: Attachment[] = [];
+      for (const file of files) {
+        const artifact = await api.uploadArtifact(session.id, { body: file, mimeType: file.type || "application/octet-stream" });
+        uploaded.push({ artifactId: artifact.id, mimeType: artifact.mimeType });
+      }
+      if (uploaded.length) await respondToInteraction(interaction, { attachments: uploaded });
+    } catch (caught) {
+      setError(`图片选择或上传失败：${errorText(caught)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const setModel = async (model: ModelRef) => {
     if (!state) return;
     const ok = await submitCommand({ kind: "set_model", payload: { expectedVersion: state.session.version, model, persist: persistModel } });
@@ -1654,6 +1683,7 @@ function ExecutionScreen({
           interaction={interaction}
           key={interaction.interactionId}
           onRespond={respondToInteraction}
+          onPickImages={pickInteractionImages}
         />
       ))}
       <ExtensionWidgets ui={extensionUi} placement="aboveEditor" />

@@ -308,7 +308,7 @@ export const inputUpdatedPayloadSchema = z
 
 export const interactionOriginSchema = operationKindSchema;
 export type InteractionOrigin = z.infer<typeof interactionOriginSchema>;
-export const interactionKindSchema = z.enum(["select", "confirm", "input", "editor"]);
+export const interactionKindSchema = z.enum(["select", "confirm", "input", "editor", "image"]);
 export type InteractionKind = z.infer<typeof interactionKindSchema>;
 export const interactionOptionSchema = z
   .object({
@@ -330,7 +330,9 @@ export const interactionRequestedPayloadSchema = z
     sensitive: z.literal(true).optional(),
     expiresAt: timestampSchema.optional()
   })
-  .strict().refine(value => !value.sensitive || (value.kind === "input" && value.prefill === undefined), "Sensitive input cannot have prefill");
+  .strict()
+  .refine(value => !value.sensitive || (value.kind === "input" && value.prefill === undefined), "Sensitive input cannot have prefill")
+  .refine(value => value.kind !== "image" || (value.options === undefined && value.prefill === undefined && value.placeholder === undefined), "Image interactions cannot contain text input fields");
 
 export const interactionResolutionStatusSchema = z.enum(["resolved", "cancelled", "expired"]);
 export type InteractionResolutionStatus = z.infer<typeof interactionResolutionStatusSchema>;

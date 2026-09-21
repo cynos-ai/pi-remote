@@ -112,11 +112,15 @@ export const interactionCancelResponseSchema = z.object({ cancelled: z.literal(t
 export const interactionSelectResponseSchema = z.object({ value: z.string().min(1).max(32768) }).strict();
 export const interactionConfirmResponseSchema = z.object({ confirmed: z.boolean() }).strict();
 export const interactionValueResponseSchema = z.object({ value: z.string().max(32768) }).strict();
+export const interactionAttachmentsResponseSchema = z
+  .object({ attachments: z.array(attachmentSchema).min(1).max(32) })
+  .strict();
 export const interactionResponseSchema = z.union([
   interactionCancelResponseSchema,
   interactionSelectResponseSchema,
   interactionConfirmResponseSchema,
-  interactionValueResponseSchema
+  interactionValueResponseSchema,
+  interactionAttachmentsResponseSchema
 ]);
 export type InteractionResponse = z.infer<typeof interactionResponseSchema>;
 

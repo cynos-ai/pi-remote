@@ -1,0 +1,32 @@
+{
+  "description": "合成图片选择交互；artifact ID 和哈希均为示例，不包含真实图片、路径或凭据。",
+  "requested": {
+    "interactionId": "73333333-3333-4333-8333-333333333333",
+    "operationId": "72222222-2222-4222-8222-222222222222",
+    "origin": "extension",
+    "kind": "image",
+    "title": "粘贴图片",
+    "message": "从当前设备选择图片并上传"
+  },
+  "response": {
+    "attachments": [
+      {
+        "artifactId": "74444444-4444-4444-8444-444444444444",
+        "mimeType": "image/png"
+      }
+    ]
+  },
+  "resolved": {
+    "interactionId": "73333333-3333-4333-8333-333333333333",
+    "status": "resolved",
+    "response": {
+      "attachments": [
+        {
+          "artifactId": "74444444-4444-4444-8444-444444444444",
+          "mimeType": "image/png"
+        }
+      ]
+    }
+  },
+  "privateDispatch": "server-validated file path is carried only over IPC and is intentionally absent"
+}

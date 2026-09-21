@@ -55,6 +55,18 @@ function requiredObject(value: unknown, field: string): RecordValue {
   }
 }
 
+function imageFiles(value: unknown): Array<{ artifactId: string; mimeType: string; filePath: string }> {
+  if (!Array.isArray(value) || value.length > 32) throw new IpcProtocolError("IPC imageFiles must be an array", "INVALID_IPC_PAYLOAD");
+  return value.map((item, index) => {
+    const record = requiredObject(item, `imageFiles[${index}]`);
+    return {
+      artifactId: requiredString(record.artifactId, `imageFiles[${index}].artifactId`),
+      mimeType: requiredString(record.mimeType, `imageFiles[${index}].mimeType`),
+      filePath: payloadText(record.filePath, `imageFiles[${index}].filePath`, 4096)
+    };
+  });
+}
+
 function positiveInteger(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 1) {
     throw new IpcProtocolError(`IPC ${field} must be a positive integer`, "INVALID_IPC_PAYLOAD");
@@ -142,7 +154,8 @@ function parseInboundPayload(type: string, value: unknown): unknown {
             : (() => { throw new IpcProtocolError("IPC streamingBehavior is invalid", "INVALID_IPC_PAYLOAD"); })()
         }),
         ...(payload.inputId === undefined ? {} : { inputId: requiredString(payload.inputId, "inputId") }),
-        ...(payload.content === undefined ? {} : { content: inputContentSchema.parse(payload.content) })
+        ...(payload.content === undefined ? {} : { content: inputContentSchema.parse(payload.content) }),
+        ...(payload.imageFiles === undefined ? {} : { imageFiles: imageFiles(payload.imageFiles) })
       };
     }
     case "steer":
@@ -154,7 +167,8 @@ function parseInboundPayload(type: string, value: unknown): unknown {
         inputId: requiredString(payload.inputId, "inputId"),
         content: inputContentSchema.parse(payload.content ?? { text: payload.text }),
         text: inputText(payload.text, "text"),
-        ...(payload.streamingBehavior === undefined ? {} : { streamingBehavior: payload.streamingBehavior })
+        ...(payload.streamingBehavior === undefined ? {} : { streamingBehavior: payload.streamingBehavior }),
+        ...(payload.imageFiles === undefined ? {} : { imageFiles: imageFiles(payload.imageFiles) })
       };
     case "abort":
       return {
@@ -169,7 +183,8 @@ function parseInboundPayload(type: string, value: unknown): unknown {
         ...(payload.commandId === undefined ? {} : { commandId: requiredString(payload.commandId, "commandId") }),
         operationId: requiredString(payload.operationId, "operationId"),
         interactionId: requiredString(payload.interactionId, "interactionId"),
-        response: requiredObject(payload.response, "response")
+        response: requiredObject(payload.response, "response"),
+        ...(payload.imageFiles === undefined ? {} : { imageFiles: imageFiles(payload.imageFiles) })
       };
     case "set_model":
       return {

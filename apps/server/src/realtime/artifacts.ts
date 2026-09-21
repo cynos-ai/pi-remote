@@ -198,6 +198,13 @@ export class ArtifactStore {
     return artifact?.record.sessionId === sessionId ? artifact : null;
   }
 
+  /** Resolve an already-authorized attachment at the internal dispatch boundary. */
+  getForSessionInternal(sessionId: string, artifactId: string): ArtifactDownload | null {
+    const record = this.repository.get(artifactId);
+    if (!record || record.sessionId !== sessionId) return null;
+    return { record, metadata: artifactMetadata(record), filePath: this.resolvePath(record) };
+  }
+
   private resolvePath(record: ArtifactRecord): string {
     const candidate = resolve(this.rootDir, validateArtifactRelativePath(record.relativePath));
     if (!isWithin(this.rootDir, candidate)) {

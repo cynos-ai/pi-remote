@@ -6,6 +6,7 @@ import {
   type CommandKind,
   type CommandReceipt,
   type CommandRequest,
+  type Attachment,
   type InputContent,
   type ProtocolEvent,
   type QueueProjection,
@@ -29,6 +30,7 @@ import {
 type ActiveRun = ReducerState["runs"][string];
 
 const TERMINAL_COMMAND_STATES = new Set(["completed", "failed", "cancelled", "unknown"]);
+const SUPPORTED_INPUT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 // A queued follow-up is a durable tail item, not the Session's current
 // generation. Treating it as active would incorrectly steer new prompts and
 // would prevent pump() from ever dispatching the queue head.
@@ -227,15 +229,23 @@ export class CommandService {
   private readonly compactStopTimeoutMs: number;
   private readonly maxQueuedCommands: number | undefined;
   private readonly secretFingerprintKey: string;
+  private readonly resolveAttachmentFiles?: (sessionId: string, attachments: readonly Attachment[]) => Array<{ artifactId: string; mimeType: string; filePath: string }>;
 
   constructor(
     private readonly database: DatabaseSync,
     private readonly manager: WorkerManager,
-    options: { now?: () => number; compactStopTimeoutMs?: number; maxQueuedCommands?: number; secretFingerprintKey?: string } = {}
+    options: {
+      now?: () => number;
+      compactStopTimeoutMs?: number;
+      maxQueuedCommands?: number;
+      secretFingerprintKey?: string;
+      resolveAttachmentFiles?: (sessionId: string, attachments: readonly Attachment[]) => Array<{ artifactId: string; mimeType: string; filePath: string }>;
+    } = {}
   ) {
     this.commands = new CommandRepository(database);
     this.interactions = new InteractionRepository(database);
     this.secretFingerprintKey = options.secretFingerprintKey ?? randomBytes(32).toString("hex");
+    this.resolveAttachmentFiles = options.resolveAttachmentFiles;
     this.now = options.now ?? (() => Date.now());
     this.compactStopTimeoutMs = options.compactStopTimeoutMs ?? 30_000;
     if (options.maxQueuedCommands !== undefined && (!Number.isSafeInteger(options.maxQueuedCommands) || options.maxQueuedCommands < 0)) {
@@ -259,6 +269,16 @@ export class CommandService {
     idempotencyKey: string
   ): Promise<CommandMutationResult> {
     const request = commandRequestSchema.parse(requestBody);
+    const requestAttachments = request.kind === "prompt" || request.kind === "follow_up" || request.kind === "steer"
+      ? request.payload.attachments
+      : request.kind === "respond" && "attachments" in request.payload.response
+        ? request.payload.response.attachments
+        : undefined;
+    for (const attachment of requestAttachments ?? []) {
+      if (!SUPPORTED_INPUT_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+        throw new CommandServiceError("INVALID_REQUEST", "attachment MIME type is not supported for model image input");
+      }
+    }
     const scope = `POST:/v1/sessions/${sessionId}/commands`;
     const envelope = this.storageEnvelope(sessionId, request);
     const existing = this.replay(actor.userId, scope, idempotencyKey, envelope);
@@ -784,17 +804,33 @@ export class CommandService {
   }
 
   private async dispatch(action: DispatchAction): Promise<void> {
-    await this.manager.dispatch(action);
+    const attachments = action.content?.attachments;
+    const imageFiles = attachments?.length ? this.resolveImages(action.sessionId, attachments) : undefined;
+    await this.manager.dispatch({ ...action, ...(imageFiles?.length ? { imageFiles } : {}) });
+  }
+
+  private resolveImages(sessionId: string, attachments: readonly Attachment[]): Array<{ artifactId: string; mimeType: string; filePath: string }> {
+    if (!this.resolveAttachmentFiles) throw new CommandServiceError("STORAGE_UNAVAILABLE", "attachment resolver is unavailable");
+    for (const attachment of attachments) {
+      if (!SUPPORTED_INPUT_IMAGE_MIME_TYPES.has(attachment.mimeType)) throw new CommandServiceError("INVALID_REQUEST", "attachment MIME type is not supported for model image input");
+    }
+    return this.resolveAttachmentFiles(sessionId, attachments);
   }
 
   private async sendControl(action: ControlAction): Promise<void> {
     const control = action.control;
     switch (control.kind) {
       case "steer":
-        await this.manager.sendControl(action.sessionId, "steer", control.payload);
+        await this.manager.sendControl(action.sessionId, "steer", {
+          ...control.payload,
+          ...(control.payload.content.attachments?.length ? { imageFiles: this.resolveImages(action.sessionId, control.payload.content.attachments) } : {})
+        });
         return;
       case "follow_up":
-        await this.manager.sendControl(action.sessionId, "follow_up", control.payload);
+        await this.manager.sendControl(action.sessionId, "follow_up", {
+          ...control.payload,
+          ...(control.payload.content.attachments?.length ? { imageFiles: this.resolveImages(action.sessionId, control.payload.content.attachments) } : {})
+        });
         return;
       case "abort":
         await this.manager.sendControl(action.sessionId, "abort", control.payload);
@@ -803,7 +839,15 @@ export class CommandService {
         await this.manager.sendControl(action.sessionId, "abort_bash", control.payload);
         return;
       case "respond":
-        await this.manager.sendControl(action.sessionId, "respond", control.payload, { waitForReady: false });
+        {
+          const responseAttachments = Array.isArray(control.payload.response.attachments)
+            ? control.payload.response.attachments as Attachment[]
+            : undefined;
+          await this.manager.sendControl(action.sessionId, "respond", {
+            ...control.payload,
+            ...(responseAttachments?.length ? { imageFiles: this.resolveImages(action.sessionId, responseAttachments) } : {})
+          }, { waitForReady: false });
+        }
         return;
       case "set_model":
         await this.manager.sendControl(action.sessionId, "set_model", control.payload);

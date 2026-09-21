@@ -65,7 +65,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   });
   const commands = new CommandService(database, workerManager, {
     secretFingerprintKey: loadSecretFingerprintKey(env.PI_REMOTE_PI_DIR),
-    maxQueuedCommands: env.PI_REMOTE_MAX_QUEUED_COMMANDS
+    maxQueuedCommands: env.PI_REMOTE_MAX_QUEUED_COMMANDS,
+    resolveAttachmentFiles: (sessionId, attachments) => realtime.resolveAttachmentFiles(sessionId, attachments)
   });
   const app = fastify({
     logger: options.logger ?? false,

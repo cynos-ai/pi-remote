@@ -13,7 +13,7 @@
 | `model.selection` | available | sdk_api | S07 暴露实际模型与 thinking 配置及 hook 错误 |
 | `model.compaction` | available | sdk_api | S07 单独实现原生 stop-before-compact 时序 |
 | `input.steer-follow-up` | available | sdk_api | S07 保存完整输入并恢复 returned / unknown 草稿 |
-| `input.attachments` | available | sdk_api + contract | S03 / S07 使用 artifact-backed attachment DTO；S10 已接通 Expo 图片选择、上传与当前 Session 绑定 |
+| `input.attachments` | available | sdk_api + contract | S03 / S07 使用 artifact-backed attachment DTO；S10 已接通 Expo 图片选择、上传、当前 Session 绑定及 SDK ImageContent 转换 |
 | `extension.commands` | available | sdk_api | S07 / S10 保留 streaming 中的原生命令路径 |
 | `extension.interactions` | available | sdk_api | S07 / S10 以 operationId 桥接标准表单 |
 | `resources.native-discovery` | available | sdk_api | S06 / S12 保留原生 loader、trust 与显式部署路径 |

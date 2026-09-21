@@ -94,6 +94,7 @@ export interface DispatchRequest {
   streamingBehavior?: "steer" | "followUp";
   inputId?: string;
   content?: WorkerExecutePayload["content"];
+  imageFiles?: Array<{ artifactId: string; mimeType: string; filePath: string }>;
 }
 
 export interface DispatchResult {
@@ -1091,7 +1092,8 @@ export class WorkerManager {
       ...(request.excludeFromContext !== undefined ? { excludeFromContext: request.excludeFromContext } : {}),
       ...(request.streamingBehavior ? { streamingBehavior: request.streamingBehavior } : {}),
       ...(request.inputId ? { inputId: request.inputId } : {}),
-      ...(request.content ? { content: request.content } : {})
+      ...(request.content ? { content: request.content } : {}),
+      ...(request.imageFiles ? { imageFiles: request.imageFiles } : {})
     };
   }
 

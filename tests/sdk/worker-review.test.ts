@@ -136,9 +136,10 @@ type SdkMessage = Parameters<PiAgentSessionHandle["sessionManager"]["appendMessa
 type AssistantMessage = Extract<SdkMessage, { role: "assistant" }>;
 type StreamFunction = NonNullable<PiAgentSessionHandle["session"]["agent"]["streamFunction"]>;
 interface StreamPlan { error?: string; toolCommand?: string; thinking?: string[]; text?: string[]; gate?: ReturnType<typeof deferred> }
-function deterministicStream(handle: PiAgentSessionHandle, plans: StreamPlan[]) {
+function deterministicStream(handle: PiAgentSessionHandle, plans: StreamPlan[], onContext?: (context: unknown) => void) {
   let calls = 0;
   handle.session.agent.streamFunction = (model, _context, options) => {
+    onContext?.(_context);
     const plan = plans[calls++];
     if (!plan) throw new Error(`unexpected model call ${calls}; deterministic plans exhausted`);
     const partial: AssistantMessage = {
@@ -263,6 +264,34 @@ describe("real SDK worker review regressions", () => {
     expect(await h.completed("prompt-command")).toMatchObject({ payload: { status: "completed" } });
     expect(h.events().find((event) => event.type === "tool.finished")).toMatchObject({ payload: { isError: true } });
     expectClosed(h.state());
+  });
+
+  it("R03 converts verified artifact files into SDK image content", async () => {
+    const h = await harness();
+    const imagePath = join(h.root, "attachment.png");
+    const bytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from("synthetic-png-payload")]);
+    await writeFile(imagePath, bytes);
+    let context: unknown;
+    deterministicStream(h.handle, [{ text: ["image accepted"] }], (value) => { context = value; });
+    await h.execute({
+      ...prompt(),
+      content: { text: "Synthetic worker regression", attachments: [{ artifactId: "artifact-image", mimeType: "image/png" }] },
+      imageFiles: [{ artifactId: "artifact-image", mimeType: "image/png", filePath: imagePath }]
+    });
+    expect(await h.completed("prompt-command")).toMatchObject({ payload: { status: "completed" } });
+    expect(JSON.stringify(context)).toContain(bytes.toString("base64"));
+  });
+
+  it("R03 rejects a file whose bytes do not match the declared image MIME", async () => {
+    const h = await harness();
+    const imagePath = join(h.root, "forged.png");
+    await writeFile(imagePath, "not an image");
+    await h.execute({
+      ...prompt(),
+      content: { text: "Synthetic worker regression", attachments: [{ artifactId: "forged-image", mimeType: "image/png" }] },
+      imageFiles: [{ artifactId: "forged-image", mimeType: "image/png", filePath: imagePath }]
+    });
+    expect(await h.completed("prompt-command")).toMatchObject({ payload: { status: "failed", error: { message: expect.stringContaining("MIME") } } });
   });
 
   it("R03 stop returns duplicate-text steer/follow-up drafts intact despite synchronous SDK queue_update", async () => {

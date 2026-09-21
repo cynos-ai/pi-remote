@@ -100,7 +100,7 @@ export const NATIVE_CAPABILITIES: readonly NativeCapability[] = [
     evidence: "sdk_api",
     sdkEntryPoints: ["PromptOptions.images", "ImageContent"],
     adapterPlan: "S03/S07 add artifact-backed attachment DTOs and preserve content through stop/recovery.",
-    notes: "The SDK accepts image content; mobile artifact transport is still pending."
+    notes: "The SDK receives verified PNG/JPEG/GIF/WebP ImageContent resolved from Session-bound artifacts; device validation remains pending."
   },
   {
     id: "extension.commands",

@@ -509,6 +509,18 @@ describe("S05 device, project, and Session API", () => {
     expect(download.statusCode).toBe(200);
     expect(download.body).toBe("binary-attachment");
 
+    const forgedMime = await fixture.app.inject({
+      method: "POST",
+      url: `/v1/sessions/${firstSession.id}/commands`,
+      headers: {
+        ...authHeader(fixture.deviceToken),
+        ...idempotencyHeader("9bb485a4-e69c-4e51-95e0-f42eadcda897")
+      },
+      payload: { kind: "prompt", payload: { text: "use it", attachments: [{ artifactId: artifact.id, mimeType: "image/jpeg" }] } }
+    });
+    expect(forgedMime.statusCode).toBe(400);
+    expect(json(forgedMime).error).toMatchObject({ code: "INVALID_REQUEST" });
+
     const wrongSession = await fixture.app.inject({
       method: "POST",
       url: `/v1/sessions/${secondSession.id}/commands`,

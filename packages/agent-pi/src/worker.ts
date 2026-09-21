@@ -32,6 +32,7 @@ import {
   parseProtocolEvent,
   jsonObjectSchema,
   type InputContent,
+  type Attachment,
   type ContentBlock,
   type JsonObject,
   type ModelRef,
@@ -56,6 +57,7 @@ import type {
   ExtensionUIDialogOptions,
   UserBashEventResult
 } from "@earendil-works/pi-coding-agent";
+import type { ImageContent } from "@earendil-works/pi-ai";
 
 const nativeSlashCommands = await import(new URL("./core/slash-commands.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href) as {
   BUILTIN_SLASH_COMMANDS: Array<{ name: string }>;
@@ -121,6 +123,13 @@ export interface WorkerExecutePayload {
   streamingBehavior?: "steer" | "followUp";
   content?: InputContent;
   inputId?: string;
+  imageFiles?: WorkerImageFile[];
+}
+
+export interface WorkerImageFile {
+  artifactId: string;
+  mimeType: string;
+  filePath: string;
 }
 
 export interface WorkerInputPayload {
@@ -131,6 +140,7 @@ export interface WorkerInputPayload {
   content: InputContent;
   text: string;
   streamingBehavior?: "steer" | "followUp";
+  imageFiles?: WorkerImageFile[];
 }
 
 export interface WorkerModelPayload {
@@ -153,6 +163,7 @@ export interface WorkerRespondPayload {
   operationId: string;
   interactionId: string;
   response: Record<string, unknown>;
+  imageFiles?: WorkerImageFile[];
 }
 
 export interface WorkerExtensionErrorPayload {
@@ -256,6 +267,7 @@ interface TrackedInput {
   delivery: "steer" | "followUp";
   content: InputContent;
   text: string;
+  imageFiles?: WorkerImageFile[];
 }
 
 interface PendingInteraction {
@@ -264,12 +276,36 @@ interface PendingInteraction {
   operationId: string;
   runId: string | null;
   operationKind: OperationKind;
-  kind: "select" | "confirm" | "input" | "editor";
+  kind: "select" | "confirm" | "input" | "editor" | "image";
   options?: string[];
   resolve: (value: Record<string, unknown> | undefined) => void;
   settled: boolean;
   timer?: ReturnType<typeof setTimeout>;
   removeAbortListener?: () => void;
+}
+
+interface EditorImageEntry {
+  id: string;
+  attachment: Attachment;
+  file: WorkerImageFile;
+}
+
+function imageMime(bytes: Buffer): string | undefined {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 6 && (bytes.subarray(0, 6).toString("ascii") === "GIF87a" || bytes.subarray(0, 6).toString("ascii") === "GIF89a")) return "image/gif";
+  if (bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return undefined;
+}
+
+function loadImages(files: readonly WorkerImageFile[] | undefined): ImageContent[] | undefined {
+  if (!files?.length) return undefined;
+  return files.map((file) => {
+    const bytes = readFileSync(file.filePath);
+    const detected = imageMime(bytes);
+    if (!detected || detected !== file.mimeType) throw new Error(`图片附件格式与 MIME 不匹配：${file.artifactId}`);
+    return { type: "image", mimeType: detected, data: bytes.toString("base64") };
+  });
 }
 
 interface OperationContext {
@@ -401,6 +437,8 @@ export class PiWorker {
   private renaming = false;
   private editorText = "";
   private readonly editorHost = new EditorHost();
+  private readonly editorImages = new Map<string, EditorImageEntry[]>();
+  private readonly queuedEditorImages: Array<{ owner: string; text: string; delivery: "steer" | "followUp"; entries: EditorImageEntry[] }> = [];
   private readonly terminalInputs = new Map<string, TerminalInputHub>();
   private toolsExpanded = false;
   private readonly widgetHost = new WidgetHost();
@@ -832,7 +870,8 @@ export class PiWorker {
               commandId: payload.commandId,
               delivery: payload.commandKind === "follow_up" ? "followUp" : "steer",
               content: structuredClone(payload.content),
-              text: payload.text
+              text: payload.text,
+              ...(payload.imageFiles ? { imageFiles: structuredClone(payload.imageFiles) } : {})
             };
             this.emitInputUpdated(input, "queued");
             // A direct prompt is handed to the SDK immediately. It is not part
@@ -841,6 +880,7 @@ export class PiWorker {
           }
           await this.handle!.session.prompt(payload.text, {
             source: "rpc",
+            ...(payload.imageFiles?.length ? { images: loadImages(payload.imageFiles) } : {}),
             ...(payload.streamingBehavior ? { streamingBehavior: payload.streamingBehavior } : {})
           });
         } else if (payload.kind === "extension_command") {
@@ -1009,7 +1049,8 @@ export class PiWorker {
       commandId: payload.commandId ?? null,
       delivery,
       content: structuredClone(content),
-      text: payload.text
+      text: payload.text,
+      ...(payload.imageFiles ? { imageFiles: structuredClone(payload.imageFiles) } : {})
     };
   }
 
@@ -1051,6 +1092,17 @@ export class PiWorker {
     }
   }
 
+  private reconcileEditorQueuedImages(delivery: "steer" | "followUp", current: readonly string[]): void {
+    const remaining = [...current];
+    for (let index = this.queuedEditorImages.length - 1; index >= 0; index -= 1) {
+      const queued = this.queuedEditorImages[index]!;
+      if (queued.delivery !== delivery) continue;
+      const match = remaining.lastIndexOf(queued.text);
+      if (match >= 0) remaining.splice(match, 1);
+      else this.queuedEditorImages.splice(index, 1);
+    }
+  }
+
   private clearSdkQueue(): { steering: string[]; followUp: string[] } | undefined {
     if (!this.handle) return;
     let cleared: { steering: string[]; followUp: string[] };
@@ -1073,10 +1125,37 @@ export class PiWorker {
   }
 
   private restoreEditorQueue(): number {
+    const trackedSteering = [...this.pendingInputs.steering];
+    const trackedFollowUp = [...this.pendingInputs.followUp];
     const cleared = this.clearSdkQueue();
     if (!cleared) return 0;
     const queued = [...cleared.steering, ...cleared.followUp];
     if (queued.length) this.editorHost.setText([queued.join("\n\n"), this.editorHost.getText()].filter(text => text.trim()).join("\n\n"));
+    const entries = this.editorImages.get(this.currentSessionId) ?? [];
+    const exact = (tracked: readonly TrackedInput[], returned: readonly string[]) =>
+      tracked.length === returned.length && returned.every((text, index) => tracked[index]?.text === text);
+    const returnedInputs = [
+      ...(exact(trackedSteering, cleared.steering) ? trackedSteering : []),
+      ...(exact(trackedFollowUp, cleared.followUp) ? trackedFollowUp : [])
+    ];
+    for (const input of returnedInputs) {
+      for (const file of input.imageFiles ?? []) {
+        const attachment = input.content.attachments?.find(item => item.artifactId === file.artifactId && item.mimeType === file.mimeType);
+        if (attachment) entries.push({ id: randomUUID(), attachment: structuredClone(attachment), file: structuredClone(file) });
+      }
+    }
+    for (const [delivery, returned] of [["steer", cleared.steering], ["followUp", cleared.followUp]] as const) {
+      const nativeReturned = [...returned];
+      for (let index = this.queuedEditorImages.length - 1; index >= 0; index -= 1) {
+        const item = this.queuedEditorImages[index]!;
+        const match = item.owner === this.currentSessionId && item.delivery === delivery ? nativeReturned.lastIndexOf(item.text) : -1;
+        if (match < 0) continue;
+        nativeReturned.splice(match, 1);
+        entries.push(...item.entries);
+        this.queuedEditorImages.splice(index, 1);
+      }
+    }
+    if (entries.length) this.editorImages.set(this.currentSessionId, entries);
     return queued.length;
   }
 
@@ -1277,7 +1356,8 @@ export class PiWorker {
     interactionId: string,
     response: Record<string, unknown> | undefined,
     status: "resolved" | "cancelled" | "expired",
-    reason?: string
+    reason?: string,
+    resolvedResponse = response
   ): boolean {
     const pending = this.pendingInteractions.get(interactionId);
     if (!pending || pending.settled) return false;
@@ -1309,7 +1389,7 @@ export class PiWorker {
     } catch (error) {
       this.fatal("INTERACTION_BRIDGE_FAILED", errorMessage(error));
     }
-    pending.resolve(response);
+    pending.resolve(resolvedResponse);
     if (this.uiContextStorage.getStore()?.operationId !== pending.operationId && this.standaloneOperations.has(pending.operationId)) queueMicrotask(() => {
       if ([...this.pendingInteractions.values()].some((item) => item.operationId === pending.operationId)) return;
       this.standaloneOperations.delete(pending.operationId);
@@ -1360,15 +1440,24 @@ export class PiWorker {
       return;
     }
     const response = payload.response;
+    const responseAttachments = Array.isArray(response.attachments) ? response.attachments : undefined;
     if (response.cancelled === true) {
       this.finishInteraction(payload.interactionId, undefined, "cancelled", "user_cancelled");
     } else if (
       (pending.kind === "select" && typeof response.value === "string" && response.value.length > 0 &&
         (pending.options === undefined || pending.options.includes(response.value))) ||
       (pending.kind === "confirm" && typeof response.confirmed === "boolean") ||
-      ((pending.kind === "input" || pending.kind === "editor") && typeof response.value === "string")
+      ((pending.kind === "input" || pending.kind === "editor") && typeof response.value === "string") ||
+      (pending.kind === "image" && responseAttachments !== undefined && responseAttachments.length > 0 &&
+        payload.imageFiles?.length === responseAttachments.length && payload.imageFiles.every((file, index) => {
+          const attachment = responseAttachments[index];
+          return attachment !== null && typeof attachment === "object" &&
+            (attachment as Record<string, unknown>).artifactId === file.artifactId &&
+            (attachment as Record<string, unknown>).mimeType === file.mimeType;
+        }))
     ) {
-      this.finishInteraction(payload.interactionId, response, "resolved");
+      this.finishInteraction(payload.interactionId, response, "resolved", undefined,
+        pending.kind === "image" ? { ...response, imageFiles: payload.imageFiles } : response);
     } else {
       this.rejectCommand(payload.commandId, "INTERACTION_INVALID_RESPONSE", "response does not match the interaction kind");
       return;
@@ -1953,6 +2042,7 @@ export class PiWorker {
     let scopedModelsMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
     let externalEditor: Promise<void> | undefined;
+    let imagePicker: Promise<void> | undefined;
     const commandMenus = new Map<string, Promise<void>>();
     const openCommand = (text: string) => {
       const name = text.split(/\s/, 1)[0]!;
@@ -1991,6 +2081,49 @@ export class PiWorker {
       })().finally(() => { externalEditor = undefined; });
       return externalEditor;
     };
+    const pasteImage = () => {
+      if (!imagePicker) imagePicker = (async () => {
+        const result = await this.requestInteraction("image", "粘贴图片", {
+          message: "从当前设备选择图片并上传；图片会附加到下一条模型输入，取消不会修改草稿。"
+        }, { signal: controller.signal });
+        if (owner !== this.currentSessionId || controller.signal.aborted || !Array.isArray(result?.attachments) || !Array.isArray(result.imageFiles)) return;
+        const attachments = result.attachments as Attachment[];
+        const files = result.imageFiles as WorkerImageFile[];
+        if (attachments.length !== files.length) throw new Error("图片附件响应不完整");
+        const entries = this.editorImages.get(owner) ?? [];
+        for (let index = 0; index < attachments.length; index += 1) {
+          const attachment = attachments[index]!;
+          const file = files[index]!;
+          entries.push({ id: randomUUID(), attachment, file });
+        }
+        this.editorImages.set(owner, entries);
+        this.createUiContext().notify(`已附加 ${attachments.length} 张图片，将随下一条模型输入发送`, "info");
+      })().finally(() => { imagePicker = undefined; });
+      return imagePicker;
+    };
+    const submitModel = async (text: string, streamingBehavior: "steer" | "followUp") => {
+      const entries = [...(this.editorImages.get(owner) ?? [])];
+      const queued = entries.length > 0 && (this.handle!.session.isStreaming || this.handle!.session.isCompacting)
+        ? { owner, text, delivery: streamingBehavior, entries } as const
+        : undefined;
+      if (queued) this.queuedEditorImages.push(queued);
+      try {
+        await this.handle!.session.prompt(text, {
+          source: "interactive",
+          streamingBehavior,
+          ...(entries.length ? { images: loadImages(entries.map(entry => entry.file)) } : {})
+        });
+      } catch (error) {
+        if (queued) {
+          const index = this.queuedEditorImages.indexOf(queued);
+          if (index >= 0) this.queuedEditorImages.splice(index, 1);
+        }
+        throw error;
+      }
+      const current = this.editorImages.get(owner) ?? [];
+      const submitted = new Set(entries.map(entry => entry.id));
+      this.editorImages.set(owner, current.filter(entry => !submitted.has(entry.id)));
+    };
     const failure = (error: unknown) => this.send("extension_error", {
       sessionId: owner, operationId: context.operationId, extensionPath: "editor", event: "input", error: bounded(errorMessage(error), 2000)
     });
@@ -1999,6 +2132,7 @@ export class PiWorker {
         await this.editorHost.run(factory, {
           agentDir: this.agentDir, signal: controller.signal,
           terminalInput: this.terminalInput(owner), inputError: failure,
+          pasteImage,
           actions: new Map<string, () => void | Promise<void>>([
             ["app.session.new", () => this.sessionFromEditor(owner, "new", controller.signal)],
             ["app.session.resume", () => openSessionMenu("resume")],
@@ -2011,11 +2145,11 @@ export class PiWorker {
             ["app.clear", () => {
               const now = Date.now();
               if (lastClear !== undefined && now - lastClear < 500) { closeEditor(); return; }
-              this.editorHost.setText(""); lastClear = now;
+              this.editorHost.setText(""); this.editorImages.delete(owner); lastClear = now;
             }],
             ["app.exit", closeEditor],
             ["app.message.copy", () => openCommand("/copy")],
-            ["app.suspend", () => { throw new Error("远程编辑器挂起/恢复尚待适配；手机可退到后台，服务继续运行，不向 worker 发送 SIGTSTP"); }],
+            ["app.suspend", () => this.createUiContext().notify("远程会话持续在服务端运行；手机可直接退到后台，服务不会暂停共享 worker 进程组", "info")],
             ["app.editor.external", () => openExternalEditor()],
             ["app.message.followUp", async () => {
               const session = this.handle!.session;
@@ -2026,7 +2160,7 @@ export class PiWorker {
                 this.causalCommands.delete(submission.operationId);
                 await this.uiContextStorage.run(submission, async () => {
                   try {
-                    await session.prompt(text, { source: "interactive", streamingBehavior: "followUp" });
+                    await submitModel(text, "followUp");
                     this.emitOperationStatus("completed", submission);
                   } catch (error) { this.emitOperationStatus("failed", submission); throw error; }
                 });
@@ -2133,7 +2267,7 @@ export class PiWorker {
                 if (text.startsWith("!")) {
                   const excluded = text.startsWith("!!");
                   await this.executeUserBash(text.slice(excluded ? 2 : 1), excluded, randomUUID());
-                } else await this.handle!.session.prompt(text, { source: "interactive", streamingBehavior: "steer" });
+                } else await submitModel(text, "steer");
                 this.emitOperationStatus("completed", submission);
               } catch (error) { this.emitOperationStatus("failed", submission); throw error; }
             });
@@ -2304,7 +2438,7 @@ export class PiWorker {
     this.pendingInputs.steering.push(input);
     try {
       const context: OperationContext = { operationId: input.operationId, runId: input.runId, kind: "run" };
-      await this.uiContextStorage.run(context, () => this.handle!.session.steer(payload.text));
+      await this.uiContextStorage.run(context, () => this.handle!.session.steer(payload.text, loadImages(payload.imageFiles)));
       this.acceptControl(payload.commandId);
     } catch (error) {
       this.removeTrackedInput(input);
@@ -2323,7 +2457,7 @@ export class PiWorker {
     this.pendingInputs.followUp.push(input);
     try {
       const context: OperationContext = { operationId: input.operationId, runId: input.runId, kind: "run" };
-      await this.uiContextStorage.run(context, () => this.handle!.session.followUp(payload.text));
+      await this.uiContextStorage.run(context, () => this.handle!.session.followUp(payload.text, loadImages(payload.imageFiles)));
       this.acceptControl(payload.commandId);
     } catch (error) {
       this.removeTrackedInput(input);
@@ -2584,6 +2718,8 @@ export class PiWorker {
         case "queue_update":
           this.reconcileSdkQueue("steer", event.steering);
           this.reconcileSdkQueue("followUp", event.followUp);
+          this.reconcileEditorQueuedImages("steer", event.steering);
+          this.reconcileEditorQueuedImages("followUp", event.followUp);
           break;
         case "compaction_start":
           {

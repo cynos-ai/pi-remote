@@ -22,6 +22,7 @@ import { WsTicketStore, type IssuedWsTicket } from "./tickets.js";
 export const WS_SUBPROTOCOL = "pi-remote.v1";
 export const DEFAULT_WS_MAX_FRAME_BYTES = 1024 * 1024;
 export const DEFAULT_WS_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+const SUPPORTED_INPUT_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export interface RealtimeHubOptions {
   artifactRoot: string;
@@ -40,7 +41,7 @@ export interface RealtimeHubOptions {
 
 export class RealtimeError extends Error {
   constructor(
-    public readonly code: "NOT_FOUND" | "ARTIFACT_UNAVAILABLE",
+    public readonly code: "NOT_FOUND" | "INVALID_REQUEST" | "ARTIFACT_UNAVAILABLE",
     message: string
   ) {
     super(message);
@@ -268,10 +269,27 @@ export class RealtimeHub {
 
   validateAttachments(actor: AuthContext, sessionId: string, attachments: readonly Attachment[]): void {
     for (const attachment of attachments) {
-      if (!this.getSessionAttachment(actor, sessionId, attachment.artifactId)) {
+      if (!SUPPORTED_INPUT_IMAGE_MIME_TYPES.has(attachment.mimeType)) {
+        throw new RealtimeError("INVALID_REQUEST", "attachment MIME type is not supported for model image input");
+      }
+      const stored = this.getSessionAttachment(actor, sessionId, attachment.artifactId);
+      if (!stored) {
         throw new RealtimeError("NOT_FOUND", "attachment was not found");
       }
+      if (stored.metadata.mimeType !== attachment.mimeType) {
+        throw new RealtimeError("INVALID_REQUEST", "attachment MIME type does not match the uploaded artifact");
+      }
     }
+  }
+
+  resolveAttachmentFiles(sessionId: string, attachments: readonly Attachment[]): Array<{ artifactId: string; mimeType: string; filePath: string }> {
+    return attachments.map((attachment) => {
+      const stored = this.artifacts.getForSessionInternal(sessionId, attachment.artifactId);
+      if (!stored || stored.metadata.mimeType !== attachment.mimeType) {
+        throw new RealtimeError("NOT_FOUND", "attachment was not found at dispatch time");
+      }
+      return { artifactId: attachment.artifactId, mimeType: attachment.mimeType, filePath: stored.filePath };
+    });
   }
 
   async archiveText(input: {

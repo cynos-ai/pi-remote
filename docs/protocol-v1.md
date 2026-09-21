@@ -190,7 +190,7 @@ ToolCallBlock {id, index, kind:"tool_call", toolCallId, toolName, arguments:obje
 | tool.started | `{toolCallId,messageId?,toolName,args}`，建立工具卡片；模型工具带所属消息，独立扩展内容按 Operation 归属 |
 | tool.updated | `{toolCallId,output:{text,truncated,artifactId?}}`，累计输出快照替换，不能追加 |
 | tool.finished | `{toolCallId,output,isError,exitCode?,durationMs?,patch?}`，校准最终工具项 |
-| interaction.requested | `{interactionId,operationId,origin,kind,title,options?,message?,placeholder?,prefill?,expiresAt?}`，保存待答表单；origin 同操作 kind |
+| interaction.requested | `{interactionId,operationId,origin,kind,title,options?,message?,placeholder?,prefill?,expiresAt?}`，保存待答表单；origin 同操作 kind；kind 可为 select / confirm / input / editor / image |
 | interaction.resolved | `{interactionId,status,response?,reason?}`，结束表单；status 为 resolved / cancelled / expired |
 | queue.updated | `{state,version,pause,items:[{commandId,runId,kind,position}]}`，替换队列及暂停状态；pause 形状同 queuePause |
 | session.updated | `{changes}`，更新标题、version、有效配置或归档等已验证字段 |
@@ -249,7 +249,7 @@ tool.finished 表示该次 SDK 工具调用已返回，可能包含已成功启�
 
 ## 6. 交互响应
 
-select 的 response 为 `{value:string}` 且属于 options；confirm 为 `{confirmed:boolean}`；input / editor 为 `{value:string}`。所有类型都接受 `{cancelled:true}`，不同时带其他响应字段。服务端限制输入长度并由适配器转换为 SDK 对应默认取消值。
+select 的 response 为 `{value:string}` 且属于 options；confirm 为 `{confirmed:boolean}`；input / editor 为 `{value:string}`；image 为 `{attachments:[{artifactId,mimeType}]}`，至少一项且最多 32 项。所有类型都接受 `{cancelled:true}`，不同时带其他响应字段。image 不带 options、prefill 或 placeholder；服务端验证 artifact 的 owner、Session 和已存 MIME，再只通过私有 IPC 传递已校验文件路径，公共事件不暴露服务器路径。服务端限制输入长度并由适配器转换为 SDK 对应默认取消值。见[图片交互示例](examples/image-interaction.json)。
 
 未设置 expiresAt 时可等待用户，abort / worker 退出仍能关闭请求。超时使用服务器时间；关闭后响应返回 INTERACTION_CLOSED，先前同幂等键的答复可重放原收据。UI 表单不因为 WSS 断开自行提交默认答案。
 
