@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
+  Linking,
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
@@ -16,6 +17,7 @@ import {
 import { File as ExpoFile } from "expo-file-system";
 import type {
   Attachment,
+  AuthDisplay,
   CommandRequest,
   InteractionProjection,
   ModelInfo,
@@ -74,6 +76,7 @@ import { createSecureCredentialsStore } from "./src/storage/secure-store";
 import { EditorSync } from "./src/editor-sync";
 import { PendingCommands, type PendingCommand } from "./src/pending-commands";
 import { submitSecretResponse } from "./src/secret-response";
+import { AuthDisplayClient } from "./src/auth-display-client";
 import { applyExtensionNotice, emptyExtensionUi, type ExtensionUiState, type ExtensionNotice } from "./src/extension-ui";
 
 type Screen = "projects" | "sessions" | "history";
@@ -956,11 +959,13 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
 
 function InteractionCard({
   interaction,
+  authPrompt,
   customLines,
   busy,
   onRespond
 }: {
   interaction: InteractionProjection;
+  authPrompt?: AuthDisplay["prompt"];
   customLines?: string[];
   busy: boolean;
   onRespond: (interaction: InteractionProjection, response: InteractionResponse) => Promise<void>;
@@ -978,13 +983,15 @@ function InteractionCard({
   return (
     <View style={styles.interactionCard}>
       <View style={styles.timelineHeadingRow}>
-        <Text style={styles.cardTitle}>{interaction.title}</Text>
+        <Text style={styles.cardTitle}>{authPrompt?.options ? "登录选项" : interaction.title}</Text>
         <Text style={expired ? styles.warningText : styles.liveBadge}>{expired ? "已到期" : "待回答"}</Text>
       </View>
       <Text style={styles.toolMeta}>
         {interactionOriginLabel(interaction.origin)} · {interactionKindLabel(interaction.kind)} · Operation {interaction.operationId}
       </Text>
       {interaction.message ? <Text style={styles.timelineText}>{interaction.message}</Text> : null}
+      {authPrompt ? <Text style={styles.timelineText}>{authPrompt.message}</Text> : null}
+      {authPrompt?.options?.map((option, index) => <ActionButton key={index} disabled={disabled} kind="secondary" title={option.label} onPress={() => answer({ value: option.id })} />)}
       {customLines ? <Text selectable style={styles.codeText}>{customLines.join("\n")}</Text> : null}
       {interaction.kind === "select" ? (
         <View style={styles.optionList}>
@@ -1005,7 +1012,7 @@ function InteractionCard({
           <ActionButton disabled={disabled} kind="secondary" onPress={() => answer({ confirmed: false })} title="取消" />
         </View>
       ) : null}
-      {interaction.kind === "input" || interaction.kind === "editor" ? (
+      {(interaction.kind === "input" && !authPrompt?.options) || interaction.kind === "editor" ? (
         <>
           <TextInput
             editable={!disabled}
@@ -1027,7 +1034,7 @@ function InteractionCard({
           </View>
         </>
       ) : null}
-      {interaction.kind === "select" ? <ActionButton disabled={disabled} kind="quiet" onPress={() => answer({ cancelled: true })} title="取消这次请求" /> : null}
+      {interaction.kind === "select" || authPrompt?.options ? <ActionButton disabled={disabled} kind="quiet" onPress={() => answer({ cancelled: true })} title="取消这次请求" /> : null}
     </View>
   );
 }
@@ -1052,6 +1059,13 @@ function ExecutionScreen({
   const [pendingSubmits, setPendingSubmits] = useState<PendingCommand[]>([]);
   const submissionLock = useRef(false);
   const secretSubmissionLocks = useRef(new Set<string>());
+  const [authDisplays, setAuthDisplays] = useState<AuthDisplay[]>([]);
+  useEffect(() => {
+    const client = new AuthDisplayClient(() => api.getAuthDisplays(session.id), setAuthDisplays);
+    client.setActive(AppState.currentState === "active");
+    const listener = AppState.addEventListener("change", state => client.setActive(state === "active"));
+    return () => { listener.remove(); client.setActive(false); };
+  }, [api, session.id]);
   const [explicitNew, setExplicitNew] = useState(false);
   const [extensionUi, setExtensionUi] = useState(emptyExtensionUi);
   const extensionUiRef = useRef(emptyExtensionUi());
@@ -1512,6 +1526,14 @@ function ExecutionScreen({
       <ExtensionWorkingRow ui={extensionUi} active={state?.session.activeRunId != null} />
       <NoticeBanner message={extensionUi.unsupported} />
       {lastCommandId ? <Text style={styles.commandReceipt}>最近收据 · {lastCommandId}</Text> : null}
+      {authDisplays.map(display => <View key={display.operationId} style={styles.interactionCard}>
+        <Text style={styles.cardTitle}>{display.title} · 当前授权</Text>
+        {display.message ? <Text selectable style={styles.timelineText}>{display.message}</Text> : null}
+        {display.userCode ? <Text selectable style={styles.codeText}>{display.userCode}</Text> : null}
+        {display.links.map((link, index) => <ActionButton key={index} kind="secondary" title={link.label}
+          onPress={() => { void Linking.openURL(link.url).catch(() => setError("无法打开授权链接，请检查设备浏览器")); }} />)}
+        <Text style={styles.toolMeta}>授权内容仅临时显示；回到前台会重新获取。回调请填入登录表单，不要发送到聊天。</Text>
+      </View>)}
       <View style={styles.modelBar}>
         <View style={styles.modelBarText}>
           <Text style={styles.fieldLabel}>模型</Text>
@@ -1624,6 +1646,7 @@ function ExecutionScreen({
       ) : null}
       {interactions.map((interaction) => (
         <InteractionCard
+          authPrompt={authDisplays.find(display => display.prompt?.interactionId === interaction.interactionId)?.prompt}
           customLines={extensionUi.customFrames[interaction.operationId]}
           busy={actionBusy || respondingId === interaction.interactionId}
           interaction={interaction}

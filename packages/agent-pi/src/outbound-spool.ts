@@ -18,6 +18,7 @@ export function encodeSpooledOutbound(
   const maximum = options.maxFrameBytes ?? 1024 * 1024;
   if (!Number.isSafeInteger(maximum) || maximum < 1024) throw new Error("invalid outbound frame limit");
   if (bytes.length <= maximum) return encoded;
+  if (message.type === "auth_display") throw new Error("Authentication display exceeds the in-memory IPC frame limit");
   if (!options.spoolDir) throw new Error("oversized IPC output requires a parent-provisioned spool directory");
   const root = resolve(options.spoolDir);
   mkdirSync(root, { recursive: true, mode: 0o700 });

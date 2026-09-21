@@ -14,6 +14,7 @@ import {
   type ProtocolEvent,
   type ReducerState,
   type ModelInfo,
+  type AuthDisplay,
   parseProtocolEvent
 } from "@pi-remote/protocol";
 import {
@@ -162,6 +163,7 @@ interface SessionRuntimeRow {
 }
 
 interface ManagedWorker {
+  authDisplays: Map<string, { sessionId: string; display: AuthDisplay }>;
   envelopeSessionId: string;
   ownedSessionIds: Set<string>;
   replacementIntents: Map<string, { sourceSessionId: string; sourceOperationId?: string; kind: "new" | "switch" | "fork" | "import"; targetFile?: string; targetPiSessionId?: string; targetCwd?: string; projectId: string; destinationSessionId?: string }>;
@@ -630,6 +632,12 @@ export class WorkerManager {
     return readPiModelCatalog({ agentDir: this.options.agentDir ?? this.options.piDir ?? "/state/pi", refresh: true });
   }
 
+  authDisplays(sessionId: string): AuthDisplay[] {
+    const worker = this.workers.get(sessionId);
+    if (!worker || worker.phase === "exited" || worker.phase === "stopping") return [];
+    return [...worker.authDisplays.values()].filter(item => item.sessionId === sessionId).map(item => structuredClone(item.display));
+  }
+
   async getModels(sessionId: string, refresh = false): Promise<{ items: ModelInfo[]; availableThinkingLevels: string[] }> {
     const worker = await this.workerFor(sessionId);
     const requestId = randomUUID();
@@ -724,6 +732,7 @@ export class WorkerManager {
     const worker: ManagedWorker = {
       envelopeSessionId: sessionId,
       ownedSessionIds: new Set([sessionId]),
+      authDisplays: new Map(),
       replacementIntents: new Map(),
       workerId,
       sessionId,
@@ -1158,6 +1167,13 @@ export class WorkerManager {
     if (worker.phase === "exited" || message.workerEpoch !== worker.epoch || message.sessionId !== worker.envelopeSessionId) return;
     worker.lastActivity = this.now();
     switch (message.type) {
+      case "auth_display": {
+        const { appSessionId, operationId, display } = message.payload;
+        if (!worker.ownedSessionIds.has(appSessionId) || (display && display.operationId !== operationId)) throw new WorkerManagerError("WORKER_PROTOCOL_ERROR", "invalid authentication display ownership");
+        if (display) worker.authDisplays.set(operationId, { sessionId: appSessionId, display });
+        else worker.authDisplays.delete(operationId);
+        return;
+      }
       case "session_replace_intent":
         await this.handleReplacementIntent(worker, message.payload);
         return;

@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { AuthDisplay } from "@pi-remote/protocol";
 import { createInterface, type Interface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { readFileSync, mkdtempSync, openSync, readSync, closeSync } from "node:fs";
@@ -12,7 +13,8 @@ import { EditorHost } from "./editor-host.js";
 import { createModelSelector, findEditorModel, type ModelSelection } from "./model-selector.js";
 import { createThinkingSelector, type ThinkingSelection } from "./thinking-selector.js";
 import { createTrustSelector } from "./trust-selector.js";
-import { createLogoutSelector, listLogoutProviders, removeStoredCredential, type LogoutProvider, createLoginSelector, listApiKeyProviders, saveApiKey, selectDefaultAfterLogin, refreshLoginCatalog, type ApiKeyProvider } from "./auth-selector.js";
+import { createLogoutSelector, listLogoutProviders, removeStoredCredential, type LogoutProvider, createLoginSelector, listLoginProviders, selectDefaultAfterLogin, refreshLoginCatalog, type LoginProvider } from "./auth-selector.js";
+import { runLoginFlow } from "./auth-flow.js";
 import { saveProjectTrust, type TrustSelection } from "./project-trust.js";
 import { createSettingsSelector } from "./settings-selector.js";
 import { createScopedModelsSelector } from "./scoped-models-selector.js";
@@ -205,6 +207,7 @@ export type WorkerInboundMessage =
   | IpcEnvelope<"shutdown", { reason?: string }>;
 
 export type WorkerOutboundMessage =
+  | IpcEnvelope<"auth_display", { appSessionId: string; operationId: string; display: AuthDisplay | null }>
   | IpcEnvelope<"session_replace_intent", { requestId: string; kind: "new" | "switch" | "fork" | "import"; sourceOperationId?: string; piSessionId: string; piSessionFile: string; targetFile?: string }>
   | IpcEnvelope<"session_replaced", { requestId: string; piSessionId: string; piSessionFile: string; persistenceState: "unflushed" | "persisted" }>
   | IpcEnvelope<"models", { requestId: string; items: ModelInfo[]; availableThinkingLevels: string[] }>
@@ -1195,6 +1198,7 @@ export class PiWorker {
     title: string,
     fields: {
       sensitive?: true;
+      onRequested?: (interactionId: string) => void;
       options?: string[];
       message?: string;
       placeholder?: string;
@@ -1255,6 +1259,7 @@ export class PiWorker {
           ...(expiresAt ? { expiresAt } : {})
         }
       });
+      fields.onRequested?.(interactionId);
     } catch (error) {
       this.finishInteraction(interactionId, undefined, "cancelled", "bridge_error");
       throw error;
@@ -1478,47 +1483,40 @@ export class PiWorker {
         const argument = text.slice(name.length).trim();
         const notify = (message: string) => this.createUiContext().notify(message, "info");
         if (name === "/login") {
-          const runtime = session.modelRuntime, providers = listApiKeyProviders(runtime);
-          let selected = argument ? providers.find(p => [p.id.toLowerCase(), p.name.toLowerCase()].includes(argument.toLowerCase())) : undefined;
-          if (argument && !selected) throw new Error("未找到 API key 登录方式；OAuth 浏览器授权与设备码仍待适配，请在服务端配置后重载");
-          if (!selected) selected = await runCustomUi<ApiKeyProvider | undefined>((_tui, _theme, keys, done) => createLoginSelector(keys, providers, done), {
+          const runtime = session.modelRuntime;
+          const all = [...listLoginProviders(runtime, "api_key"), ...listLoginProviders(runtime, "oauth")];
+          const matches = argument ? all.filter(p => [p.id.toLowerCase(), p.name.toLowerCase()].includes(argument.toLowerCase())) : all;
+          if (!matches.length) throw new Error("未找到 provider 登录方式");
+          let selected: LoginProvider | undefined = argument && matches.length === 1 ? matches[0] : undefined;
+          let providers = matches;
+          if (!selected && new Set(matches.map(p => p.authType)).size > 1) {
+            const method = await this.requestInteraction("select", "登录方式", { options: ["API key", "OAuth"], message: "选择登录方式；不要在聊天或搜索框中粘贴凭据。" }, { signal });
+            if (typeof method?.value !== "string") return;
+            providers = matches.filter(p => p.authType === (method.value === "OAuth" ? "oauth" : "api_key"));
+            if (argument && providers.length === 1) selected = providers[0];
+          }
+          if (!selected) selected = await runCustomUi<LoginProvider | undefined>((_tui, _theme, keys, done) => createLoginSelector(keys, providers, done), {
             agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
             publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
             inputError: () => this.createUiContext().notify("登录选择输入无效", "error"),
-            ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "API key 登录" : "登录搜索", {
-              ...(keys ? { options: keys } : {}), message: "选择 provider；OAuth 浏览器授权与设备码仍待适配。不要在搜索框或聊天里输入密钥。"
+            ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "Provider 登录" : "登录搜索", {
+              ...(keys ? { options: keys } : {}), message: "选择 provider。不要在搜索框或聊天里输入密钥。"
             }, { signal: inputSignal })
           });
           if (!selected || signal.aborted || owner !== this.currentSessionId) return;
           if (!selected.interactive) { notify("此 provider 通过服务端环境或配置提供鉴权，请按原生 provider 配置说明设置"); return; }
           const previousModel = session.model;
-          await saveApiKey(runtime, selected.id, {
-            signal,
-            prompt: async prompt => {
-              const inputSignal = prompt.signal ? AbortSignal.any([signal, prompt.signal]) : signal;
-              inputSignal.throwIfAborted();
-              if (owner !== this.currentSessionId) throw new Error("Login cancelled");
-              const response = prompt.type === "select"
-                ? await this.requestInteraction("select", "登录选项", { message: prompt.message, options: prompt.options.map(p => p.label) }, { signal: inputSignal })
-                : await this.requestInteraction("input", "登录密钥", { sensitive: true, message: "输入 API key；回答不会保存到手机缓存、命令记录或事件历史，仅由原生鉴权存储保存。" }, { signal: inputSignal });
-              inputSignal.throwIfAborted();
-              if (owner !== this.currentSessionId || typeof response?.value !== "string") throw new Error("Login cancelled");
-              if (prompt.type === "select") {
-                const id = prompt.options.find(p => p.label === response.value)?.id;
-                if (id === undefined) throw new Error("Login cancelled");
-                return id;
-              }
-              return response.value;
-            },
-            // Auth notifications may include URLs/codes or provider error details.
-            notify: () => undefined
-          });
+          await runLoginFlow(runtime, selected, context.operationId, signal,
+            (inputSignal, onRequested) => this.requestInteraction("input", "登录密钥", { sensitive: true, onRequested,
+              message: "按当前授权页面填写密钥或回调；回答不进入手机缓存及业务历史。" }, { signal: inputSignal }),
+            inputSignal => this.requestInteraction("select", "登录控制", { options: ["取消登录"], message: "可随时取消本次授权；其他任务继续执行。" }, { signal: inputSignal }),
+            display => this.send("auth_display", { appSessionId: owner, operationId: context.operationId, display }));
           if (owner !== this.currentSessionId) return;
           const guidance = await selectDefaultAfterLogin(session, selected.id, previousModel);
           if (owner !== this.currentSessionId) return;
           this.editorHost.refreshAutocomplete();
           await this.sendModels({ requestId: "runtime-state" });
-          notify(`已保存 ${selected.name} 的 API key 并刷新模型可用状态`);
+          notify(`已保存 ${selected.name} 的${selected.authType === "oauth" ? " OAuth 凭据" : " API key"}并刷新模型可用状态`);
           if (guidance) notify(guidance);
           void refreshLoginCatalog(runtime, selected.id, signal).then(async refreshed => {
             if (signal.aborted || owner !== this.currentSessionId) return;

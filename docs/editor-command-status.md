@@ -27,7 +27,7 @@
 | `/tree` | 原生分支导航、标签、复制和摘要 |
 | `/trust` | 原生当前目录/父目录信任菜单，保存到 trust.json；worker 重启后读取决定，当前 runtime、同宿主 cwd 缓存及 `/reload` 保持原状态 |
 | `/logout` | 原生 provider 搜索/选择，仅移除保存到 auth.json 的凭据并同步本 worker 模型状态；环境变量、models.json、运行时注入凭据、当前模型选择和活动任务不变 |
-| `/login [provider]` | 原生 API key 方法与 provider 选择；秘密表单仅内存传递回答，SDK 保存 auth.json；OAuth 浏览器/设备码与鉴权富文本通知仍待适配 |
+| `/login [provider]` | 原生 API key / OAuth 方法与 provider 选择；链接/设备码/通知仅临时显示，秘密表单传递回调，SDK 保存 auth.json |
 
 信息/复制窗口各自复用正在打开的同类窗口；导出、改名和压缩不合并不同提交。所有入口使用独立 Operation，取消窗口不取消无关 Run。失败保留尚未被用户编辑替换的提交草稿。已开始的压缩仍通过 Esc 或手机控制取消，不因编辑器退出而假称已停止。
 
@@ -35,14 +35,13 @@
 
 | 命令 | 后续实现要求 |
 | --- | --- |
-| `/login` 的 OAuth 部分 | 非持久化浏览器授权链接、设备码、回调与鉴权富文本通知；当前可在服务端配置 OAuth 凭据 |
 | `/share` | GitHub 登录状态、分享内容预览、明确发布确认及上传结果；不能因输入此命令就自动公开会话 |
 
 这些入口明确报出缺口、保留文本，不作为普通 prompt 发送。它们仍是开发待办，不是永久禁止或完整节点已完成的证明。
 
 退出登录只读取凭据元数据，未知 provider 以原 ID 展示；取消/关闭编辑器不删除，重复打开复用菜单。删除沿 SDK 原生 15 秒鉴权操作期限及编辑器取消信号，成功后更新本 worker 的模型目录、补全和页脚；其他已加载 worker 的内存状态不在此流程中自动广播刷新。SDK 明确报告“凭据已删除但模型同步失败”时单独提示这一结果，不误报成删除失败或自动重试；鉴权异常原文不写入会话事件。真实 OAuth/provider 与设备仍需独立验收。
 
-API key 登录使用带 sensitive 标记的专用 input：命令保存脱敏 HMAC、事件/快照不保存回答，手机只缓存请求标识并在提交/后台清空输入。断线后可重填同一内容确认原请求，不能从离线队列自动恢复秘密。原生 auth.json 仍保存凭据；模型默认选择和目录刷新沿原生语义，错误不暴露 credential/cause。此入口覆盖 API key 部分，不代表 OAuth、鉴权富文本通知或完整 TUI parity 已完成。
+API key / OAuth 登录使用带 sensitive 标记的专用 input：命令保存脱敏 HMAC、事件/快照不保存回答，手机只缓存请求标识并在提交/后台清空输入。断线后可重填同一内容确认原请求，不能从离线队列自动恢复秘密。原生 auth.json 仍保存凭据；模型默认选择和目录刷新沿原生语义，错误不暴露 credential/cause。OAuth 的链接、设备码、提示文本/账户选择和通知通过独立 no-store 接口在前台临时显示，结束/取消清除，切后台后重新获取；不会自动打开浏览器。SDK 回调原样传入，不新增公网回调/relay。实现和合成 provider 验证不代表真实 OAuth/provider 或完整 TUI parity 已完成。
 
 `/trust` 保存成功后提示重启该会话 worker，不自行中断任务。同一 runtime 宿主按 cwd 缓存信任决定，new/fork/resume/import 不重复询问已经决定的 cwd；重启重新读取。首次遇到有需信任资源的目录，先加载用户级扩展，再沿原生优先级处理 project_trust hook、保存决定、全局 always/never/ask 回退与询问。支持当前/父目录持久决定、仅本次决定、取消；拒绝或取消仅跳过原生需信任项目资源，不禁止普通对话或 Bash。hook 可在 SDK handle 和映射建立前使用 select/confirm/input/notify，标准交互支持长等待、重连和幂等。没有需信任资源时沿原生语义可信；自定义 SettingsManager/ResourceLoader 或未提供信任 UI 的底层调用保留调用者原有控制路径。损坏信任文件、保存失败和 hook 错误按原生行为呈现，真实 TUI/设备对照仍单独验收。
 

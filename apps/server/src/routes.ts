@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getNativeCapabilities } from "@pi-remote/agent-pi";
 import {
   capabilityResponseSchema,
+  authDisplaysResponseSchema,
   artifactSchema,
   commandRequestDtoSchema,
   devicesResponseSchema,
@@ -305,6 +306,12 @@ export function registerRoutes(app: FastifyInstance, context: RouteContext): voi
   app.get("/v1/sessions/:id/snapshot", async (request, reply) => {
     const actor = authFor(request, context);
     return reply.send(snapshotResponseSchema.parse(await context.resources.getSnapshot(actor, routeId(request))));
+  });
+
+  app.get("/v1/sessions/:id/auth-displays", async (request, reply) => {
+    const actor = authFor(request, context);
+    reply.header("Cache-Control", "no-store");
+    return reply.send(authDisplaysResponseSchema.parse(context.resources.getAuthDisplays(actor, routeId(request))));
   });
 
   app.post("/v1/sessions/:id/artifacts", async (request, reply) => {

@@ -1,5 +1,6 @@
 import {
   artifactSchema,
+  authDisplaysResponseSchema,
   recoverableHistoriesResponseSchema,
   historyImportRequestSchema,
   errorResponseSchema,
@@ -314,6 +315,10 @@ export class PiRemoteApi {
 
   async getCommand(commandId: string): Promise<CommandRecord> {
     return this.request(`/v1/commands/${encodeURIComponent(commandId)}`, {}, commandDetailResponseSchema);
+  }
+
+  async getAuthDisplays(sessionId: string) {
+    return this.request(`/v1/sessions/${encodeURIComponent(sessionId)}/auth-displays`, {}, authDisplaysResponseSchema);
   }
 
   /** Upload a bounded binary artifact without ever exposing a local path to the server. */

@@ -6,7 +6,7 @@ import {
   type WorkerInboundMessage,
   type WorkerOutboundMessage
 } from "@pi-remote/agent-pi/worker";
-import { inputContentSchema, jsonObjectSchema, modelsResponseSchema, parseProtocolEvent, type ProtocolEvent } from "@pi-remote/protocol";
+import { authDisplaySchema, inputContentSchema, jsonObjectSchema, modelsResponseSchema, parseProtocolEvent, type ProtocolEvent } from "@pi-remote/protocol";
 
 /** One JSON object per line keeps the worker transport inspectable and restartable. */
 export const MAX_IPC_FRAME_BYTES = 1024 * 1024;
@@ -207,6 +207,9 @@ function parseInboundPayload(type: string, value: unknown): unknown {
 function parseOutboundPayload(type: string, value: unknown): unknown {
   const payload = requiredObject(value, "payload");
   switch (type) {
+    case "auth_display":
+      return { appSessionId: requiredString(payload.appSessionId, "appSessionId"), operationId: requiredString(payload.operationId, "operationId"),
+        display: payload.display === null ? null : authDisplaySchema.parse(payload.display) };
     case "editor_state_ack":
       return { requestId: requiredString(payload.requestId, "requestId") };
     case "rename_ack":
@@ -308,6 +311,7 @@ const inboundTypes = [
   "respond", "set_model", "set_thinking", "rename", "batch_ack", "shutdown", "get_models", "editor_state", "session_replace_ack"
 ] as const;
 const outboundTypes = [
+  "auth_display",
   "session_mapping", "session_persisted", "ready", "command_accepted", "command_rejected", "command_result",
   "event_batch", "heartbeat", "fatal", "extension_error", "stopped", "models", "editor_state_ack", "rename_ack", "session_replace_intent", "session_replaced"
 ] as const;

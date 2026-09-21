@@ -35,6 +35,72 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+async function installOAuthFixture(h) {
+  await writeFile(join(h.agent, 'extensions', 'oauth-fixture.js'), `import { randomUUID } from 'node:crypto';
+    export default function(pi) { pi.registerProvider('fixture-oauth', {
+      name: 'Fixture OAuth', baseUrl: 'http://127.0.0.1:1/v1', api: 'openai-completions', models: [],
+      oauth: { name: 'Fixture OAuth', login: async callbacks => {
+        callbacks.onAuth({ url: 'https://example.test/authorize?state=' + randomUUID(), instructions: 'Authorize this temporary test' });
+        await callbacks.onSelect({ message: 'Choose account ' + randomUUID(), options: [{ id: randomUUID(), label: 'Private account ' + randomUUID() }] });
+        callbacks.onDeviceCode({ userCode: randomUUID(), verificationUri: 'https://example.test/device?state=' + randomUUID() });
+        callbacks.onProgress?.('Waiting for callback');
+        const access = await callbacks.onManualCodeInput();
+        if (access.startsWith('fail-')) throw new Error(access);
+        return { access, refresh: randomUUID(), expires: Date.now() + 3600000 };
+      }, refreshToken: async credentials => credentials, getApiKey: credentials => credentials.access }
+    }); }`);
+}
+
+test('editor OAuth displays links device codes and choices only in memory and saves callback through native auth', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, answer, key, snapshot } = await treeHarness(t); h.privateEvidence = true;
+  await installOAuthFixture(h);
+  await command('prompt', { text: 'BEFORE_OAUTH' }); await extension('/r16-editor');
+  const view = () => h.http('GET', `/v1/sessions/${h.sessionId}/auth-displays`);
+  await extension('/r16-editor-draft /login fixture-oauth'); await key('扩展编辑器', 'Enter');
+  const method = await until(async () => (await snapshot()).pendingInteractions.find(i => ['登录方式', '登录密钥'].includes(i.title)), 'OAuth method or prompt', 5000);
+  if (method.title === '登录方式') await answer('登录方式', { value: 'OAuth' });
+  await next('登录密钥');
+  const choice = await until(async () => (await view()).items.find(item => item.prompt?.options), 'ephemeral OAuth choice', 5000);
+  const secrets = [choice.links[0].url, choice.prompt.message, choice.prompt.options[0].id, choice.prompt.options[0].label];
+  const socket = await h.connect(); assert.ok(!JSON.stringify(socket.frames).includes(secrets[0]));
+  await answer('登录密钥', { value: choice.prompt.options[0].id });
+  await next('登录密钥');
+  const device = await until(async () => (await view()).items.find(item => item.userCode && item.prompt), 'device and manual callback', 5000);
+  secrets.push(device.links[0].url, device.userCode);
+  assert.equal((await view()).items[0].userCode, device.userCode, 'reconnect retrieves the active in-memory display');
+  const callback = `https://localhost/callback?code=${randomUUID()}`; secrets.push(callback);
+  await answer('登录密钥', { value: callback });
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('OAuth 凭据')), 'OAuth saved', 5000);
+  assert.equal(JSON.parse(await readFile(join(h.agent, 'auth.json'), 'utf8'))['fixture-oauth'].access, callback);
+  await until(async () => (await view()).items.length === 0, 'OAuth display cleared', 5000);
+  for (const table of ['events', 'commands', 'interactions', 'sessions']) for (const secret of secrets) assert.ok(!JSON.stringify(h.query(`SELECT * FROM ${table}`)).includes(secret), table);
+  const inspect = async dir => { for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const file = join(dir, entry.name);
+    if (entry.isDirectory()) await inspect(file);
+    else if (entry.isFile() && file !== join(h.agent, 'auth.json')) for (const secret of secrets) assert.ok(!(await readFile(file)).includes(Buffer.from(secret)), file);
+  } };
+  await inspect(h.root);
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('editor OAuth cancellation clears active links and server restart never replays a callback', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, key, snapshot } = await treeHarness(t); h.privateEvidence = true;
+  await installOAuthFixture(h); await command('prompt', { text: 'OAUTH_CANCEL' }); await extension('/r16-editor');
+  const view = () => h.http('GET', `/v1/sessions/${h.sessionId}/auth-displays`);
+  const open = async () => {
+    await extension('/r16-editor-draft /login fixture-oauth'); await key('扩展编辑器', 'Enter');
+    const method = await until(async () => (await snapshot()).pendingInteractions.find(i => ['登录方式', '登录密钥'].includes(i.title)), 'OAuth method or prompt', 5000);
+    if (method.title === '登录方式') await key('登录方式', 'OAuth');
+    return next('登录密钥');
+  };
+  const form = await open(); await key('登录控制', '取消登录');
+  await until(async () => (await view()).items.length === 0 && !(await snapshot()).pendingInteractions.some(i => i.interactionId === form.interactionId), 'OAuth cancelled', 5000);
+  await assert.rejects(h.command('respond', { operationId: form.operationId, interactionId: form.interactionId, response: { value: 'stale' } }), /INTERACTION_CLOSED/);
+  await open(); assert.equal((await view()).items.length, 1);
+  await h.killMain(); await h.start(); assert.deepEqual((await view()).items, []);
+  assert.equal(JSON.parse(await readFile(join(h.agent, 'auth.json'), 'utf8'))['fixture-oauth'], undefined);
+});
+
 test('editor login keeps secret answers out of durable commands events snapshots and native history', { timeout: 120000 }, async t => {
   const { h, command, extension, next, key, snapshot } = await treeHarness(t); h.privateEvidence = true;
   await command('prompt', { text: 'BEFORE_SECRET_LOGIN' }); await extension('/r16-editor');

@@ -82,6 +82,21 @@ afterEach(async () => {
 });
 
 describe("S05 device, project, and Session API", () => {
+  it("requires session ownership for transient auth displays and forbids HTTP caching", async () => {
+    const f = await createFixture();
+    new ProjectRepository(f.database).create({ id: "auth-project", userId: "owner-a", name: "Auth", rootPath: f.workspace, workspaceKey: "auth-workspace", rootIdentity: "auth-identity" });
+    new SessionRepository(f.database).create({ id: "auth-session", projectId: "auth-project", title: "Auth" });
+    const url = "/v1/sessions/auth-session/auth-displays";
+    expect((await f.app.inject({ url })).statusCode).toBe(401);
+    const result = await f.app.inject({ url, headers: authHeader(f.deviceToken) });
+    expect(result.statusCode).toBe(200); expect(result.headers["cache-control"]).toBe("no-store");
+    expect(json(result)).toEqual({ items: [] });
+    expect((await f.app.inject({ url: "/v1/sessions/missing/auth-displays", headers: authHeader(f.deviceToken) })).statusCode).toBe(404);
+    new OwnerRepository(f.database).ensure({ id: "foreign-owner", displayName: "Foreign" });
+    new ProjectRepository(f.database).create({ id: "foreign-project", userId: "foreign-owner", name: "Foreign", rootPath: join(f.root, "foreign"), workspaceKey: "foreign-workspace", rootIdentity: "foreign-identity" });
+    new SessionRepository(f.database).create({ id: "foreign-session", projectId: "foreign-project", title: "Foreign" });
+    expect((await f.app.inject({ url: "/v1/sessions/foreign-session/auth-displays", headers: authHeader(f.deviceToken) })).statusCode).toBe(404);
+  });
   it("discovers only valid unmapped project histories and imports idempotently without opening the SDK", async () => {
     const f = await createFixture();
     const project = new ProjectRepository(f.database).create({ userId: "owner-a", name: "Recovery", rootPath: f.workspace, workspaceKey: "recovery", rootIdentity: "recovery" });

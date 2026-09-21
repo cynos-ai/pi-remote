@@ -2,7 +2,16 @@
 
 最后更新：2026-09-21。
 
-### 2026-09-21 API key 登录与秘密回答（本次提交）
+### 2026-09-21 OAuth 与非持久化授权展示（本次提交）
+
+- 基线 `772db6f`；接入原生 API key/OAuth 登录方式选择、浏览器链接、设备码、信息/进度通知、账户选项与回调。增加受鉴权/Session 归属保护的 auth-displays no-store 接口，worker/main/mobile 仅内存保存展示内容；IPC 禁止溢出到 spool。全部回答沿 sensitive input/HMAC 幂等，独立登录控制可取消，结束/退出/重启清除。手机仅前台刷新，后台/卸载/错误清空并抑制迟到响应。无 SQL migration，也不增加公网回调或 relay。
+- 环境：WSL 2 Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。本地合成 OAuth 扩展产生随机授权材料；未使用真实账号或模型凭据。首轮真实进程 0/4（`test-results/oauth-process.log`）查出 IPC 类型清单漏登记，已修复并补编解码回归；合成 provider 同时支持两种方式，测试改为明确选择 OAuth，未删减断言。
+- 已验证：构建/类型检查（`oauth-build.log`、`oauth-types.log`）；最终真实进程 4/4（`oauth-process-final.log`），覆盖账户选项、设备码、手动回调、原生凭据保存、整个临时目录秘密材料检查、取消/失效旧回答、服务重启，以及 API key 回归。最终定向 47/47（`oauth-targeted-final.log`）：IPC、API 鉴权/no-store、跨 owner、手机后台/迟到响应和 provider 独立取消/迟到通知。完整阶段检查结果见下。
+- 未运行：真实 OAuth provider 浏览器/网络回调、真实 TUI 对照、Android/iOS 安装包及设备。仅支持原生 SDK 已提供的回调/手动输入路径；依赖服务器本机回调且无手动回退的 provider 仍须实际条件验证。合成进程与 JS 构建不能作为这些验收的替代。
+- `pnpm verify:S07`：14 passed / 2 failed（`test-results/oauth-s07.log`、`s07/report.json`）；构建、命令、真实表单/会话进程、lint、完整 typecheck、文档全部通过。失败仍为 live-commands / parity-tui-commands 的已有报告源码身份过期，本次未将它们改写为通过。
+- `pnpm verify:S10`：手机 contract、Android/iOS JS export、lint、完整 typecheck 和文档全部 passed；Android/iOS device 为 not_run，阶段状态 blocked（`test-results/oauth-s10.log`、`s10/report.json`）。最终 UI 的账户选择仅提供选项按钮，回调文本仍用遮罩输入；没有将 JS 包构建等同于设备验收。
+
+### 2026-09-21 API key 登录与秘密回答（772db6f）
 
 - 基线 `725896b`；接入 `/login [provider]` 原生 API key 方法、configure Operation、敏感 input、服务器脱敏/HMAC 幂等、手机遮罩和清空/仅存请求标识，以及原生默认模型与目录刷新。无需 SQL migration；协议 JSON 字段和 reducer/快照验证同步修改。OAuth 浏览器/设备码/回调与鉴权富文本通知仍未适配。
 - 环境：WSL 2 Linux、Node 24.19.0、pnpm 10.28.0、SDK 0.85.1；临时合成密钥和本地 HTTP provider，无真实模型调用。首轮 `login-process.log` 0/2，实际查出 interactions.payload_json 丢失 sensitive 标记导致 commands 泄漏；已修复持久元数据并保留失败证据。最初 build 的登录回调类型错误已修复。

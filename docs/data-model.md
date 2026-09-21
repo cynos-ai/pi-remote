@@ -1,5 +1,7 @@
 # 数据模型与事务约定
 
+OAuth 展示内容不增加 SQL 列或 migration：链接、设备码、提示文本及账户选项仅存在 worker/main/mobile 内存，通过独立 no-store 接口读取。持久记录仅有 configure Operation、通用登录控制表单、sensitive input 元数据及脱敏回答。清除展示不是业务事件，不参与 seq/回放；重启只保留原有命令未知/表单失效事实，不自动重发回调或重开登录。
+
 秘密回答沿用现有 JSON 列，无 SQL migration：interactions.payload_json 必须保存 `sensitive:true`，否则服务端无法在命令入库前脱敏。commands.payload_json 的回答仅保存 redacted 标记和 HMAC 指纹；interactions.response_json 保持 NULL，事件及 live projection 不含秘密回答。服务器 pi 目录独立保存 0600 的随机 `secret-response.key`，重启复用；损坏时拒绝静默重建。恢复沿用 respond 控制命令的 unknown/失效规则，禁止从脱敏记录自动重发。原生 auth.json 仍按 SDK 原生鉴权语义保存凭据，见[协议](protocol-v1.md)。
 
 状态：待实现规范。可执行的设计附件为 [schema-v1.sql](schema-v1.sql)，S04 将其纳入迁移，不能仅在启动时无条件执行整份 SQL。首次迁移、重复启动、备份恢复和升级都需要测试。[原生运行补充契约](native-runtime-contract.md)规定无 Run 内容、原生输入、标题及会话替换的同步边界。

@@ -220,6 +220,11 @@ function sessionMappingHandler(message: WorkerInboundMessage, child: FakeChild):
 }
 
 describe("S06 scheduler and IPC contracts", () => {
+  it("never spills oversized authentication displays to the worker spool", () => {
+    const display = { ipcVersion: 1, sessionId: "session", workerEpoch: "epoch", type: "auth_display", payload: { appSessionId: "session", operationId: "op", display: { operationId: "op", title: "OAuth", links: [] } } };
+    expect(decodeWorkerOutbound(JSON.parse(encodeSpooledOutbound(display, { spoolDir: "unused" })))).toEqual(display);
+    expect(() => encodeSpooledOutbound({ ipcVersion: 1, sessionId: "session", workerEpoch: "epoch", type: "auth_display", payload: { secret: "x".repeat(2048) } }, { spoolDir: "unused", maxFrameBytes: 1024 })).toThrow("in-memory IPC frame limit");
+  });
   it("round-trips import intents and rejects unknown replacement kinds", () => {
     const message = makeIpcEnvelope("session", "epoch", "session_replace_intent", {
       requestId: "import", kind: "import" as const, piSessionId: "source", piSessionFile: "/tmp/source.jsonl", targetFile: "/tmp/import.jsonl"

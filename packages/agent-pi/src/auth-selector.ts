@@ -31,21 +31,30 @@ export async function refreshLoginCatalog(runtime: Runtime, id: string, signal: 
 }
 
 export type ApiKeyProvider = { id: string; name: string; authType: "api_key"; interactive: boolean };
+export type LoginProvider = Omit<ApiKeyProvider, "authType"> & { authType: "api_key" | "oauth" };
+export function listLoginProviders(runtime: Runtime, authType: LoginProvider["authType"]): LoginProvider[] {
+  if (authType === "api_key") return listApiKeyProviders(runtime);
+  return runtime.getProviders().filter(p => p.auth.oauth).map(p => ({ id: p.id, name: p.name, authType, interactive: true })).sort((a, b) => a.name.localeCompare(b.name));
+}
 export function listApiKeyProviders(runtime: Runtime): ApiKeyProvider[] {
   return runtime.getProviders().filter(p => p.auth.apiKey).map(p => ({ id: p.id, name: p.name,
     authType: "api_key" as const, interactive: !!p.auth.apiKey?.login })).sort((a, b) => a.name.localeCompare(b.name));
 }
-export function createLoginSelector(keys: KeybindingsManager, providers: ApiKeyProvider[], done: (provider?: ApiKeyProvider) => void) {
+export function createLoginSelector(keys: KeybindingsManager, providers: LoginProvider[], done: (provider?: LoginProvider) => void) {
   initializeNativeMenu(keys);
   return new native.OAuthSelectorComponent("login", providers, id => done(providers.find(p => p.id === id)), () => done());
 }
 export async function saveApiKey(runtime: Runtime, id: string, interaction: Parameters<Runtime["login"]>[2]): Promise<void> {
-  try { await runtime.login(id, "api_key", interaction); }
+  return saveCredential(runtime, id, "api_key", interaction);
+}
+export async function saveCredential(runtime: Runtime, id: string, method: LoginProvider["authType"], interaction: Parameters<Runtime["login"]>[2]): Promise<void> {
+  const label = method === "api_key" ? "API key" : "OAuth";
+  try { await runtime.login(id, method, interaction); }
   catch (error) {
     // eslint-disable-next-line preserve-caught-error -- Credential-bearing causes must never cross the remote boundary.
-    if (error instanceof CredentialSynchronizationError) throw new Error("API key 已保存，但本地模型状态同步失败；请重新加载模型状态，不要重复登录");
+    if (error instanceof CredentialSynchronizationError) throw new Error(`${label} 已保存，但本地模型状态同步失败；请重新加载模型状态，不要重复登录`);
     // eslint-disable-next-line preserve-caught-error -- Provider errors may quote the secret answer.
-    throw new Error("API key 登录未完成或已取消；未确认凭据已保存");
+    throw new Error(`${label} 登录未完成或已取消；未确认凭据已保存`);
   }
 }
 

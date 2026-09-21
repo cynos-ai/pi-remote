@@ -497,6 +497,11 @@ export class ResourceService {
     return { items: await this.manager.modelCatalog() };
   }
 
+  getAuthDisplays(actor: AuthContext, sessionId: string) {
+    this.requireSession(actor.userId, sessionId);
+    return { items: this.manager?.authDisplays(sessionId) ?? [] };
+  }
+
   async getSnapshot(actor: AuthContext, sessionId: string): Promise<Snapshot> {
     const session = this.requireSession(actor.userId, sessionId);
     let levels = this.manager?.availableThinkingLevels(sessionId) ?? [];
