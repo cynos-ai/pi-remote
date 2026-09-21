@@ -694,3 +694,11 @@ next: <下一阶段>
 增强 `verify:S12 -- --deployment-only`，把此前只创建 SQLite 项目/Session 的容器生命周期扩展为实际运行 doctor、上传并读取受鉴权 artifact、保存 pi JSONL，并在强制重建 app、正常 stop/up、停机备份及新状态卷恢复后逐项读取原设备凭据、Session、artifact 和 JSONL。另纳入稳定 v1 数据库对 `custom_entry` 约束的原位升级测试，以及真实 Linux 主服务/SDK worker 会话进程恢复测试；后者覆盖会话替换映射窗口的 SIGKILL、持久历史恢复及不自动重放交付不明命令。验收仍使用一次性 Compose 项目、状态卷和工作区，结束后确认无 S12 临时容器残留。
 
 最终在 WSL 2、Node 24.19.0、pnpm 10.28.0、Docker 28.3.3 中从锁文件建立独立 Linux 依赖目录，`pnpm verify:S12 -- --deployment-only` 为 34 passed / 0 failed / 0 not_run。服务器构建、部署/迁移/worker 测试、lint、typecheck、docs、镜像构建、HTTP/HTTPS、非 root 工具链、配对、doctor、持久化、备份与新卷恢复全部通过，报告位于 `test-results/s12-deployment-only/report.json`（默认不提交）。首次直接复用 Windows `node_modules` 的 WSL 运行因缺少 Linux Rolldown binding 失败，隔离依赖后通过；第一次新增 artifact 检查因验收脚本按 text/plain 而非二进制上传返回 400，改为与客户端相同的 octet-stream Buffer 后最终通过。完整 S12 的真实 Bash/TUI Docker 对照、真实 provider 和 Android/iOS 真机仍是独立外部验收，本节点没有用 deployment-only 结果替代。
+
+## 2026-09-22 当前提交真实 DeepSeek 常用链路复验
+
+在提交 `ae57e78`、WSL 2、Node 24.19.0、SDK 0.85.1 上，从 Git 忽略的 `.env` 和专用 agent 目录运行 DeepSeek 单模型有界验收。`live-sdk` 首次普通工具读写通过、thinking 步骤失败且只保存脱敏失败分类；按约定仅重试一次后，AT02 工具读写、`AUTO-SDK-thinking-single` 和汇总 3 项通过，AT03 第二模型、真实重试/settle 及长时间开发 3 项 not_run，报告状态 blocked。`live-commands` 的真实工具往返/同键幂等和空闲配置 2 项通过、完整命令矩阵 6 项 not_run；`live-realtime` 的流式工具和断线 cursor 回放/SQLite 一致性 2 项通过、snapshot 竞态、慢连接 artifact 和设备吊销 3 项 not_run。两份报告均为 blocked 且无 failed。
+
+模型请求名仍为 `deepseek-v4-flash`，按供应商当前映射实际服务为 V4.1-Flash。本轮没有把单模型 thinking smoke 计为 AT03，没有重跑高操作数 controls/compact/configuration/defaults，也没有生成 Bash/TUI 人工对照或设备证据。临时 Linux checkout、专用会话和模型产物已清理；仓库只保留 Git 忽略的脱敏机器报告。
+
+随后为当前源码重新生成五类 target 的 Bash/TUI 证据清单；没有运营者双端采集的 80 项均保持 not_run。`pnpm verify:S02` 最终为 10 passed / 3 not_run / 0 failed：SDK 合同、固定版本、构建和常用能力清单通过，live-sdk 完整矩阵、SDK Bash 对照及 SDK 常用 TUI 行为对照保持 blocked。该结果确认当前报告不再因旧源码指纹失败，但不表示外部验收已经完成。
