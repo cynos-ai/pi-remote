@@ -35,6 +35,57 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('native scoped models apply without saving, explicitly persist and release stale menus', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, key, combo } = await treeHarness(t, {}, { editorModels: true });
+  await extension('/r16-editor');
+  const settings = async () => JSON.parse(await readFile(join(h.agent, 'settings.json'), 'utf8'));
+  const open = async () => { await extension('/r16-editor-draft /scoped-models'); await key('扩展编辑器', 'Enter'); return next('模型范围'); };
+  await open(); await key('模型范围', '输入文本'); await key('模型范围输入', 'deterministic'); await key('模型范围', 'Enter');
+  assert.equal((await settings()).enabledModels, undefined, 'selection alone does not persist');
+  await key('模型范围', 'Esc');
+  await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+p');
+  assert.equal((await snapshot()).session.model.id, 'deterministic', 'native single-model scope does not cycle or force-switch the current model');
+  await extension('/r16-editor-draft /model reasoned'); await key('扩展编辑器', 'Enter');
+  await until(async () => (await snapshot()).session.model.id === 'reasoned', 'explicit scoped model selected', 5000);
+  await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+p');
+  assert.equal((await snapshot()).session.model.id, 'reasoned', 'excluded model stays outside cycling');
+  await open(); await combo('模型范围', '模型范围输入', 'ctrl+s');
+  await until(async () => (await settings()).enabledModels?.join() === 'r16-local/reasoned', 'explicit scope saved', 5000);
+  await combo('模型范围', '模型范围输入', 'ctrl+x'); await combo('模型范围', '模型范围输入', 'ctrl+s');
+  await until(async () => (await settings()).enabledModels?.length === 0, 'explicit empty scope saved', 5000);
+  await key('模型范围', 'Esc'); await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+p');
+  await until(async () => (await snapshot()).session.model.id === 'deterministic', 'empty scope means unrestricted native cycling', 5000);
+  await open(); await combo('模型范围', '模型范围输入', 'ctrl+a'); await combo('模型范围', '模型范围输入', 'ctrl+s');
+  await until(async () => (await settings()).enabledModels === undefined, 'all enabled clears persisted patterns', 5000);
+  const stale = await next('模型范围'); await extension('/r16-editor-clear');
+  await until(async () => !(await snapshot()).pendingInteractions.some(f => f.interactionId === stale.interactionId), 'scope menu closed with editor', 5000);
+  await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  assert.equal(h.provider.requests.length, 0);
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM runs')[0].count, 0);
+});
+
+test('scoped models remain usable during streaming and report actual save failures', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, answer, key, combo } = await treeHarness(t, {}, { editorModels: true });
+  await extension('/r16-editor');
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 1, 'active model before scope change', 5000);
+  await extension('/r16-editor-draft /scoped-models'); await key('扩展编辑器', 'Enter');
+  const menu = await next('模型范围'); assert.equal(menu.origin, 'configure'); assert.equal(menu.runId, null);
+  await key('模型范围', '输入文本'); await key('模型范围输入', 'deterministic'); await key('模型范围', 'Enter');
+  const path = join(h.agent, 'settings.json'), backup = join(h.agent, 'settings.saved');
+  await rename(path, backup); await mkdir(path);
+  try {
+    await combo('模型范围', '模型范围输入', 'ctrl+s');
+    await until(async () => (await snapshot()).notices.some(n => n.message.includes('模型范围保存失败')), 'scope write failure', 5000);
+    assert.ok(!(await snapshot()).notices.some(n => n.message === '模型范围已保存'));
+    await answer('模型范围', { cancelled: true });
+    await until(() => h.query("SELECT seq FROM events WHERE operation_id = ? AND type = 'operation.updated' AND json_extract(payload_json, '$.status') = 'failed'", menu.operationId).length, 'failed scope operation', 5000);
+  } finally { await rmdir(path); await rename(backup, path); }
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  assert.equal(h.provider.requests.length, 1);
+  await key('扩展编辑器', 'Esc'); await h.terminal(active.commandId, 'cancelled');
+});
+
 test('native settings persist changes, update active editor and reject unsupported rendering controls', { timeout: 120000 }, async t => {
   const { h, command, extension, snapshot, next, answer, key, combo, draft } = await treeHarness(t);
   await command('prompt', { text: 'SETTINGS_SOURCE' }); await extension('/r16-editor');
@@ -764,9 +815,9 @@ test('real CustomEditor edits, completes and submits once; reset invalidates old
   await draft('!!printf editor-shell'); await key('Enter');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.command === 'printf editor-shell' && item.message.excludeFromContext === true), 'editor native Bash');
   assert.ok(h.query("SELECT seq FROM events WHERE type = 'operation.updated' AND json_extract(payload_json, '$.kind') = 'bash'").length > 0);
-  await draft('/scoped-models'); await key('Enter');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/scoped-models') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
-  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/scoped-models');
+  await draft('/session'); await key('Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/session') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/session');
   assert.equal(h.provider.requests.length, 1, 'Bash and terminal menus never become model prompts');
   await draft('keep');
   await key('Home');

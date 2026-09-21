@@ -26,6 +26,14 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 原生模型范围菜单
+
+基于 `f206a97`，接入 `/scoped-models` 的固定 SDK ScopedModelsSelectorComponent，保留搜索、启停、provider 批量选择、排序、全选/清空与显式保存。选择即时更新 Session.scopedModels 及扩展页脚 provider 数量，关闭不撤销；只有保存键才写 enabledModels，等待 flush 并检查 drainErrors。全部、空列表或仅失效条目沿原生语义解除运行时范围限制，单个可用范围模型不强制轮换当前模型。未匹配配置条目继续可见并参与保存，目录刷新沿原生共享取消订阅和 15 秒超时，不能覆盖用户已改选择。独立 configure Operation 不借用正在运行的 Run，编辑器结束/会话替换后旧菜单失效；没有新增协议、schema、执行限制或付费调用。
+
+环境为 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。构建通过（`test-results/scoped-models-build.log`）。首轮会话进程 35/36（`scoped-models-sessions.log`）：新增测试错误预期单模型范围会强制切换模型，核对 SDK 后改为断言原生不切换，再显式选择并验证轮换范围。首轮定向 71 项通过但新增 suite 加载失败（`scoped-models-targeted.log`、`scoped-models-unit.log`），原因是 SDK 不提供 CommonJS exports；测试改为动态导入。随后新增 3/4（`scoped-models-unit-final.log`），取消断言早于共享刷新订阅的异步清理，改为等待一个事件循环后检查实际 signal，4/4 通过（`scoped-models-unit-verified.log`）。补充页脚同步和原生排序键断言后仍为 4/4（`scoped-models-surface-unit.log`）；完整 lint 通过（`scoped-models-lint.log`）。保留初始失败证据，不削弱断言或更改原生轮换行为。
+
+首轮 `pnpm verify:S07` 为 14 passed / 2 failed（`scoped-models-s07.log`、`scoped-models-s07-initial-report.json`），36 项会话进程通过；运行期间补充页脚同步，故未将该报告作为最终产品证据。固定产品与测试后重新运行 `pnpm verify:S07`，最终仍为 **14 passed / 2 failed**（`scoped-models-s07-final.log`、`s07/report.json`）：构建、命令合同、五类生命周期表单、37 项会话进程、lint、全量类型和文档检查均通过。新增进程测试覆盖不保存/显式保存/清空/全选、原生单模型轮换语义、关闭编辑器后旧表单拒绝、正在生成时修改范围、实际写入失败通知及 configure Operation 失败终态，模型请求不被重启。两项失败为旧 live-commands / parity-tui-commands 源码身份失效。最终文档检查与 git diff --check 通过；真实 provider、交互式 TUI、Android/iOS 实机未运行，测试只用临时项目和本地合成 provider，未读取模型凭据，未重跑双端 JS 构建。S07 仍保持 blocked。下一步继续 `/session` 等尚未接入的内置菜单和显示/启动设置，完整发布验收仍需外部真实条件。
+
 ## 2026-09-21 原生设置菜单与即时生效路径
 
 基于 `755513a`，接入 `/settings` 的原生 SettingsSelectorComponent、SettingsList 搜索/值循环和模型思考覆盖子菜单。支持自动压缩、steer/follow-up 模式、传输/HTTP idle timeout、模型思考覆盖增删、图片自动缩放/模型图片阻断、skill 命令、默认项目信任、双 Esc/树过滤，以及编辑器 padding/补全条数。SDK runtime setter 与设置保存同时执行；编辑器更新不替换组件、不清草稿，缺少可选 setter 的自定义编辑器沿原生行为保留自身布局。默认项目信任只改变原生后续回退决策。没有新协议字段、schema 或默认执行限制。

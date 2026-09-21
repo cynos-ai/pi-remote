@@ -12,6 +12,7 @@ import { EditorHost } from "./editor-host.js";
 import { createModelSelector, findEditorModel, type ModelSelection } from "./model-selector.js";
 import { createThinkingSelector, type ThinkingSelection } from "./thinking-selector.js";
 import { createSettingsSelector } from "./settings-selector.js";
+import { createScopedModelsSelector } from "./scoped-models-selector.js";
 import { createSessionSelector } from "./session-selector.js";
 import { createForkSelector } from "./fork-selector.js";
 import { createTreeSelector } from "./tree-selector.js";
@@ -1411,6 +1412,42 @@ export class PiWorker {
     }
   }
 
+  private async scopedModelsFromEditor(owner: string, signal: AbortSignal): Promise<void> {
+    if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
+    const context = this.createStandaloneOperation(owner, "configure");
+    this.standaloneOperations.delete(context.operationId);
+    this.causalCommands.delete(context.operationId);
+    const session = this.handle.session, settings = this.handle.services.settingsManager;
+    let writes = Promise.resolve();
+    let writeFailed = false;
+    try {
+      await this.uiContextStorage.run(context, async () => {
+        await runCustomUi<void>((tui, _theme, keys, done) => createScopedModelsSelector(tui, keys, session, settings,
+          () => !signal.aborted && owner === this.currentSessionId, patterns => {
+            settings.setEnabledModels(patterns);
+            writes = writes.then(async () => {
+              await settings.flush();
+              const errors = settings.drainErrors();
+              if (errors.length) throw new Error(errors.map(item => errorMessage(item.error)).join("; "));
+              this.createUiContext().notify("模型范围已保存", "info");
+            }).catch(error => { writeFailed = true; this.createUiContext().notify(`模型范围保存失败：${errorMessage(error)}`, "error"); });
+          }, () => done(undefined), () => {
+            const surface = this.surfaceHosts.get(owner);
+            if (surface) this.updateSurfaceData(surface);
+          }), {
+          agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
+          publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+          inputError: message => this.createUiContext().notify(message, "error"),
+          ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "模型范围" : "模型范围输入", {
+            ...(keys ? { options: keys } : {}), message: "原生模型范围菜单：选择与排序即时影响本会话，使用菜单保存键写入设置；关闭不撤销选择。"
+          }, { signal: inputSignal })
+        });
+        await writes;
+      });
+      this.emitOperationStatus(writeFailed ? "failed" : "completed", context);
+    } catch (error) { await writes; this.emitOperationStatus("failed", context); throw error; }
+  }
+
   private async settingsFromEditor(owner: string, signal: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
     const context = this.createStandaloneOperation(owner, "configure");
@@ -1627,6 +1664,7 @@ export class PiWorker {
     let modelMenu: Promise<void> | undefined;
     let thinkingMenu: Promise<void> | undefined;
     let settingsMenu: Promise<void> | undefined;
+    let scopedModelsMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
     const openModelMenu = (search?: string) => {
       if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal, search).finally(() => { modelMenu = undefined; });
@@ -1723,6 +1761,10 @@ export class PiWorker {
           submit: async text => {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
+            if (text === "/scoped-models") {
+              if (!scopedModelsMenu) scopedModelsMenu = this.scopedModelsFromEditor(owner, controller.signal).finally(() => { scopedModelsMenu = undefined; });
+              await scopedModelsMenu; return;
+            }
             if (text === "/settings") {
               if (!settingsMenu) settingsMenu = this.settingsFromEditor(owner, controller.signal).finally(() => { settingsMenu = undefined; });
               await settingsMenu; return;
