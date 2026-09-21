@@ -25,8 +25,10 @@ export class EditorHost {
   private wrappers: Wrapper[] = [];
   private bridge?: Bridge;
   private refresh?: () => void;
+  private keys?: KeybindingsManager;
 
   getFactory(): Factory | undefined { return this.factory; }
+  getKeybindings(): KeybindingsManager | undefined { return this.keys; }
   getText(): string { return this.component?.getText() ?? this.text; }
   refreshAutocomplete(): void { if (this.component && this.bridge) this.component.setAutocompleteProvider?.(this.autocomplete()); }
   setPaddingX(value: number): void { this.component?.setPaddingX?.(value); this.refresh?.(); }
@@ -85,6 +87,7 @@ export class EditorHost {
         }, keys);
         if (controller.signal.aborted) return editor;
         this.component = editor;
+        this.keys = keys;
         try {
           this.refresh = () => tui.requestRender();
           const custom = editor as EditorComponent & {
@@ -138,7 +141,7 @@ export class EditorHost {
       bridge.signal.removeEventListener("abort", abort);
       if (this.controller === controller) {
         this.text = this.getText(); this.component = undefined; this.factory = undefined; this.controller = undefined;
-        bridge.changed(this.text); this.bridge = undefined; this.refresh = undefined;
+        bridge.changed(this.text); this.bridge = undefined; this.refresh = undefined; this.keys = undefined;
       }
     }
   }
@@ -151,6 +154,7 @@ export class EditorHost {
     this.controller = undefined;
     this.bridge = undefined;
     this.refresh = undefined;
+    this.keys = undefined;
   }
 
   reset(): void { this.stop(); this.wrappers = []; }

@@ -13,6 +13,7 @@ import { createModelSelector, findEditorModel, type ModelSelection } from "./mod
 import { createThinkingSelector, type ThinkingSelection } from "./thinking-selector.js";
 import { createSettingsSelector } from "./settings-selector.js";
 import { createScopedModelsSelector } from "./scoped-models-selector.js";
+import { EDITOR_COMMANDS, PENDING_EDITOR_COMMANDS, sessionInformation, hotkeyInformation, changelogInformation, editorPathArgument, createInformationViewer } from "./editor-commands.js";
 import { createSessionSelector } from "./session-selector.js";
 import { createForkSelector } from "./fork-selector.js";
 import { createTreeSelector } from "./tree-selector.js";
@@ -1412,6 +1413,56 @@ export class PiWorker {
     }
   }
 
+  private async commandFromEditor(owner: string, text: string, signal: AbortSignal): Promise<void> {
+    if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
+    const context = this.createStandaloneOperation(owner);
+    this.standaloneOperations.delete(context.operationId);
+    this.causalCommands.delete(context.operationId);
+    const session = this.handle.session;
+    try {
+      await this.uiContextStorage.run(context, async () => {
+        const name = text.split(/\s/, 1)[0]!;
+        const argument = text.slice(name.length).trim();
+        const notify = (message: string) => this.createUiContext().notify(message, "info");
+        if (name === "/name") {
+          if (argument) session.setSessionName(argument);
+          notify(session.sessionManager.getSessionName() ? `会话标题：${session.sessionManager.getSessionName()}` : "用法：/name <标题>");
+          return;
+        }
+        if (name === "/export") {
+          const path = editorPathArgument(text, name);
+          const output = path?.endsWith(".jsonl") ? session.exportToJsonl(path) : await session.exportToHtml(path, { themeName: "dark" });
+          notify(`会话已导出到服务端：${output}`); return;
+        }
+        if (name === "/compact") {
+          await session.compact(argument || undefined);
+          notify("手动压缩已完成"); return;
+        }
+        if (name === "/copy") {
+          const message = session.getLastAssistantText();
+          if (!message) throw new Error("还没有可复制的助手回复");
+          // The device owns its clipboard; returning edited text must never submit a prompt.
+          await this.requestInteraction("editor", "复制最后回复", { prefill: message,
+            message: message.length > 32768
+              ? "回复超过文本框上限，仅展示前 32768 个字符；完整内容可通过 /export 导出。编辑或关闭不会发送消息。"
+              : "请在手机文本框中选择并复制；关闭或编辑不会发送消息，也不会写入服务器剪贴板。" }, { signal });
+          return;
+        }
+        await runCustomUi<void>((_tui, _theme, keys, done) => createInformationViewer(
+          name === "/session" ? sessionInformation(session) : name === "/hotkeys"
+            ? hotkeyInformation(this.editorHost.getKeybindings() ?? keys) : changelogInformation(), () => done(undefined)), {
+          agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
+          publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+          inputError: message => this.createUiContext().notify(message, "error"),
+          ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "会话信息" : "信息输入", {
+            ...(keys ? { options: keys } : {}), message: `${name}：上下滚动、翻页、Home/End，Enter 或 Esc 关闭。`
+          }, { signal: inputSignal })
+        });
+      });
+      this.emitOperationStatus("completed", context);
+    } catch (error) { this.emitOperationStatus("failed", context); throw error; }
+  }
+
   private async scopedModelsFromEditor(owner: string, signal: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
     const context = this.createStandaloneOperation(owner, "configure");
@@ -1624,7 +1675,11 @@ export class PiWorker {
         if (action === "resume") {
           path = await runCustomUi<string | undefined>((tui, _theme, keys, done) =>
             createSessionSelector(tui, keys, this.handle!.session, done,
-              () => this.createUiContext().notify("终端退出尚未接入；会话继续运行", "error")), {
+              () => {
+                if (signal.aborted || owner !== this.currentSessionId) return;
+                this.createUiContext().notify("已退出远程编辑器；后端会话继续运行", "info");
+                this.setEditor(undefined);
+              }), {
             agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
             publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
             inputError: message => this.createUiContext().notify(message, "error"),
@@ -1666,6 +1721,20 @@ export class PiWorker {
     let settingsMenu: Promise<void> | undefined;
     let scopedModelsMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
+    const commandMenus = new Map<string, Promise<void>>();
+    const openCommand = (text: string) => {
+      const name = text.split(/\s/, 1)[0]!;
+      if (!["/session", "/hotkeys", "/changelog", "/copy"].includes(name)) return this.commandFromEditor(owner, text, controller.signal);
+      const existing = commandMenus.get(name);
+      if (existing) return existing;
+      const pending = this.commandFromEditor(owner, text, controller.signal).finally(() => { commandMenus.delete(name); });
+      commandMenus.set(name, pending); return pending;
+    };
+    const closeEditor = () => {
+      if (owner !== this.currentSessionId || controller.signal.aborted) return;
+      this.createUiContext().notify("已退出远程编辑器；后端会话继续运行，可使用手机输入框或由扩展重新打开编辑器", "info");
+      this.setEditor(undefined);
+    };
     const openModelMenu = (search?: string) => {
       if (!modelMenu) modelMenu = this.configureFromEditor(owner, "select", controller.signal, search).finally(() => { modelMenu = undefined; });
       return modelMenu;
@@ -1698,10 +1767,12 @@ export class PiWorker {
             ["app.model.cycleBackward", () => this.configureFromEditor(owner, "backward")],
             ["app.clear", () => {
               const now = Date.now();
-              if (lastClear !== undefined && now - lastClear < 500) throw new Error("终端退出尚未接入；会话继续运行");
+              if (lastClear !== undefined && now - lastClear < 500) { closeEditor(); return; }
               this.editorHost.setText(""); lastClear = now;
             }],
-            ["app.exit", () => { throw new Error("终端退出尚未接入；会话继续运行"); }],
+            ["app.exit", closeEditor],
+            ["app.message.copy", () => openCommand("/copy")],
+            ["app.suspend", () => { throw new Error("远程编辑器挂起/恢复尚待适配；手机可退到后台，服务继续运行，不向 worker 发送 SIGTSTP"); }],
             ["app.tools.expand", () => this.createUiContext().setToolsExpanded(!this.toolsExpanded)],
             ["app.interrupt", async () => {
               if (owner !== this.currentSessionId || controller.signal.aborted) return;
@@ -1761,6 +1832,11 @@ export class PiWorker {
           submit: async text => {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
+            if (text === "/quit") { closeEditor(); return; }
+            if (["/session", "/hotkeys", "/changelog", "/copy"].includes(text)
+              || ["/name", "/export", "/compact"].some(command => text === command || text.startsWith(`${command} `))) {
+              await openCommand(text); return;
+            }
             if (text === "/scoped-models") {
               if (!scopedModelsMenu) scopedModelsMenu = this.scopedModelsFromEditor(owner, controller.signal).finally(() => { scopedModelsMenu = undefined; });
               await scopedModelsMenu; return;
@@ -1775,7 +1851,7 @@ export class PiWorker {
             if (text === "/tree") { await openSessionMenu("tree"); return; }
             if (text === "/new") { await this.sessionFromEditor(owner, "new", controller.signal); return; }
             if (nativeSlashCommands.BUILTIN_SLASH_COMMANDS.some(command => command.name === name)) {
-              throw new Error(`/${name} 的终端菜单尚未接入编辑器；请使用手机对应控制入口，文本已保留`);
+              throw new Error(`/${name}：${PENDING_EDITOR_COMMANDS[name!] ?? `参数无效；${EDITOR_COMMANDS[name as keyof typeof EDITOR_COMMANDS] ?? "请检查命令用法"}`}；文本已保留`);
             }
             const submission = this.createStandaloneOperation(owner, text.startsWith("!") ? "bash" : "extension");
             this.standaloneOperations.delete(submission.operationId);

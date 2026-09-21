@@ -26,6 +26,18 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 内置命令与远程退出交付节点
+
+基于 `f235cf5`，新增 `/session`、`/name`、`/copy`、`/export`、`/changelog`、`/hotkeys`、`/compact` 与 `/quit` 编辑器入口，并接通原生复制键、空草稿退出键、双 Ctrl+C 和历史选择器退出。统计直接取 SDK 全会话用量、模型费用分组和缓存重复计费；信息使用可翻页文本窗口。导出保留原生 HTML/JSONL 与引号路径解析，文件留在服务端，不自动上传。复制使用手机文本框，不声称写入服务器剪贴板；超长回复明确提示文本框上限及完整导出方式。手动压缩直接走 SDK，不套用 stop 清队列或自动重试。
+
+退出只关闭当前远程编辑器和待答子菜单，保留草稿与后台任务，不调用 worker/service shutdown，也不伪造原生 shutdown hook。非空 Ctrl+D 保持向前删除，扩展自定义处理优先。挂起/恢复仍明确提示待适配，不发送 SIGTSTP。只读/复制窗口按类型复用，导出/改名/压缩不合并不同提交。失败草稿与 Operation 沿现有归属边界处理，旧响应失效。无协议/schema 变化。
+
+新增[命令与快捷键状态表](editor-command-status.md)，覆盖固定 SDK 的 23 个命令：16 个已接入（部分设置仍待适配），7 个流程仍待实现。import/clone/reload/trust/login/logout/share 分别列出具体适配步骤，运行时保留文本并给出相应说明，不再用不存在的手机入口搪塞。app.message.followUp/dequeue、外部编辑器、图片粘贴、思考显示与挂起热键仍未接入；本次是大节点中的可交付命令批次，不将能力清单完整等同于全部流程实现。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：构建通过（`test-results/editor-commands-build.log`、`editor-commands-build-final.log`），定向 editor/custom/worker/runtime 回归 66/66（`editor-commands-targeted.log`），lint 通过（`editor-commands-lint.log`）。首轮真实会话进程 39/40（`editor-commands-sessions.log`）：退出测试的清理误用不存在的 stop Command，协议要求 abort；已修正测试，未更改退出行为或放宽断言。该轮信息、标题同步、复制、双格式导出、导出失败保留草稿、待接入流程说明、压缩落盘及空历史失败均由本地合成 provider/真实服务进程验证；退出三种路径的运行中断言均完成，失败发生在末尾清理。随后补齐历史选择器远程退出和动作提交不合并边界，以最终 S07 重建验证为准。
+
+最终 `pnpm verify:S07` 为 **14 passed / 2 failed**（`test-results/editor-commands-s07.log`、`test-results/s07/report.json`）：构建、命令合同、五类生命周期表单、40 项会话进程、lint、全量类型检查和文档检查通过；失败仍为旧 live-commands / parity-tui-commands 报告源码身份失效。最终文档及差异格式检查通过。未读取模型凭据、未调用付费 provider，未运行真实 TUI、Android/iOS 实机及双端 JS 构建；S07 仍保留外部验收阻塞。下一批继续会话导入/克隆及资源重载的完整映射和 UI 生命周期，不以清单代替实现。
+
 ## 2026-09-21 原生模型范围菜单
 
 基于 `f206a97`，接入 `/scoped-models` 的固定 SDK ScopedModelsSelectorComponent，保留搜索、启停、provider 批量选择、排序、全选/清空与显式保存。选择即时更新 Session.scopedModels 及扩展页脚 provider 数量，关闭不撤销；只有保存键才写 enabledModels，等待 flush 并检查 drainErrors。全部、空列表或仅失效条目沿原生语义解除运行时范围限制，单个可用范围模型不强制轮换当前模型。未匹配配置条目继续可见并参与保存，目录刷新沿原生共享取消订阅和 15 秒超时，不能覆盖用户已改选择。独立 configure Operation 不借用正在运行的 Run，编辑器结束/会话替换后旧菜单失效；没有新增协议、schema、执行限制或付费调用。

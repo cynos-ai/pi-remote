@@ -35,6 +35,62 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('editor information, title, copy and exports stay local and preserve failure drafts', { timeout: 120000 }, async t => {
+  const { h, command, extension, snapshot, next, answer, key, combo, draft } = await treeHarness(t);
+  await command('prompt', { text: 'BUILTIN_SOURCE' }); await extension('/r16-editor');
+  const submit = async text => { await extension(`/r16-editor-draft ${text}`); await key('扩展编辑器', 'Enter'); };
+  await submit('/name Native command title');
+  await until(() => h.query('SELECT title FROM sessions WHERE id = ?', h.sessionId)[0].title === 'Native command title', 'native title synced', 5000);
+  await submit('/session'); const info = await next('会话信息'); assert.equal(info.runId, null);
+  const frame = () => h.query("SELECT payload_json FROM events WHERE operation_id = ? AND type = 'runtime.notice' AND json_extract(payload_json, '$.details.method') = 'custom.render' ORDER BY seq DESC LIMIT 1", info.operationId).map(row => JSON.parse(row.payload_json))[0];
+  assert.ok(JSON.stringify(frame()).includes('Native command title'));
+  await key('会话信息', 'End'); await key('会话信息', 'Esc');
+  await submit('/hotkeys'); await next('会话信息'); await key('会话信息', 'End'); await key('会话信息', 'Enter');
+  await submit('/changelog'); await next('会话信息'); await key('会话信息', 'Page Down'); await key('会话信息', 'Esc');
+  await submit('/copy'); const copy = await next('复制最后回复'); assert.equal(copy.runId, null);
+  assert.equal(copy.prefill, 'local-stream-complete'); await answer('复制最后回复', { cancelled: true });
+  await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+alt+c'); await next('复制最后回复'); await answer('复制最后回复', { cancelled: true });
+  await submit('/export "builtin history.jsonl"');
+  await until(async () => (await h.lines('builtin history.jsonl')).length > 1, 'JSONL export', 5000);
+  assert.ok((await h.lines('builtin history.jsonl')).map(JSON.parse).some(row => row.message?.role === 'assistant'));
+  await submit('/export "builtin history.html"');
+  await until(async () => (await h.lines('builtin history.html')).join('\n').includes('<!DOCTYPE html>'), 'HTML export', 5000);
+  await submit('/export /dev/null/fail.jsonl');
+  await until(async () => await draft() === '/export /dev/null/fail.jsonl', 'export failure draft preserved', 5000);
+  await submit('/reload');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('不完整重载') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
+  assert.equal(h.provider.requests.length, 1, 'builtin information and exports never prompt the model');
+});
+
+test('remote quit and native exit keys close the editor without stopping a running model', { timeout: 120000 }, async t => {
+  const { h, extension, snapshot, next, key, combo } = await treeHarness(t);
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 1, 'active model before remote exit', 5000);
+  for (const exit of ['slash', 'ctrl+d', 'double-clear']) {
+    await extension('/r16-editor'); await extension('/r16-editor-draft');
+    const stale = await next('扩展编辑器');
+    if (exit === 'slash') { await extension('/r16-editor-draft /quit'); await key('扩展编辑器', 'Enter'); }
+    else if (exit === 'ctrl+d') await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+d');
+    else { await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+c'); await combo('扩展编辑器', '扩展编辑器输入文本', 'ctrl+c'); }
+    await until(async () => !(await snapshot()).pendingInteractions.some(f => f.title === '扩展编辑器'), 'editor exited', 5000);
+    assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+    await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  }
+  assert.equal(h.provider.requests.length, 1);
+  const stop = await h.command('abort', { targetRunId: active.runId }); await h.terminal(stop.commandId); await h.terminal(active.commandId, 'cancelled');
+});
+
+test('editor compact uses native compaction and reports empty-history failure', { timeout: 120000 }, async t => {
+  const { h, command, extension, snapshot, key, draft } = await treeHarness(t, { compaction: { enabled: false, keepRecentTokens: 1 } });
+  await extension('/r16-editor'); await extension('/r16-editor-draft /compact'); await key('扩展编辑器', 'Enter');
+  await until(async () => await draft() === '/compact', 'empty compaction failure retains draft', 5000);
+  assert.equal(h.provider.requests.length, 0);
+  await command('prompt', { text: 'COMPACT_FIRST' }); await command('prompt', { text: 'COMPACT_SECOND' });
+  await extension('/r16-editor-draft /compact preserve marker'); await key('扩展编辑器', 'Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message === '手动压缩已完成'), 'native editor compaction', 5000);
+  assert.ok((await history(mapping(h).pi_session_file)).some(row => row.type === 'compaction'));
+});
+
 test('native scoped models apply without saving, explicitly persist and release stale menus', { timeout: 120000 }, async t => {
   const { h, extension, snapshot, next, key, combo } = await treeHarness(t, {}, { editorModels: true });
   await extension('/r16-editor');
@@ -722,9 +778,6 @@ test('native editor actions clear, expand, dismiss completion and restore queued
   await until(async () => (await h.lines('editor-bash-started')).length === 1, 'editor Bash starts');
   await answer('Esc');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.cancelled), 'editor Bash cancelled', 5000);
-  await combo('ctrl+d');
-  assert.ok((await snapshot()).notices.some(n => n.message.includes('终端退出尚未接入')));
-  assert.ok((await snapshot()).pendingInteractions.length > 0);
   await draft('ab'); await answer('Home'); await combo('ctrl+d');
   assert.equal(await text(), 'b', 'nonempty Ctrl+D keeps native delete-forward');
   const replay = await h.connect();
@@ -815,9 +868,9 @@ test('real CustomEditor edits, completes and submits once; reset invalidates old
   await draft('!!printf editor-shell'); await key('Enter');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.command === 'printf editor-shell' && item.message.excludeFromContext === true), 'editor native Bash');
   assert.ok(h.query("SELECT seq FROM events WHERE type = 'operation.updated' AND json_extract(payload_json, '$.kind') = 'bash'").length > 0);
-  await draft('/session'); await key('Enter');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/session') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
-  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/session');
+  await draft('/clone'); await key('Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/clone') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/clone');
   assert.equal(h.provider.requests.length, 1, 'Bash and terminal menus never become model prompts');
   await draft('keep');
   await key('Home');
