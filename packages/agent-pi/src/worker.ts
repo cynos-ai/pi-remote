@@ -12,6 +12,7 @@ import { EditorHost } from "./editor-host.js";
 import { createModelSelector, findEditorModel, type ModelSelection } from "./model-selector.js";
 import { createThinkingSelector, type ThinkingSelection } from "./thinking-selector.js";
 import { createTrustSelector } from "./trust-selector.js";
+import { createLogoutSelector, listLogoutProviders, removeStoredCredential, type LogoutProvider } from "./auth-selector.js";
 import { saveProjectTrust, type TrustSelection } from "./project-trust.js";
 import { createSettingsSelector } from "./settings-selector.js";
 import { createScopedModelsSelector } from "./scoped-models-selector.js";
@@ -1463,7 +1464,7 @@ export class PiWorker {
 
   private async commandFromEditor(owner: string, text: string, signal: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
-    const context = this.createStandaloneOperation(owner, text === "/trust" ? "configure" : undefined);
+    const context = this.createStandaloneOperation(owner, ["/trust", "/logout"].includes(text) ? "configure" : undefined);
     this.standaloneOperations.delete(context.operationId);
     this.causalCommands.delete(context.operationId);
     const session = this.handle.session;
@@ -1472,6 +1473,27 @@ export class PiWorker {
         const name = text.split(/\s/, 1)[0]!;
         const argument = text.slice(name.length).trim();
         const notify = (message: string) => this.createUiContext().notify(message, "info");
+        if (name === "/logout") {
+          const runtime = session.modelRuntime;
+          const providers = await listLogoutProviders(runtime, signal);
+          if (signal.aborted || owner !== this.currentSessionId) return;
+          if (!providers.length) { notify("没有可移除的已保存凭据；/logout 不修改环境变量、models.json 或运行时注入的凭据"); return; }
+          const selected = await runCustomUi<LogoutProvider | undefined>((_tui, _theme, keys, done) => createLogoutSelector(keys, providers, done), {
+            agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
+            publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+            inputError: message => this.createUiContext().notify(message, "error"),
+            ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "退出登录" : "退出登录搜索", {
+              ...(keys ? { options: keys } : {}), message: "搜索并选择 provider，Enter 移除已保存凭据，Esc 取消；环境变量和 models.json 不变。"
+            }, { signal: inputSignal })
+          });
+          if (!selected || signal.aborted || owner !== this.currentSessionId) return;
+          await removeStoredCredential(runtime, selected.id, signal);
+          if (owner !== this.currentSessionId) return;
+          this.editorHost.refreshAutocomplete();
+          await this.sendModels({ requestId: "runtime-state" });
+          notify(`已移除 ${selected.name} 的${selected.authType === "oauth" ? "登录" : "API key"}凭据；环境变量和 models.json 不变，当前模型选择与任务保持原状`);
+          return;
+        }
         if (name === "/trust") {
           const agentDir = this.handle!.services.agentDir;
           const selection = await runCustomUi<TrustSelection | undefined>((_tui, _theme, keys, done) =>
@@ -1835,7 +1857,7 @@ export class PiWorker {
     const commandMenus = new Map<string, Promise<void>>();
     const openCommand = (text: string) => {
       const name = text.split(/\s/, 1)[0]!;
-      if (!["/session", "/hotkeys", "/changelog", "/copy", "/trust"].includes(name)) return this.commandFromEditor(owner, text, controller.signal);
+      if (!["/session", "/hotkeys", "/changelog", "/copy", "/trust", "/logout"].includes(name)) return this.commandFromEditor(owner, text, controller.signal);
       const existing = commandMenus.get(name);
       if (existing) return existing;
       const pending = this.commandFromEditor(owner, text, controller.signal).finally(() => { commandMenus.delete(name); });
@@ -1944,7 +1966,7 @@ export class PiWorker {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
             if (text === "/quit") { closeEditor(); return; }
-            if (["/session", "/hotkeys", "/changelog", "/copy", "/clone", "/reload", "/trust"].includes(text)
+            if (["/session", "/hotkeys", "/changelog", "/copy", "/clone", "/reload", "/trust", "/logout"].includes(text)
               || ["/name", "/export", "/import", "/compact"].some(command => text === command || text.startsWith(`${command} `))) {
               await openCommand(text); return;
             }

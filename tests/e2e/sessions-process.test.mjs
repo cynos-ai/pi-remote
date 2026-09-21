@@ -35,6 +35,49 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('editor logout cancels safely, removes stored credentials and leaves active model and config intact', { timeout: 120000 }, async t => {
+  const { h, extension, next, key, snapshot } = await treeHarness(t); h.privateEvidence = true;
+  const auth = join(h.agent, 'auth.json'), models = join(h.agent, 'models.json');
+  const sentinel = 'synthetic-logout-credential-not-for-events';
+  const stored = JSON.stringify({ 'r16-local': { type: 'api_key', key: sentinel } });
+  await writeFile(auth, stored); const config = await readFile(models, 'utf8');
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 1, 'active logout model', 5000);
+  await extension('/r16-editor');
+  const open = async () => { await extension('/r16-editor-draft /logout'); await key('扩展编辑器', 'Enter'); return next('退出登录'); };
+  const menu = await open(); assert.equal(menu.runId, null);
+  await open(); assert.equal((await snapshot()).pendingInteractions.filter(f => f.title === '退出登录').length, 1);
+  await key('退出登录', 'Esc'); assert.equal(await readFile(auth, 'utf8'), stored);
+  const stale = await open(); await extension('/r16-editor-draft /quit'); await key('扩展编辑器', 'Enter');
+  await until(async () => !(await snapshot()).pendingInteractions.some(f => f.title === '退出登录'), 'logout menu closed', 5000);
+  await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  assert.equal(await readFile(auth, 'utf8'), stored);
+  await extension('/r16-editor'); await open(); await key('退出登录', 'Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.startsWith('已移除')), 'logout completed', 5000);
+  assert.deepEqual(JSON.parse(await readFile(auth, 'utf8')), {}); assert.equal(await readFile(models, 'utf8'), config);
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  assert.equal(h.provider.requests.length, 1);
+  await extension('/r16-editor-draft /logout'); await key('扩展编辑器', 'Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.startsWith('没有可移除的已保存凭据')), 'no stored credentials', 5000);
+  for (const table of ['events', 'commands']) assert.ok(!JSON.stringify(h.query(`SELECT payload_json FROM ${table}`)).includes(sentinel));
+  const stop = await h.command('abort', { targetRunId: active.runId }); await h.terminal(stop.commandId); await h.terminal(active.commandId, 'cancelled');
+});
+
+test('editor logout storage failure is explicit and keeps the submitted draft', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, key, draft, snapshot } = await treeHarness(t); h.privateEvidence = true;
+  const auth = join(h.agent, 'auth.json');
+  await writeFile(auth, JSON.stringify({ 'r16-local': { type: 'api_key', key: 'synthetic-logout-failure' } }));
+  await command('prompt', { text: 'LOGOUT_FAILURE' }); await extension('/r16-editor');
+  await extension('/r16-editor-draft /logout'); await key('扩展编辑器', 'Enter'); const menu = await next('退出登录');
+  await rename(auth, `${auth}.saved`); await mkdir(auth);
+  await key('退出登录', 'Enter');
+  await until(() => h.query("SELECT 1 FROM events WHERE operation_id = ? AND type = 'operation.updated' AND json_extract(payload_json, '$.status') = 'failed'", menu.operationId).length, 'logout failure status', 5000);
+  await until(async () => await draft() === '/logout', 'logout failure draft', 5000);
+  assert.ok(!(await snapshot()).notices.some(n => n.message.startsWith('已移除')));
+  await rmdir(auth); await rename(`${auth}.saved`, auth);
+  assert.equal(h.provider.requests.length, 1);
+});
+
 test('startup trust is answerable before mapping, survives reconnect and gates project resources', { timeout: 120000 }, async t => {
   const { h, snapshot } = await treeHarness(t);
   await mkdir(join(h.project, '.pi', 'extensions'), { recursive: true });

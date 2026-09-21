@@ -26,6 +26,14 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 退出登录与原生凭据状态
+
+基于 `491cdcc`，接通 `/logout` 的原生 OAuthSelectorComponent，按凭据元数据列出 provider、名称/原 ID 和类型，保留搜索、取消与排序。重复打开复用同一菜单，独立 configure Operation 不借用模型 Run；关闭编辑器后旧响应失效。使用原生 ModelRuntime.logout 和 15 秒鉴权操作期限，结合编辑器取消信号，成功后刷新本 worker 模型目录、补全和页脚，不改当前选中模型、不停止活动请求；环境变量、models.json、运行时注入凭据保持原状，其他已加载 worker 不主动广播刷新。
+
+凭据读取/删除错误不把原始异常或 CredentialSynchronizationError 的 credential/cause 写入事件；已删除但本地同步失败有独立提示，不自动重试。空列表明确说明可移除凭据来源。命令清单现为 21 个已接入，login/share 仍待接入；本批无公共协议/schema 变化。核对发现普通 respond 会进入服务端 Command/Interaction 持久化及手机离线待发缓存，因此登录仍需先实现跨端非持久化秘密通道，再接 API key/OAuth；本批不使用普通输入框收集密钥，也不声称完整鉴权节点已完成。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：构建通过（`test-results/logout-build.log`），原生菜单/模型回归 15/15（`logout-targeted.log`），包含临时 auth.json 真实删除与模型可用性变化、保留其他凭据和模型配置、搜索/取消、取消 signal 与错误脱敏。真实服务/worker 定向进程 2/2（`logout-process.log`），覆盖运行中删除、取消/退出失效、空列表、真实存储失败和事件/命令记录无合成密钥。`pnpm verify:S07` 原始结果为 **13 passed / 3 failed**（`test-results/logout-s07.log`、`test-results/s07/report.json`）：构建、命令合同、原生表单、51 项会话进程、全量类型和文档检查通过；失败包括 preserve-caught-error lint 和两份旧 live-commands / parity-tui-commands 源码身份失效报告。鉴权 cause/credential 可能含秘密，因此只对两处公开脱敏异常添加明确的局部 lint 例外，不保留原始 cause；完整 lint 重跑通过（`logout-lint-final.log`），补充 cause/credential 不附带断言后 4/4（`logout-redaction-final.log`）。例外注释未改变运行行为，不重跑整套进程测试，不将原始阶段报告改写为全绿。最终文档和差异格式检查通过，实现提交从本节文件历史追溯。测试仅用临时合成凭据和本地 provider；未读取真实密钥或操作用户鉴权文件，真实 provider/OAuth、TUI 与 Android/iOS 未运行，S07 保持 blocked。
+
 ## 2026-09-21 首次信任、原生 hook 与默认回退
 
 基于 `feb8d35`，受管 worker 首次遇到需信任资源的 cwd 时，使用 DefaultResourceLoader 的原生 bootstrap 和 resolveProjectTrusted；先加载用户级扩展，再按 hook → 保存决定 → 全局默认 always/never/ask → 询问的原生顺序决定项目资源加载。支持 remember、父目录、仅本次与取消；错误 hook 通知后沿原生回退，不把取消变成停止对话或 Bash。按原生 CLI 保留宿主内 cwd 决定缓存，new/fork/resume/import 和 `/reload` 不重复询问已决定的目录，worker 重启重新决策。这修正上一批“每次新 runtime 都读保存决定”的行为；菜单保存仍明确提示重启。注入 SettingsManager/ResourceLoader 或不提供信任 UI 的底层调用保留原有自定义路径。

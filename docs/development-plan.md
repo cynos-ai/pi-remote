@@ -6,6 +6,8 @@
 
 ## 0. 通用完成条件
 
+鉴权入口分阶段验证：退出登录复用原生凭据元数据菜单和 ModelRuntime.logout，覆盖取消、读取/删除失败、删除成功但本地同步失败、当前模型与活动 Run 保留、环境/模型配置未改及错误内容不泄露。登录依赖跨服务/手机的非持久化秘密传递路径，不能把 API key/OAuth 回调放入普通 Command、Interaction response、离线待发缓存或错误日志；该路径与登录 provider 回调尚待后续实现。
+
 项目信任菜单采用固定 SDK TrustSelectorComponent / ProjectTrustStore，当前/父目录决定与继承均保留；worker 重启后读取保存决定，活动 runtime 不自动重启。同宿主 cwd 缓存遵循原生语义。首次启动先引导用户级扩展，沿原生 resolveProjectTrusted 执行 hook、存储、默认回退和 ask，再加载项目资源。覆盖预映射表单、长等待/重连/幂等、取消、hook 出错后回退、仅本次缓存、存储错误与项目资源实际加载；真实 TUI/设备另行验收。
 
 S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和文本宿主实现，并验证异步生命周期、重放、清除及源会话归属。编辑器工厂另需输入、提交与自动补全契约，不能用静态画面通过代替可交互验收。
