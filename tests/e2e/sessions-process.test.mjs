@@ -35,6 +35,58 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('startup trust is answerable before mapping, survives reconnect and gates project resources', { timeout: 120000 }, async t => {
+  const { h, snapshot } = await treeHarness(t);
+  await mkdir(join(h.project, '.pi', 'extensions'), { recursive: true });
+  const marker = join(h.project, 'trust-project-loaded');
+  await writeFile(join(h.project, '.pi', 'extensions', 'trusted.js'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'loaded'); export default function() {}`);
+  const prompt = await h.command('prompt', { text: 'STARTUP_TRUST' }); await h.workerPid();
+  const form = await until(async () => (await snapshot()).pendingInteractions.find(f => f.title.startsWith('Trust project folder?')), 'pre-mapping trust form', 5000);
+  assert.equal(form.runId, null); assert.equal(form.origin, 'initialize'); assert.equal(mapping(h).pi_session_id, null);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' }); assert.equal(h.provider.requests.length, 0);
+  const reconnected = await h.connect();
+  assert.ok(reconnected.events().some(event => event.type === 'interaction.requested' && event.payload.interactionId === form.interactionId));
+  const payload = { operationId: form.operationId, interactionId: form.interactionId, response: { value: 'Trust (this session only)' } };
+  const id = randomUUID(), receipt = await h.command('respond', payload, id);
+  await h.terminal(receipt.commandId); assert.equal((await h.command('respond', payload, id)).commandId, receipt.commandId);
+  await h.terminal(prompt.commandId);
+  assert.equal(await readFile(marker, 'utf8'), 'loaded'); await assert.rejects(readFile(join(h.agent, 'trust.json')), { code: 'ENOENT' });
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('startup trust hooks use confirm input and notifications before project code loads', { timeout: 120000 }, async t => {
+  const { h, snapshot, answer, next } = await treeHarness(t, { defaultProjectTrust: 'never' });
+  await mkdir(join(h.project, '.pi', 'extensions'), { recursive: true });
+  const marker = join(h.project, 'trust-hook-project-loaded');
+  await writeFile(join(h.project, '.pi', 'extensions', 'trusted.js'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'loaded'); export default function() {}`);
+  await writeFile(join(h.agent, 'extensions', 'trust-hook.js'), `export default function(pi) { pi.on('project_trust', async (_event, ctx) => {
+    const ok = await ctx.ui.confirm('Startup trust hook', 'Allow project resources?');
+    const value = await ctx.ui.input('Startup trust input'); ctx.ui.notify('startup-trust-hook-finished');
+    return { trusted: ok && value === 'allow' ? 'yes' : 'no', remember: true };
+  }); }`);
+  const prompt = await h.command('prompt', { text: 'STARTUP_HOOK' }); await h.workerPid();
+  const form = await next('Startup trust hook'); assert.equal(form.runId, null);
+  await assert.rejects(readFile(marker), { code: 'ENOENT' });
+  await answer('Startup trust hook', { confirmed: true }); await answer('Startup trust input', { value: 'allow' });
+  await h.terminal(prompt.commandId);
+  assert.equal(JSON.parse(await readFile(join(h.agent, 'trust.json'), 'utf8'))[h.project], true);
+  assert.equal(await readFile(marker, 'utf8'), 'loaded');
+  assert.ok((await snapshot()).notices.some(n => n.message === 'startup-trust-hook-finished'));
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('startup trust cancellation skips project resources and permits the requested conversation', { timeout: 120000 }, async t => {
+  const { h, snapshot } = await treeHarness(t);
+  await mkdir(join(h.project, '.pi'), { recursive: true });
+  await writeFile(join(h.project, '.pi', 'SYSTEM.md'), 'PRIVATE_PROJECT_CONTEXT_NOT_TRUSTED');
+  const prompt = await h.command('prompt', { text: 'TRUST_CANCEL_CONTINUE' }); await h.workerPid();
+  const form = await until(async () => (await snapshot()).pendingInteractions.find(f => f.title.startsWith('Trust project folder?')), 'cancel trust form', 5000);
+  const answer = await h.command('respond', { operationId: form.operationId, interactionId: form.interactionId, response: { cancelled: true } });
+  await h.terminal(answer.commandId); await h.terminal(prompt.commandId);
+  assert.ok(!JSON.stringify(h.provider.requests).includes('PRIVATE_PROJECT_CONTEXT_NOT_TRUSTED'));
+  assert.equal(h.provider.requests.length, 1); await assert.rejects(readFile(join(h.agent, 'trust.json')), { code: 'ENOENT' });
+});
+
 test('editor trust saves native decisions without interrupting generation and invalidates closed menus', { timeout: 120000 }, async t => {
   const { h, extension, next, key, snapshot } = await treeHarness(t);
   const active = await h.command('prompt', { text: 'HOLD_MODEL' });

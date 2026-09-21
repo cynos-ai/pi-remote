@@ -1,6 +1,6 @@
 # V1 验收矩阵
 
-项目信任补充（AT02 / AT32）：远程 `/trust` 验证原生目录/父目录选择与继承、取消不保存、错误不报成功、活动 Run 不被停止、编辑器结束后旧响应失效，以及保存决定在新 runtime 的实际项目配置加载中生效；当前 runtime 和 `/reload` 保留原状态。首次启动 ask / project_trust hook、真实 TUI 与设备对照另行验收。
+项目信任补充（AT02 / AT32）：远程 `/trust` 验证原生目录/父目录选择与继承、取消不保存、错误不报成功、活动 Run 不被停止、编辑器结束后旧响应失效，以及保存决定在 worker 重启后的实际项目配置加载中生效；当前 runtime 和 `/reload` 保留原状态。首次启动验证映射前表单可答、长等待与重连、project_trust hook 的 confirm/input/notify、hook/存储/默认/ask 优先级、仅本次决定在同宿主 cwd 的缓存、取消后项目资源不加载且对话可继续。真实 TUI 与设备对照另行验收。
 
 这些是必须实现并运行的验收场景，不是已通过的测试结果。阶段完成情况见 [progress.md](progress.md)，实施入口见 [development-plan.md](development-plan.md)。FR 对应 [产品需求](v1-design.md)。
 

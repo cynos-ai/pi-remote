@@ -6,7 +6,7 @@
 
 ## 0. 通用完成条件
 
-项目信任菜单采用固定 SDK TrustSelectorComponent / ProjectTrustStore，当前/父目录决定与继承均保留；新 runtime 应读取明确保存的决定，现有 runtime 不自动重启。覆盖取消、重复打开、活动 Run 不受影响、旧响应失效、存储失败与实际项目配置加载。首次启动 ask、project_trust hook 和默认回退属于后续独立适配，不以菜单保存代替完整信任流程。
+项目信任菜单采用固定 SDK TrustSelectorComponent / ProjectTrustStore，当前/父目录决定与继承均保留；worker 重启后读取保存决定，活动 runtime 不自动重启。同宿主 cwd 缓存遵循原生语义。首次启动先引导用户级扩展，沿原生 resolveProjectTrusted 执行 hook、存储、默认回退和 ask，再加载项目资源。覆盖预映射表单、长等待/重连/幂等、取消、hook 出错后回退、仅本次缓存、存储错误与项目资源实际加载；真实 TUI/设备另行验收。
 
 S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和文本宿主实现，并验证异步生命周期、重放、清除及源会话归属。编辑器工厂另需输入、提交与自动补全契约，不能用静态画面通过代替可交互验收。
 

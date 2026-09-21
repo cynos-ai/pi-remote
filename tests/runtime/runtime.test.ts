@@ -571,7 +571,7 @@ describe("S06 worker and manager lifecycle", () => {
     expect(() => sessions.setPiMapping({ id: SESSION_A, piSessionId: "same-pi-id", piSessionFile: "/third.jsonl", persistenceState: "persisted" })).toThrow(/different pi mapping/);
   });
 
-  it("keeps a real session_start form alive beyond the default startup deadline and answers it once", async () => {
+  it("keeps pre-handle trust and session_start forms alive beyond the startup deadline and answers them once", async () => {
     const fixture = await testDatabase();
     const extensions = join(fixture.projectPath, ".pi", "extensions");
     await mkdir(extensions, { recursive: true });
@@ -606,6 +606,8 @@ export default function(pi) { pi.on('session_start', async (_event, ctx) => {
     await vi.waitFor(() => { if (loadError) throw loadError; expect(Object.values(loadReducerState(fixture.database, SESSION_A).interactions)).toHaveLength(1); }, { timeout: 20_000 });
     const first = Object.values(loadReducerState(fixture.database, SESSION_A).interactions)[0]!;
     expect(first.status).toBe("pending");
+    expect(first.title).toContain("Trust project folder?");
+    expect(fixture.database.prepare("SELECT pi_session_id FROM sessions WHERE id = ?").get(SESSION_A)).toMatchObject({ pi_session_id: null });
     await new Promise((resolve) => setTimeout(resolve, 15_200));
     expect(loadError).toBeUndefined();
     expect(manager.activeWorkerCount).toBe(1);
@@ -614,11 +616,14 @@ export default function(pi) { pi.on('session_start', async (_event, ctx) => {
     expect(reconnected.status).toBe("pending");
     const commands = new CommandService(fixture.database, manager);
     cleanups.push(async () => commands.dispose());
-    const answer = { kind: "respond", payload: { operationId: first.operationId, interactionId: first.interactionId, response: { confirmed: true } } };
+    const answer = { kind: "respond", payload: { operationId: first.operationId, interactionId: first.interactionId, response: { value: "Trust (this session only)" } } };
     const actor = { userId: OWNER, deviceId: DEVICE } as AuthContext;
     const receipt = await commands.submit(actor, SESSION_A, answer, "70000000-0000-4000-8000-000000000001");
     expect(receipt.status).toBe(202);
     expect(await commands.submit(actor, SESSION_A, answer, "70000000-0000-4000-8000-000000000001")).toEqual(receipt);
+    await vi.waitFor(() => expect(Object.values(loadReducerState(fixture.database, SESSION_A).interactions).some(item => item.title === "Initialization")).toBe(true));
+    const startup = Object.values(loadReducerState(fixture.database, SESSION_A).interactions).find(item => item.title === "Initialization")!;
+    await commands.submit(actor, SESSION_A, { kind: "respond", payload: { operationId: startup.operationId, interactionId: startup.interactionId, response: { confirmed: true } } }, "70000000-0000-4000-8000-000000000002");
     await loaded;
     await vi.waitFor(async () => expect(await readFile(marker, "utf8")).toBe("true\n"));
     expect(Object.values(loadReducerState(fixture.database, SESSION_A).interactions)[0]?.status).toBe("resolved");

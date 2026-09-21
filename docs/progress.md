@@ -26,6 +26,14 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 首次信任、原生 hook 与默认回退
+
+基于 `feb8d35`，受管 worker 首次遇到需信任资源的 cwd 时，使用 DefaultResourceLoader 的原生 bootstrap 和 resolveProjectTrusted；先加载用户级扩展，再按 hook → 保存决定 → 全局默认 always/never/ask → 询问的原生顺序决定项目资源加载。支持 remember、父目录、仅本次与取消；错误 hook 通知后沿原生回退，不把取消变成停止对话或 Bash。按原生 CLI 保留宿主内 cwd 决定缓存，new/fork/resume/import 和 `/reload` 不重复询问已决定的目录，worker 重启重新决策。这修正上一批“每次新 runtime 都读保存决定”的行为；菜单保存仍明确提示重启。注入 SettingsManager/ResourceLoader 或不提供信任 UI 的底层调用保留原有自定义路径。
+
+信任 hook 的 select/confirm/input/notify 可以早于 SDK handle 及 native mapping，沿 initialize 或触发替换的现有 Operation 持久化。respond 以活动待答 interactionId/operationId 为边界，不再要求 SDK handle 已创建；模型/配置命令的 ready 条件不变。初始化 Operation 在 factory 前分配，防止重复初始化；完整信任说明存 message，标题维持既有长度规则。已有初始化表单进度与心跳覆盖长等待、重连、重复响应。无公共字段或数据库迁移，已同步协议、数据、原生契约和验收说明。
+
+WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1：构建通过（`test-results/trust-startup-build.log`）；原生 bootstrap、信任菜单、runtime 与历史回归 72/72（`trust-startup-targeted.log`），包含映射为空时等待超过 15 秒仍可答、随后 session_start 表单仍可答。真实 server/worker 定向进程 3/3（`trust-startup-process.log`），覆盖映射前重连/幂等、全局 hook 表单与记住决定、取消后项目上下文不进入请求且对话可继续。最终 `pnpm verify:S07` 为 **14 passed / 2 failed**（`test-results/trust-startup-s07.log`、`test-results/s07/report.json`）：构建、命令合同、原生表单、49 项会话进程、lint、全量类型和文档检查通过；两项失败仍为旧 live-commands / parity-tui-commands 报告源码身份失效。最终文档和差异格式检查通过，实现提交可从本节文件历史追溯。测试仅使用临时目录及本地合成 provider，未读取密钥或调用付费模型；真实 provider、原生 TUI、Android/iOS 尚未验收，S07 保持 blocked。
+
 ## 2026-09-21 项目信任菜单与持久决定
 
 基于 `a7edfd3`，接入固定 SDK TrustSelectorComponent / ProjectTrustStore 的 `/trust` 菜单，保留当前目录、父目录与继承语义，使用原生锁定读/合并/写入。重复打开复用菜单，独立 configure Operation 不借用活动 Run；关闭编辑器后旧响应失效，写入错误导致 Operation 失败并恢复提交草稿。保存成功明确提示新 runtime 生效，不自行停止任务或重启 worker。命令清单现在 20 个已接入、login/logout/share 3 个仍待接入，完整第 1 大节点未完成。

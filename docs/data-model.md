@@ -4,6 +4,8 @@
 
 ## 1. 存储所有权
 
+首次信任表单的 Operation/Interaction 先存 SQLite，即使 Session 的 pi 映射尚未初始化。明确记住的信任决定由原生 agentDir/trust.json 管理；仅本次决定留在当前 runtime 宿主的 cwd 缓存，重启后重新决策。两者不新增数据库表或迁移；同 worker 的 new/fork/resume/import 创建 runtime 时复用已缓存 cwd 决定，不把菜单保存当作立即更新活动 runtime。
+
 | 内容 | 权威来源 |
 | --- | --- |
 | 用户、设备、项目、标题、归档、命令状态 | SQLite |

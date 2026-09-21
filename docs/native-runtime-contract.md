@@ -4,6 +4,8 @@
 
 ## 1. Operation、Run 和外部 Command
 
+首次项目信任可以发生在 SDK AgentSession 创建和 native mapping ACK 之前，使用既有 initialize Operation / interaction 事件持久化，runId 为 null。respond 根据活动 worker、待答 interactionId 和 operationId 校验，不要求 SDK handle 已存在；此放行不允许其他模型/配置控制提前执行。信任表单等待及回答后的异步 hook 由已有初始化进度与心跳机制维持，不因映射尚未产生而超时取消。项目资源只在原生信任 resolver 决定后加载。
+
 Operation 标识一次初始化、配置、模型执行、用户 Bash 或扩展回调，kind 为 initialize / configure / run / bash / extension。由持久事件维护活动投影；无须增加操作调度表。异步后续操作可用 parentOperationId 标明来源，父操作完成不自动结束子操作。
 
 custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异步 done 共享该归属，单个按键表单结束不关闭整个组件。done 关闭当时仍待答的控制表单并返回原值，用户明确取消返回 undefined；扩展自己的 Esc 语义不由适配器替代。异常向上报告并清理组件，worker 退出中止回调，迟到工厂不重新打开控件。此 UI 生命周期不是模型 Run，也不同于下文 custom 消息内容。

@@ -104,6 +104,6 @@ CustomEditor 输入 `/resume` 可打开原生历史菜单，`/new` 新建会话�
 
 终端主题、思考块隐藏、Mermaid/缓存提示/聊天 padding、硬件光标、全屏/滚动/选择复制、terminal progress、clear-on-shrink、changelog/quiet-startup/安装遥测及警告提示等尚无完整显示或启动路径，菜单可见项标为“待适配”，操作会说明配置未修改。图片显示/宽度项仍遵循 SDK 对终端图片能力的原生可见条件；这和已接通的模型图片处理设置不同，不默认阻断模型图片能力。原生菜单结构保留，但不把上述尚未生效项伪装成已支持。剩余显示/启动路径仍待后续工作。
 
-`/trust` 已接通原生信任菜单及 trust.json 持久化，支持当前目录/父目录、继承、取消；保存不会改变当前 runtime 的信任状态或打断任务。新 runtime 创建时读取明确保存的决定；没有需信任资源时按原生语义可信。固定 SDK 服务工厂本身不读取该文件，因此适配器显式初始化 SettingsManager，注入的自定义 SettingsManager 保留调用者选择。首次启动 ask / project_trust hook 及上述默认信任配置的回退生效路径仍待接入，无保存决定时保持既有行为；不能把菜单与显式决定持久化视为完整原生信任流程。
+`/trust` 已接通原生信任菜单及 trust.json 持久化，支持当前目录/父目录、继承、取消；保存不会改变当前 runtime 的信任状态或打断任务。同宿主按 cwd 缓存决定，worker 重启重新决策。首次遇到需信任项目资源时，通过 DefaultResourceLoader 的原生 bootstrap 先加载用户级扩展，再运行 resolveProjectTrusted：project_trust hook 优先，其次保存决定、全局默认 always/never/ask、显式询问。仅本次决定留在内存；拒绝/取消不加载需信任的项目资源，对话和 Bash 不另加限制。hook 的 select/confirm/input/notify 使用 initialize 或触发替换的既有 Operation，SDK handle/映射尚未建立也可回答。完整提示置于 message，断线重放、幂等与原生 hook 错误回退保留；真实 TUI/设备仍未验收。注入 SettingsManager/ResourceLoader 或未提供信任 UI 的底层 SDK 调用保留原有自定义控制路径。
 
 依据：[SDK 与资源发现](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/docs/sdk.md)、[AgentSession 控制与扩展行为](https://github.com/earendil-works/pi/blob/d981de1229ef899957bbe968bc8dcda02a21f477/packages/coding-agent/src/core/agent-session.ts)。

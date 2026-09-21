@@ -6,6 +6,8 @@
 
 ## 1. 通用约定
 
+首次信任表单沿用 initialize Operation 和 interaction.requested/resolved，无新增协议字段。表单可以早于 native session_mapping：原生标题摘要保留在 title，完整信任说明与目录在 message，选择值沿 SDK 原样发送；响应通过相同 operationId/interactionId 及 worker epoch 校验、幂等与重放。SDK handle 尚未创建不影响回答已有表单。
+
 - 前缀 `/v1`；JSON UTF-8；字段 camelCase。Project / Session / Run / Command / Operation / Interaction / Artifact ID 使用服务端 UUID；messageId、blockId、toolCallId 为最长 128 字符的不透明引用，可来自 SDK 或适配器映射。
 - 时间为 UTC RFC3339；seq 为 JSON 安全整数，Session 内从 1 连续增长。
 - 鉴权使用 `Authorization: Bearer <deviceToken>`。token 不出现在 URL、日志或事件中。

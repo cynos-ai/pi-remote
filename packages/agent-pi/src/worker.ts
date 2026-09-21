@@ -641,16 +641,27 @@ export class PiWorker {
 
   private async initialize(payload: WorkerInitializePayload): Promise<void> {
     this.agentDir = payload.agentDir;
-    if (this.initialized || this.stopped) {
+    if (this.initialized || this.initializationOperationId || this.stopped) {
       this.fatal("WORKER_ALREADY_INITIALIZED", "worker was initialized more than once");
       return;
     }
     try {
-      this.initializationOperationId = payload.operationId ?? null;
+      this.initializationOperationId = payload.operationId ?? randomUUID();
       const sessionOptions: PiAgentSessionOptions = {
         cwd: payload.cwd,
         agentDir: payload.agentDir,
         sessionDir: payload.sessionDir,
+        projectTrustContextFactory: cwd => {
+          const ui = this.createUiContext();
+          return { cwd, mode: "rpc", hasUI: true, ui: {
+            confirm: ui.confirm, input: ui.input, notify: ui.notify,
+            select: async (title, options, dialogOptions) => {
+              const result = await this.requestInteraction("select", title, { options, message: title }, dialogOptions);
+              return typeof result?.value === "string" ? result.value : undefined;
+            }
+          } };
+        },
+        onProjectTrustError: message => this.createUiContext().notify(message, "warning"),
         ...(payload.sessionFile ? { sessionFile: payload.sessionFile } : {}),
         ...(payload.sessionId ? { sessionId: payload.sessionId } : {}),
         ...(payload.persistenceState ? { persistenceState: payload.persistenceState } : {})
@@ -1317,7 +1328,9 @@ export class PiWorker {
   }
 
   private respond(payload: WorkerRespondPayload): void {
-    if (!this.initialized || !this.handle || this.stopped) {
+    // Trust negotiation runs before an SDK handle exists. A live pending
+    // interaction and its operation identity authorize the response.
+    if (this.stopped) {
       this.rejectCommand(payload.commandId, "WORKER_NOT_READY", "worker is not ready to answer forms");
       return;
     }

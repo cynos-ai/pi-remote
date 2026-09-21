@@ -16,10 +16,10 @@ import {
   type SessionStartEvent,
   type ToolDefinition
 } from "@earendil-works/pi-coding-agent";
-import type { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
+import type { DefaultResourceLoader, ProjectTrustContext } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { stat } from "node:fs/promises";
-import { initialProjectTrust } from "./project-trust.js";
+import { initialProjectTrust, hasTrustRequiringProjectResources, resolveProjectTrust } from "./project-trust.js";
 import { inspectPiSessionFile, openPiSessionFile, PiSessionHistoryError, type PiSessionFileState } from "./session-file.js";
 
 type SdkModel = Parameters<AgentSession["setModel"]>[0];
@@ -42,6 +42,8 @@ export interface PiAgentSessionOptions {
   modelRuntime?: ModelRuntime;
   resourceLoader?: ResourceLoader;
   resourceLoaderOptions?: Omit<SdkResourceLoaderOptions, "cwd" | "agentDir" | "settingsManager">;
+  projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
+  onProjectTrustError?: (message: string) => void;
   sessionStartEvent?: SessionStartEvent;
   model?: SdkModel;
   thinkingLevel?: SdkThinkingLevel;
@@ -93,10 +95,14 @@ async function resolveSessionManager(options: PiAgentSessionOptions): Promise<{
 async function resolveServices(
   options: PiAgentSessionOptions,
   cwd = options.cwd,
-  agentDir = options.agentDir
+  agentDir = options.agentDir,
+  projectTrustByCwd = new Map<string, boolean>()
 ): Promise<AgentSessionServices> {
+  const cachedTrust = projectTrustByCwd.get(cwd);
+  const negotiateTrust = !options.settingsManager && !options.resourceLoader && !!options.projectTrustContextFactory
+    && cachedTrust === undefined && hasTrustRequiringProjectResources(cwd);
   const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir, {
-    projectTrusted: initialProjectTrust(agentDir, cwd)
+    projectTrusted: negotiateTrust ? false : cachedTrust ?? initialProjectTrust(agentDir, cwd)
   });
   if (options.resourceLoader) {
     const modelRuntime = options.modelRuntime ?? await ModelRuntime.create({
@@ -119,6 +125,14 @@ async function resolveServices(
     agentDir,
     modelRuntime: options.modelRuntime,
     settingsManager,
+    resourceLoaderReloadOptions: negotiateTrust ? {
+      resolveProjectTrust: async ({ extensionsResult }) => {
+        const trusted = await resolveProjectTrust(agentDir, settingsManager, extensionsResult,
+          options.projectTrustContextFactory!(cwd), options.onProjectTrustError);
+        projectTrustByCwd.set(cwd, trusted);
+        return trusted;
+      }
+    } : undefined,
     resourceLoaderOptions: options.resourceLoaderOptions
   });
 }
@@ -183,6 +197,7 @@ export interface PiAgentRuntimeHandle {
 
 export async function createPiAgentRuntime(options: PiAgentRuntimeOptions): Promise<PiAgentRuntimeHandle> {
   const { manager: sessionManager, state: sessionFileState } = await resolveSessionManager(options);
+  const projectTrustByCwd = new Map<string, boolean>();
 
   const createRuntime = async ({
     cwd,
@@ -195,7 +210,7 @@ export async function createPiAgentRuntime(options: PiAgentRuntimeOptions): Prom
     sessionManager: SessionManager;
     sessionStartEvent?: SessionStartEvent;
   }) => {
-    const services = await resolveServices(options, cwd, agentDir);
+    const services = await resolveServices(options, cwd, agentDir, projectTrustByCwd);
     const created = await createFromServices(options, replacementManager, services, sessionStartEvent);
     return {
       ...created,
