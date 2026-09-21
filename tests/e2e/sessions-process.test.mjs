@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile, writeFile, readdir, rename, mkdir, rmdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { RealProcessHarness, until } from './real-process-harness.mjs';
 
@@ -50,6 +50,73 @@ async function installOAuthFixture(h) {
       }, refreshToken: async credentials => credentials, getApiKey: credentials => credentials.access }
     }); }`);
 }
+
+async function installShareFixture(h) {
+  const bin = join(h.root, 'bin'); await mkdir(bin);
+  const calls = join(h.project, 'share-calls'), upload = join(h.project, 'share-upload.html'), mode = join(h.project, 'share-mode');
+  await writeFile(mode, 'ok');
+  await writeFile(join(bin, 'gh'), `#!${process.execPath}
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+const args = process.argv.slice(2), mode = readFileSync(${JSON.stringify(mode)}, 'utf8');
+appendFileSync(${JSON.stringify(calls)}, JSON.stringify(args) + '\\n');
+if (process.env.GH_HOST !== 'github.com') process.exit(5);
+if (args[0] === 'auth') process.exit(mode === 'no-auth' ? 1 : 0);
+writeFileSync(${JSON.stringify(upload)}, readFileSync(0));
+if (mode === 'lost-result') { process.stderr.write('synthetic-private-gh-diagnostic'); process.exit(1); }
+process.stdout.write('https://gist.github.com/fixture/abcdef1234\\n');
+`, { mode: 0o755 });
+  await h.killMain(); h.env.PATH = `${bin}:${h.env.PATH}`; await h.start();
+  return { calls, upload, mode };
+}
+
+test('editor share previews fixed native export and requires confirmation before one Gist upload', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, answer, key, snapshot } = await treeHarness(t);
+  const fixture = await installShareFixture(h);
+  await command('prompt', { text: 'SYNTHETIC_SHARE_SOURCE' }); await extension('/r16-editor');
+  const submit = async () => { await extension('/r16-editor-draft /share'); await key('扩展编辑器', 'Enter'); };
+  const preview = async () => {
+    await submit(); await answer('分享目标', { value: 'GitHub Secret Gist' });
+    const form = await next('分享预览'); assert.equal(form.runId, null);
+    await key('分享预览', 'End'); await key('分享预览', 'Enter'); return next('发布分享');
+  };
+  await preview(); await answer('发布分享', { confirmed: false });
+  await assert.rejects(readFile(fixture.upload), { code: 'ENOENT' });
+  const confirmation = await preview();
+  assert.match(confirmation.message, /持链接者可访问/);
+  const digest = /SHA-256 ([a-f0-9]{64})/.exec(confirmation.message)[1];
+  await extension('/r16-title AFTER_SHARE_PREVIEW');
+  await answer('发布分享', { confirmed: true });
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('分享已创建')), 'share result');
+  const bytes = await readFile(fixture.upload);
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), digest);
+  assert.ok(bytes.toString().includes('<!DOCTYPE html>'));
+  assert.ok(!bytes.toString().includes('AFTER_SHARE_PREVIEW'));
+  const uploads = (await readFile(fixture.calls, 'utf8')).trim().split('\n').map(JSON.parse).filter(args => args[0] === 'gist');
+  assert.deepEqual(uploads, [['gist', 'create', '--public=false', '--filename', 'session.html', '-']]);
+  assert.equal(h.provider.requests.length, 1);
+});
+
+test('editor share auth failure, closed preview and lost upload result never auto publish or retry', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, answer, key, snapshot, draft } = await treeHarness(t);
+  const fixture = await installShareFixture(h);
+  await command('prompt', { text: 'SYNTHETIC_SHARE_FAILURE' }); await extension('/r16-editor');
+  const submit = async () => { await extension('/r16-editor-draft /share'); await key('扩展编辑器', 'Enter'); await answer('分享目标', { value: 'GitHub Secret Gist' }); };
+  await writeFile(fixture.mode, 'no-auth'); await submit();
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('GitHub CLI 未就绪')), 'auth failure');
+  await until(async () => await draft() === '/share', 'share failure retains draft');
+  await writeFile(fixture.mode, 'ok'); await submit();
+  const stale = await next('分享预览'); await extension('/r16-editor-clear');
+  await until(async () => !(await snapshot()).pendingInteractions.some(i => i.interactionId === stale.interactionId), 'preview closed');
+  await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  await assert.rejects(readFile(fixture.upload), { code: 'ENOENT' });
+  await extension('/r16-editor'); await writeFile(fixture.mode, 'lost-result'); await submit();
+  await next('分享预览'); await key('分享预览', 'Esc'); await answer('发布分享', { confirmed: true });
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('远端可能已创建内容')), 'uncertain upload result');
+  assert.ok(!(JSON.stringify(await snapshot()) + h.logs).includes('synthetic-private-gh-diagnostic'));
+  await h.killMain(); await h.start(); await command('prompt', { text: 'AFTER_SHARE_RESTART' });
+  const uploads = (await readFile(fixture.calls, 'utf8')).trim().split('\n').map(JSON.parse).filter(args => args[0] === 'gist');
+  assert.equal(uploads.length, 1, 'uncertain upload is never replayed after restart');
+});
 
 test('editor OAuth displays links device codes and choices only in memory and saves callback through native auth', { timeout: 120000 }, async t => {
   const { h, command, extension, next, answer, key, snapshot } = await treeHarness(t); h.privateEvidence = true;
@@ -385,8 +452,9 @@ test('editor information, title, copy and exports stay local and preserve failur
   await until(async () => (await h.lines('builtin history.html')).join('\n').includes('<!DOCTYPE html>'), 'HTML export', 5000);
   await submit('/export /dev/null/fail.jsonl');
   await until(async () => await draft() === '/export /dev/null/fail.jsonl', 'export failure draft preserved', 5000);
-  await submit('/share');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('分享预览') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
+  await submit('/share unexpected');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('用法：/share')), 'invalid share arguments diagnostic', 5000);
+  await until(async () => await draft() === '/share unexpected', 'invalid share arguments preserve draft', 5000);
   assert.equal(h.provider.requests.length, 1, 'builtin information and exports never prompt the model');
 });
 
@@ -1196,9 +1264,9 @@ test('real CustomEditor edits, completes and submits once; reset invalidates old
   await draft('!!printf editor-shell'); await key('Enter');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.command === 'printf editor-shell' && item.message.excludeFromContext === true), 'editor native Bash');
   assert.ok(h.query("SELECT seq FROM events WHERE type = 'operation.updated' AND json_extract(payload_json, '$.kind') = 'bash'").length > 0);
-  await draft('/share'); await key('Enter');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/share') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
-  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/share');
+  await draft('/share unexpected'); await key('Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('用法：/share')), 'invalid builtin diagnostic');
+  await until(async () => (await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0] === '/share unexpected', 'invalid builtin draft');
   assert.equal(h.provider.requests.length, 1, 'Bash and terminal menus never become model prompts');
   await draft('keep');
   await key('Home');

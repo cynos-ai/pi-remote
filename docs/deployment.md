@@ -75,6 +75,8 @@ worker spool 的 `.event.json` 与大帧 `.json` 文件不按时间强制删除�
 
 OAuth 可能需要刷新并写入状态；只读挂载 auth.json 时不能假设 SDK 可以在原地刷新。用受限可写凭据卷并验证多 worker 刷新行为；S02 若发现共享凭据竞争，要实现串行刷新或由统一配置层协调，再完成部署。
 
+`/share` 的 GitHub 路径依赖 worker 同一 Linux 环境内的 GitHub CLI（gh）及 github.com 登录；宿主机登录不会自动传入容器。需要时按项目工具链扩展镜像并在容器用户的受限 HOME 中配置登录，不把 token 放进镜像或仓库。缺少 gh/登录会在预览前明确失败。Radius 路径使用 SDK 已注册的 Radius provider 与原生凭据，不需要 gh；目标为组织可见。两条路径均先预览并明确确认，不随模型任务自动分享，真实账号网络与权限仍须部署验收。临时导出位于私有 `/tmp/pi-remote-share-*` 目录，正常流程读取后删除；异常终止可能留下临时文件，按实际故障清理，不上传作诊断证据。
+
 ## 4. Compose 必须具备的行为
 
 - `init: true` 或等效 init；优雅 TERM，`stop_grace_period` 至少 30 秒，覆盖 15 秒 worker 停止窗口。

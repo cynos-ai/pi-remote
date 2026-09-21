@@ -13,7 +13,7 @@ describe("hosted editor builtins", () => {
     const names = [...Object.keys(EDITOR_COMMANDS), ...Object.keys(PENDING_EDITOR_COMMANDS)];
     expect(new Set(names).size).toBe(23);
     expect(EDITOR_COMMANDS.quit).toContain("后端会话继续运行");
-    expect(PENDING_EDITOR_COMMANDS.share).toContain("发布确认");
+    expect(EDITOR_COMMANDS.share).toContain("发布确认");
   });
   it("pages the full rendered text and clamps both boundaries", () => {
     let closed = false;

@@ -15,6 +15,7 @@ import { createThinkingSelector, type ThinkingSelection } from "./thinking-selec
 import { createTrustSelector } from "./trust-selector.js";
 import { createLogoutSelector, listLogoutProviders, removeStoredCredential, type LogoutProvider, createLoginSelector, listLoginProviders, selectDefaultAfterLogin, refreshLoginCatalog, type LoginProvider } from "./auth-selector.js";
 import { runLoginFlow } from "./auth-flow.js";
+import { shareSession } from "./session-share.js";
 import { saveProjectTrust, type TrustSelection } from "./project-trust.js";
 import { createSettingsSelector } from "./settings-selector.js";
 import { createScopedModelsSelector } from "./scoped-models-selector.js";
@@ -1482,6 +1483,33 @@ export class PiWorker {
         const name = text.split(/\s/, 1)[0]!;
         const argument = text.slice(name.length).trim();
         const notify = (message: string) => this.createUiContext().notify(message, "info");
+        if (name === "/share") {
+          if (argument) throw new Error("用法：/share（不接受参数）");
+          const result = await shareSession(session, signal, {
+            choose: async hasRadius => {
+              const answer = await this.requestInteraction("select", "分享目标", { options: ["GitHub Secret Gist", ...(hasRadius ? ["Radius 组织"] : [])],
+                message: "接下来检查登录状态并生成待分享副本，预览后还需明确确认。Gist 持链接者可访问；Radius 对组织开放。" }, { signal });
+              return answer?.value === "GitHub Secret Gist" ? "gist" : answer?.value === "Radius 组织" && hasRadius ? "radius" : undefined;
+            },
+            preview: async value => {
+              await runCustomUi<void>((_tui, _theme, _keys, done) => createInformationViewer(
+                `待上传文件原文（${value.target === "gist" ? "HTML" : "JSONL"}） · ${value.bytes} bytes · SHA-256 ${value.sha256}\n${value.text}`, () => done(undefined)), {
+                agentDir: this.agentDir, signal, terminalInput: this.terminalInput(owner),
+                publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+                inputError: message => this.createUiContext().notify(message, "error"),
+                ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "分享预览" : "分享预览输入", {
+                  ...(keys ? { options: keys } : {}), message: "完整文件原文可翻页；Home/End 到首尾，Enter/Esc 关闭预览后进入确认。此时尚未上传。"
+                }, { signal: inputSignal })
+              });
+            },
+            confirm: async value => {
+              const answer = await this.requestInteraction("confirm", "发布分享", { message:
+                `确认上传刚才预览的固定副本到 ${value.target === "gist" ? "GitHub Secret Gist（持链接者可访问，并非私有访问控制）" : "Radius（组织可访问）"}？\n${value.bytes} bytes · SHA-256 ${value.sha256}\n${value.target === "gist" ? "原生 HTML 包含导出的会话树" : "原生 JSONL 包含当前分支、系统提示和工具定义"}，可能含消息、工具结果、路径和图片。预览后的新消息不会追加到本次上传。` }, { signal });
+              return answer?.confirmed === true && owner === this.currentSessionId;
+            }
+          });
+          notify(result ? `分享已创建\n${result}` : "分享已取消，未上传"); return;
+        }
         if (name === "/login") {
           const runtime = session.modelRuntime;
           const all = [...listLoginProviders(runtime, "api_key"), ...listLoginProviders(runtime, "oauth")];
@@ -1909,7 +1937,7 @@ export class PiWorker {
     const commandMenus = new Map<string, Promise<void>>();
     const openCommand = (text: string) => {
       const name = text.split(/\s/, 1)[0]!;
-      if (!["/session", "/hotkeys", "/changelog", "/copy", "/trust", "/logout", "/login"].includes(name)) return this.commandFromEditor(owner, text, controller.signal);
+      if (!["/session", "/hotkeys", "/changelog", "/copy", "/trust", "/logout", "/login", "/share"].includes(name)) return this.commandFromEditor(owner, text, controller.signal);
       const existing = commandMenus.get(name);
       if (existing) return existing;
       const pending = this.commandFromEditor(owner, text, controller.signal).finally(() => { commandMenus.delete(name); });
@@ -2019,7 +2047,7 @@ export class PiWorker {
             const name = /^\/([^\s]+)/.exec(text)?.[1];
             if (text === "/quit") { closeEditor(); return; }
             if (["/session", "/hotkeys", "/changelog", "/copy", "/clone", "/reload", "/trust", "/logout"].includes(text)
-              || ["/name", "/export", "/import", "/compact", "/login"].some(command => text === command || text.startsWith(`${command} `))) {
+              || ["/name", "/export", "/import", "/compact", "/login", "/share"].some(command => text === command || text.startsWith(`${command} `))) {
               await openCommand(text); return;
             }
             if (text === "/scoped-models") {

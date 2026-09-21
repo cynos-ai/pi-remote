@@ -10,10 +10,10 @@ export const EDITOR_COMMANDS = {
   quit: "退出远程编辑器，后端会话继续运行", import: "确认后导入 JSONL（工作目录须存在）", reload: "清理旧扩展 UI 并重载资源",
   trust: "当前目录/父目录的原生信任决定；保存后重启 worker 生效",
   logout: "选择 provider 并移除已保存凭据；环境变量和模型配置不变",
-  login: "API key / OAuth 登录；授权链接和设备码临时显示，回调走秘密输入"
+  login: "API key / OAuth 登录；授权链接和设备码临时显示，回调走秘密输入",
+  share: "GitHub Secret Gist / Radius 组织分享；完整文件预览及明确发布确认"
 } as const;
 export const PENDING_EDITOR_COMMANDS: Record<string, string> = {
-  share: "待接入 GitHub 登录状态、分享预览及发布确认；可先用 /export 导出到服务端",
 };
 const cache = await import(new URL("./core/cache-stats.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href) as {
   computeCacheWaste(entries: ReturnType<AgentSession["sessionManager"]["getEntries"]>, runtime: AgentSession["modelRuntime"]): unknown;

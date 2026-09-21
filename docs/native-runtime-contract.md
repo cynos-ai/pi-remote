@@ -98,6 +98,8 @@ fork / import 可能在 runtime factory 返回前已写出目标文件：操作�
 
 ## 6. 修订验收归属
 
+托管 `/share` 使用独立 Operation 和现有 UI 交互，不生成模型 Run。固定 SDK 原生 HTML 导出或 exportSessionForShare 的分支 JSONL/系统提示/工具元数据先冻结，再完整预览并明确确认目标及可见范围；实际上传使用相同字节。Gist 使用 gh、Radius 使用原生凭据与 organization 上传。上传副作用不能通过表单幂等保证远端恰好一次：已分派但结果未知时不自动恢复、重试或回退另一服务。选择/预览/确认期间退出或会话切换沿现有取消信号，不因长等待阻塞其他控制。
+
 | 问题 | 必须验证的场景 | 阶段 / 验收 |
 | --- | --- | --- |
 | 无 Run 内容 | 空闲 / 初始化 custom 消息、无 Run 用户 Bash、运行中独立内容、中断封存、重连 / snapshot 一致；模型 Run 数不因这些内容增加 | S02、S03、S04、S07、S10 / AT06、AT07、AT32 |

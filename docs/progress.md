@@ -2,7 +2,16 @@
 
 最后更新：2026-09-21。
 
-### 2026-09-21 OAuth 与非持久化授权展示（本次提交）
+### 2026-09-21 分享预览与确认上传（本次提交）
+
+- 基线 `3577cb0`；接入最后一个托管内置命令 `/share`，23 个命令均已有入口。目标选择后检查 GitHub CLI / Radius 登录状态，使用 SDK 原生 HTML 或带 pi.share 元数据的分支 JSONL；完整原文分页预览、字节数/SHA-256 与可见范围确认后上传固定副本。预览期间会话变化不改变上传内容，临时导出及时删除；取消未确认流程不上传，未知上传结果不重试、不自动切换服务。沿已有 Operation/交互协议，无 SQL migration。
+- 新增直接依赖 `@earendil-works/pi-ai@0.85.1`，仅适配器读取原生 Radius 网关配置；未升级 SDK。首轮单测发现 ESM-only 导出不能经 require.resolve 定位，已改为显式依赖与 ESM import。离线安装缺少缓存元数据，在线补齐；锁文件仅增加直接依赖，未保留包管理器顺带改写的无关解析。
+- 环境：WSL 2 Linux / Node 24.19.0 / pnpm 10.28.0；合成会话、假 gh 与注入 transport，无真实账号上传或付费模型调用。定向最终 14/14 通过（`test-results/share-unit-release.log`），覆盖固定字节、确认/取消、导出清理、鉴权失败、上传响应丢失/取消、URL 校验、Radius 原生元数据及不回退。查看器地址无效仍保留已创建 Gist 的明确结果。冻结安装通过（`share-frozen-install.log`）；真实进程 3/3（`share-process.log`），覆盖真实 SDK HTML、预览校验值、取消/失效回答、幂等重复确认、服务重启不重发及导出回归。
+- `pnpm verify:S07`：14 passed / 2 failed（`test-results/share-s07.log`、`s07/report.json`）；构建、命令契约、完整真实表单/会话进程、lint、全仓 typecheck、文档均通过。失败仍为 live-commands / parity-tui-commands 已有报告源码身份过期，未用合成结果替换真实验收。本次未修改手机代码，未重跑 S10。
+- 最终查看器地址异常处理修改后，适配器重新构建通过（`share-adapter-release.log`），分享/导出真实进程重新验证 3/3（`share-process-release.log`）；最终文档检查通过（`share-docs-release.log`）。
+- 未覆盖：真实 Gist / Radius 上传、原生交互 TUI、Android/iOS 设备。当前 HTML 预览为完整源码分页，尚无手机 HTML 浏览器呈现；已浏览预览页沿普通通知持久化，凭据及 CLI 错误原文不进入通知。分享是显式上传行为，Secret Gist 持链接者可访问，不等同于私有访问控制。
+
+### 2026-09-21 OAuth 与非持久化授权展示（3577cb0）
 
 - 基线 `772db6f`；接入原生 API key/OAuth 登录方式选择、浏览器链接、设备码、信息/进度通知、账户选项与回调。增加受鉴权/Session 归属保护的 auth-displays no-store 接口，worker/main/mobile 仅内存保存展示内容；IPC 禁止溢出到 spool。全部回答沿 sensitive input/HMAC 幂等，独立登录控制可取消，结束/退出/重启清除。手机仅前台刷新，后台/卸载/错误清空并抑制迟到响应。无 SQL migration，也不增加公网回调或 relay。
 - 环境：WSL 2 Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。本地合成 OAuth 扩展产生随机授权材料；未使用真实账号或模型凭据。首轮真实进程 0/4（`test-results/oauth-process.log`）查出 IPC 类型清单漏登记，已修复并补编解码回归；合成 provider 同时支持两种方式，测试改为明确选择 OAuth，未删减断言。
