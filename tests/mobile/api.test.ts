@@ -247,4 +247,33 @@ describe("S09 mobile API client", () => {
     });
     expect(calls[0]?.init?.body).toBe(body);
   });
+
+  it("reads a bounded authenticated artifact preview and reports remaining bytes", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const api = new PiRemoteApi(credentials, {
+      fetchImpl: async (input, init) => {
+        calls.push({ input, init });
+        return new Response("完整输出前半段", {
+          status: 206,
+          headers: {
+            "content-type": "text/plain; charset=utf-8",
+            "content-range": "bytes 0-1023/4096"
+          }
+        });
+      }
+    });
+    await expect(api.previewArtifact("artifact/one", 1024)).resolves.toEqual({
+      text: "完整输出前半段",
+      mimeType: "text/plain",
+      truncated: true
+    });
+    expect(calls).toEqual([{
+      input: "https://pi.example.test/remote/v1/artifacts/artifact%2Fone",
+      init: { headers: {
+        Accept: "text/plain, application/json;q=0.9, */*;q=0.1",
+        Authorization: "Bearer device-secret",
+        Range: "bytes=0-1023"
+      } }
+    }]);
+  });
 });

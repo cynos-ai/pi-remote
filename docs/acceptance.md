@@ -46,8 +46,8 @@ header/footer 工厂补充 AT21 / AT22 / AT32：原生工厂及主题、真实 G
 | AT18 | FR09, FR12 | S10, S11 | device | 两平台分别锁屏 60 秒、断网并切换 Wi-Fi / 蜂窝网络；任务继续；恢复后文本、工具、表单和命令收据与服务器一致 |
 | AT19 | FR03, FR09, FR10 | S06, S11, S12 | linux + device + docker | S06 在 dispatch / ACK / 事件提交窗口 kill worker / 主进程：unknown / interrupted、partial 封存、旧 Operation 结束、失效控制取消，仅非空旧队列暂停；不自动重投旧命令，新明确操作可继续。另测空 Session 配置后主动回收、首次 assistant 前 crash、文件写后 / marker 前 crash、删除 / 清空 / 换掉 persisted 文件，禁止静默丢历史。活动 prompt 入库后 IPC 前崩溃，先按 target_run_id 取消为 stale_runtime，不建 queued Run / 后续成员；无 Run partial 封存、交付不明输入保留 unknown。原生替换文件已写 / 映射未确认时保留可认领文件及源历史，不重做 fork；合法 header-only / 非 assistant 历史成功恢复。S11 核对双端显示与重连；S12 核对实际容器退出及恢复，无强制清理证明 |
 | AT20 | FR05, FR09 | S08 | linux | 高吞吐长输出加暂停读取客户端；发送缓冲有 4 MiB 上限，慢连接 resync，其他连接和任务继续；重复负载内存不持续增长，重连补全已提交事件 |
-| AT21 | FR01, FR02, FR03, FR12 | S09, S10 | device | Android 真机配对、列表、历史、新建、改名、归档 / 恢复、命令与表单完整操作；凭据仅在安全存储，长列表可用且读历史不被强制滚动 |
-| AT22 | FR01, FR02, FR03, FR12 | S09, S10 | device | iOS 真机完成与 Android 相同流程，覆盖后台恢复和 Keychain；仅 JS export、浏览器预览或模拟器不能通过此最终项 |
+| AT21 | FR01, FR02, FR03, FR12 | S09, S10 | device | Android 真机配对、列表、历史、新建、改名、归档 / 恢复、命令与表单完整操作；运行中输入默认 steer、可切 follow-up，slash 搜索快捷入口不误投模型，截断 artifact 可鉴权预览；凭据仅在安全存储，长列表可用且读历史不被强制滚动 |
+| AT22 | FR01, FR02, FR03, FR12 | S09, S10 | device | iOS 真机完成与 Android 相同流程，覆盖后台恢复、Keychain、slash 搜索与 artifact 预览；仅 JS export、浏览器预览或模拟器不能通过此最终项 |
 | AT23 | FR11 | S12 | docker | 非 root 镜像内真实 Git / bash / Node / Python、读写项目与测试成功；宿主机可正常修改生成文件；无 privileged、无默认 Docker socket 或全盘挂载 |
 | AT24 | FR03, FR11 | S12 | docker | 重建 app 容器仍有项目 / Session / 配置；执行一致备份并恢复到新状态卷，继续旧会话、读取旧事件和 artifact；不只验证备份文件存在 |
 | AT25 | FR10, FR11 | S06, S12 | linux + docker | 正常 TERM / abort 对当前未完成 Bash 使用 SDK 原生停止；未返回时 SIGKILL worker，独立 PGID 可存活，记录 unknown，旧命令不自动重投，不能把 worker 退出当作工具已停止。S06 验证实例锁 / PID 复用及新明确操作可继续；S12 验证普通 compose 启动不需登记 / 清理证明，实际容器停止 / 重启与故障状态恢复、停止超时如实报告。仅针对实际问题处理残留，已正常返回服务按 AT31 继续运行 |

@@ -46,7 +46,10 @@ import {
   mergeHistoryPage,
   offlineCacheLabel,
   projectActivityLabel,
+  reconcileSendMode,
+  slashCommandSuggestions,
   sessionStatusLabel,
+  type MobileSendMode,
   type SessionFilter
 } from "./src/app-model";
 import {
@@ -699,7 +702,7 @@ function SessionsScreen({
   );
 }
 
-function TimelineRow({ item }: { item: TimelineItem }) {
+function TimelineRow({ api, item }: { api: PiRemoteApi; item: TimelineItem }) {
   if (item.kind === "custom_entry") {
     return (
       <View style={styles.timelineCard}>
@@ -715,7 +718,8 @@ function TimelineRow({ item }: { item: TimelineItem }) {
       <View style={styles.timelineCard}>
         <Text style={styles.timelineTitle}>工具 · {item.data.toolName}</Text>
         <Text style={styles.codeText}>{item.data.output?.text ?? "等待工具输出"}</Text>
-        {item.data.output?.truncated ? <Text style={styles.warningText}>输出已截断，可在后续版本打开 artifact。</Text> : null}
+        {item.data.output?.truncated ? <Text style={styles.warningText}>展示副本已截断，可按需读取服务器保留的原始 artifact。</Text> : null}
+        {item.data.output?.artifactId ? <ArtifactPreview api={api} artifactId={item.data.output.artifactId} /> : null}
         {item.completeness === "partial" ? <Text style={styles.warningText}>工具在 {item.endReason} 状态中断，结果未知。</Text> : null}
       </View>
     );
@@ -727,20 +731,23 @@ function TimelineRow({ item }: { item: TimelineItem }) {
         <TerminalRendererText renderer={item.data.custom.renderer} />
       ) : item.data.blocks.map((block, index) => {
         if (block.kind === "text" || block.kind === "thinking") {
-          return (
-            <Text key={`${item.itemId}-${index}`} style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
+          return <View key={`${item.itemId}-${index}`}>
+            <Text style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
               {block.kind === "thinking" && !block.redacted ? "思考：" : ""}{block.text}
               {block.truncated ? "（已截断）" : ""}
             </Text>
-          );
+            {"artifactId" in block && block.artifactId ? <ArtifactPreview api={api} artifactId={block.artifactId} /> : null}
+          </View>;
         }
         return (
-          <Text key={`${item.itemId}-${index}`} style={styles.codeText}>
-            工具调用 · {block.toolName}{"truncated" in block && block.truncated ? "（参数已截断）" : ""}
-          </Text>
+          <View key={`${item.itemId}-${index}`}>
+            <Text style={styles.codeText}>工具调用 · {block.toolName}{"truncated" in block && block.truncated ? "（参数已截断）" : ""}</Text>
+            {"artifactId" in block && block.artifactId ? <ArtifactPreview api={api} artifactId={block.artifactId} /> : null}
+          </View>
         );
       })}
       {item.data.bash ? <Text style={styles.codeText}>$ {item.data.bash.command}</Text> : null}
+      {item.data.bash?.artifactId ? <ArtifactPreview api={api} artifactId={item.data.bash.artifactId} /> : null}
       {item.completeness === "partial" ? <Text style={styles.warningText}>消息已中断（{item.endReason}），未继续等待。</Text> : null}
     </View>
   );
@@ -848,7 +855,7 @@ export function HistoryScreen({
           keyExtractor={(item) => item.itemId}
           ListEmptyComponent={<Text style={styles.emptyText}>这个 Session 还没有可显示的历史。</Text>}
           ListFooterComponent={nextCursor ? <ActionButton disabled={loadingMore} kind="secondary" onPress={() => void loadMore()} title={loadingMore ? "加载中…" : "加载更早记录"} /> : null}
-          renderItem={({ item }) => <TimelineRow item={item} />}
+          renderItem={({ item }) => <TimelineRow api={api} item={item} />}
         />
       </View>
     </SafeAreaView>
@@ -904,7 +911,7 @@ function ExtensionWorkingRow({ ui, active }: { ui: ExtensionUiState; active: boo
   </View>;
 }
 
-function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: ExtensionUiState }) {
+function ExecutionTimelineRow({ api, item, ui }: { api: PiRemoteApi; item: SessionTimelineItem; ui: ExtensionUiState }) {
   const [expanded, setExpanded] = useState(ui.toolsExpanded);
   useEffect(() => { setExpanded(ui.toolsExpanded); }, [ui.toolsExpanded, ui.toolsExpansionSeq]);
   if (item.kind === "message" && item.data.custom && !item.data.custom.display) return null;
@@ -936,6 +943,7 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
         <Text numberOfLines={expanded ? undefined : 3} style={styles.codeText}>{item.data.output?.text ?? "等待工具输出"}</Text>
         <ActionButton kind="secondary" onPress={() => setExpanded(current => !current)} title={expanded ? "收起输出" : "展开输出"} />
         {item.data.output?.truncated ? <Text style={styles.warningText}>展示副本已截断，原始 artifact 仍由服务器保留。</Text> : null}
+        {item.data.output?.artifactId ? <ArtifactPreview api={api} artifactId={item.data.output.artifactId} /> : null}
         {!live && item.completeness === "partial" ? <Text style={styles.warningText}>工具在 {item.endReason} 状态中断，执行结果未知。</Text> : null}
         {item.data.isError ? <Text style={styles.errorText}>工具返回错误，后续模型可继续处理。</Text> : null}
       </View>
@@ -955,14 +963,15 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
         <TerminalRendererText renderer={item.data.custom.renderer} />
       ) : item.data.blocks.map((block, index) => {
         if (block.kind === "text" || block.kind === "thinking") {
-          return (
-            <Text key={`${item.itemId}-${index}`} style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
+          return <View key={`${item.itemId}-${index}`}>
+            <Text style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
               {block.kind === "thinking"
                 ? !ui.thinkingVisible || block.redacted ? ui.hiddenThinkingLabel : `思考：${block.text}`
                 : block.text}
               {block.truncated ? "（展示副本已截断）" : ""}
             </Text>
-          );
+            {block.artifactId ? <ArtifactPreview api={api} artifactId={block.artifactId} /> : null}
+          </View>;
         }
         return (
           <View key={`${item.itemId}-${index}`} style={styles.toolCallBlock}>
@@ -970,6 +979,7 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
               工具调用 · {block.toolName}{"argumentsText" in block ? "（参数仍在生成）" : block.truncated ? "（参数已截断）" : ""}
             </Text>
             {"argumentsText" in block ? <Text style={styles.codeText}>{block.argumentsText}</Text> : null}
+            {"artifactId" in block && block.artifactId ? <ArtifactPreview api={api} artifactId={block.artifactId} /> : null}
           </View>
         );
       })}
@@ -981,6 +991,7 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
           </Text>
         </>
       ) : null}
+      {item.data.bash?.artifactId ? <ArtifactPreview api={api} artifactId={item.data.bash.artifactId} /> : null}
       {item.data.custom ? <Text style={styles.toolMeta}>自定义消息 · {item.data.custom.type}</Text> : null}
       {!live && item.completeness === "partial" ? <Text style={styles.warningText}>消息已中断（{item.endReason}），已停止等待，不会伪造完成。</Text> : null}
     </View>
@@ -995,6 +1006,31 @@ function TerminalRendererText({ renderer }: { renderer: TerminalRendererProjecti
       {renderer.truncated ? <Text style={styles.warningText}>renderer 文本投影已截断。</Text> : null}
     </>
   );
+}
+
+function ArtifactPreview({ api, artifactId }: { api: PiRemoteApi; artifactId: string }) {
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState<Awaited<ReturnType<PiRemoteApi["previewArtifact"]>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try { setPreview(await api.previewArtifact(artifactId)); }
+    catch (caught) { setError(errorText(caught)); }
+    finally { setLoading(false); }
+  };
+  if (preview === null) {
+    return <View style={styles.artifactPreview}>
+      <ActionButton disabled={loading} kind="secondary" onPress={() => void load()} title={loading ? "读取完整输出…" : "查看完整输出"} />
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+    </View>;
+  }
+  return <View style={styles.artifactPreview}>
+    <Text style={styles.toolMeta}>{preview.mimeType} · artifact {artifactId}</Text>
+    <Text selectable style={styles.codeText}>{preview.text}</Text>
+    {preview.truncated ? <Text style={styles.warningText}>预览最多读取 64 KiB，artifact 仍有更多内容。</Text> : null}
+    <ActionButton kind="quiet" onPress={() => setPreview(null)} title="收起完整输出" />
+  </View>;
 }
 
 function InteractionCard({
@@ -1355,7 +1391,7 @@ function ExecutionScreen({
   const activeId = state ? activeRunId(state) : null;
   const bashActive = state ? Object.values(state.operations).some((operation) => operation.kind === "bash" && (operation.status === "running" || operation.status === "waiting_input")) : false;
   const [composerMode, setComposerMode] = useState<"prompt" | "bash" | "extension">("prompt");
-  const [sendMode, setSendMode] = useState<"prompt" | "steer" | "follow_up">("prompt");
+  const [sendMode, setSendMode] = useState<MobileSendMode>("prompt");
   const [bashExcludeFromContext, setBashExcludeFromContext] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentNames, setAttachmentNames] = useState<string[]>([]);
@@ -1370,6 +1406,11 @@ function ExecutionScreen({
   const [renameValue, setRenameValue] = useState(state?.session.title ?? session.title);
   const [showNewSession, setShowNewSession] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState("");
+
+  useEffect(() => {
+    const next = reconcileSendMode(activeId, sendMode);
+    if (next !== sendMode) setSendMode(next);
+  }, [activeId, sendMode]);
 
   useEffect(() => {
     if (!state) return;
@@ -1420,10 +1461,15 @@ function ExecutionScreen({
       : [])
     ];
     const attachment = selectedAttachments.length > 0 ? selectedAttachments : undefined;
+    const slashCommand = composerMode !== "bash" && text.startsWith("/");
+    if (slashCommand && attachment) {
+      setError("slash 命令不能携带图片；请移除附件，或删掉开头的 / 作为普通 Prompt 发送。");
+      return;
+    }
     let command: CommandRequest;
     if (composerMode === "bash") {
       command = { kind: "bash", payload: { command: text, excludeFromContext: bashExcludeFromContext } };
-    } else if (composerMode === "extension") {
+    } else if (composerMode === "extension" || slashCommand) {
       command = { kind: "extension_command", payload: { text } };
     } else if (sendMode === "follow_up") {
       command = { kind: "follow_up", payload: { text, ...(attachment ? { attachments: attachment } : {}) } };
@@ -1552,6 +1598,15 @@ function ExecutionScreen({
   const statusText = state ? sessionStatusLabel(state.session) : "正在加载";
   const currentThinkingLevels = thinkingLevelsForModel(state?.session.model ?? null, models, snapshotModelRef.current, thinkingLevels);
   const modelText = state?.session.model ? `${state.session.model.provider}/${state.session.model.id}` : "未配置模型";
+  const slashInput = composerMode !== "bash" && composerText.trimStart().startsWith("/");
+  const slashSuggestions = composerMode === "extension" || slashInput ? slashCommandSuggestions(composerText) : [];
+  const composerCommandKind: CommandRequest["kind"] = composerMode === "bash"
+    ? "bash"
+    : composerMode === "extension" || slashInput
+      ? "extension_command"
+      : sendMode === "follow_up"
+        ? "follow_up"
+        : "prompt";
 
   const loadMore = async () => {
     if (loadingMore || nextCursor === null) return;
@@ -1730,19 +1785,28 @@ function ExecutionScreen({
           <ActionButton disabled={!canRun("bash")} kind={composerMode === "bash" ? "primary" : "secondary"} onPress={() => setComposerMode("bash")} title="用户 Bash" />
           <ActionButton disabled={!canRun("extension_command")} kind={composerMode === "extension" ? "primary" : "secondary"} onPress={() => setComposerMode("extension")} title="/ 扩展命令" />
         </View>
-        {composerMode === "prompt" && activeId ? (
+        {composerMode === "prompt" && activeId && !slashInput ? (
           <View style={styles.chipRow}>
             <ActionButton kind={sendMode === "steer" ? "primary" : "secondary"} onPress={() => setSendMode("steer")} title="Steer 当前 Run" />
             <ActionButton kind={sendMode === "follow_up" ? "primary" : "secondary"} onPress={() => setSendMode("follow_up")} title="Follow-up 入队" />
           </View>
         ) : null}
         {composerMode === "bash" ? <Text style={styles.warningText}>原生 Bash 入口不增加逐条审批或默认超时；停止范围只针对用户 Bash。</Text> : null}
-        {composerMode === "extension" ? <Text style={styles.infoText}>扩展 slash 命令通过 extension_command 即时发送，不伪装成普通模型文本。</Text> : null}
+        {composerMode === "extension" || slashInput ? <Text style={styles.infoText}>slash 命令通过 extension_command 即时执行，不会误发给模型；自定义扩展命令也可直接输入。</Text> : null}
+        {slashSuggestions.length > 0 ? (
+          <View style={styles.slashPalette}>
+            <Text style={styles.fieldLabel}>常用 slash 命令</Text>
+            {slashSuggestions.map((item) => <ActionButton key={item.command} kind="quiet" onPress={() => {
+              setComposerMode("extension");
+              updateEditor(`${item.command} `);
+            }} title={`${item.command} · ${item.description}`} />)}
+          </View>
+        ) : null}
         <TextInput
           editable={!actionBusy}
           multiline
           onChangeText={updateEditor}
-          placeholder={composerMode === "bash" ? "输入 shell 命令" : composerMode === "extension" ? "/command args" : "继续这个 Session…"}
+          placeholder={composerMode === "bash" ? "输入 shell 命令" : composerMode === "extension" ? "/command args" : "输入消息，或输入 / 查找命令"}
           placeholderTextColor={colors.placeholder}
           style={styles.composerInput}
           onSelectionChange={(event) => { extensionUiRef.current = { ...extensionUiRef.current, editorSelection: event.nativeEvent.selection }; }}
@@ -1769,8 +1833,8 @@ function ExecutionScreen({
         {composerMode === "bash" ? <ActionButton kind="secondary" onPress={() => setBashExcludeFromContext((current) => !current)} title={bashExcludeFromContext ? "!!：不写入上下文" : "!：写入上下文"} /> : null}
         <View style={styles.buttonRow}>
           {pendingSubmits.length > 0 ? <ActionButton disabled={actionBusy} kind={explicitNew ? "primary" : "secondary"} onPress={() => setExplicitNew((current) => !current)} title={explicitNew ? "当前输入将作为新提交" : "将当前输入作为明确的新提交"} /> : null}
-          <ActionButton disabled={actionBusy || composerText.trim().length === 0 || !canRun(composerMode === "prompt" ? sendMode === "follow_up" ? "follow_up" : "prompt" : composerMode === "bash" ? "bash" : "extension_command")} onPress={() => void sendComposer()} title={composerMode === "bash" ? "执行 Bash" : composerMode === "extension" ? "执行扩展" : sendMode === "follow_up" ? "加入 Follow-up" : sendMode === "steer" && activeId ? "发送 Steer" : "发送 Prompt"} />
-          {activeId && canRun("abort") ? <ActionButton disabled={actionBusy} kind="danger" onPress={() => void submitCommand({ kind: "abort", payload: { targetRunId: activeId } })} title="停止模型 Run" /> : null}
+          <ActionButton disabled={actionBusy || composerText.trim().length === 0 || !canRun(composerCommandKind)} onPress={() => void sendComposer()} title={composerMode === "bash" ? "执行 Bash" : composerMode === "extension" || slashInput ? "执行 / 命令" : sendMode === "follow_up" ? "加入 Follow-up" : sendMode === "steer" && activeId ? "发送 Steer" : "发送 Prompt"} />
+          {activeId && canRun("abort") ? <ActionButton disabled={actionBusy} kind="danger" onPress={() => void submitCommand({ kind: "abort", payload: { targetRunId: activeId } })} title="停止当前 Run" /> : null}
           {bashActive && canRun("abort_bash") ? <ActionButton disabled={actionBusy} kind="danger" onPress={() => void submitCommand({ kind: "abort_bash", payload: {} })} title="停止用户 Bash" /> : null}
         </View>
       </View>
@@ -1792,7 +1856,7 @@ function ExecutionScreen({
           ListFooterComponent={nextCursor ? <ActionButton disabled={loadingMore} kind="secondary" onPress={() => void loadMore()} title={loadingMore ? "加载中…" : "加载更早记录"} /> : null}
           ListHeaderComponent={header}
           extraData={extensionUi}
-          renderItem={({ item }) => <ExecutionTimelineRow item={item} ui={extensionUi} />}
+          renderItem={({ item }) => <ExecutionTimelineRow api={api} item={item} ui={extensionUi} />}
         />
       </View>
     </SafeAreaView>
@@ -1970,6 +2034,7 @@ const styles = StyleSheet.create({
   codeText: { backgroundColor: "#f1f5f9", color: "#334155", fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }), fontSize: 12, lineHeight: 18, marginBottom: 6, padding: 8 },
   toolMeta: { color: colors.muted, fontSize: 12, lineHeight: 17, marginBottom: 7 },
   liveBadge: { color: colors.accent, fontSize: 12, fontWeight: "800", marginBottom: 6 },
+  artifactPreview: { backgroundColor: "#f8fafc", borderColor: colors.border, borderRadius: 9, borderWidth: 1, marginTop: 8, padding: 10 },
   toolCallBlock: { marginBottom: 2 },
   connectionBar: { backgroundColor: "#eaf7f1", borderRadius: 10, marginBottom: 10, padding: 12 },
   connectionText: { color: "#146c43", fontSize: 13, fontWeight: "800", lineHeight: 18 },
@@ -1984,6 +2049,7 @@ const styles = StyleSheet.create({
   interactionCard: { backgroundColor: "#f8f5ff", borderColor: "#d9c8ff", borderRadius: 12, borderWidth: 1, marginBottom: 10, padding: 14 },
   optionList: { gap: 8, marginVertical: 4 },
   chipRow: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 },
+  slashPalette: { backgroundColor: "#f8fafc", borderColor: colors.border, borderRadius: 9, borderWidth: 1, gap: 2, marginBottom: 10, padding: 10 },
   composerCard: { backgroundColor: colors.white, borderColor: colors.border, borderRadius: 12, borderWidth: 1, marginBottom: 14, padding: 14 },
   composerInput: { backgroundColor: "#f8fafc", borderColor: colors.border, borderRadius: 10, borderWidth: 1, color: colors.text, fontSize: 16, lineHeight: 23, minHeight: 92, padding: 12, textAlignVertical: "top" },
   editorInput: { backgroundColor: colors.white, borderColor: colors.border, borderRadius: 10, borderWidth: 1, color: colors.text, fontSize: 16, lineHeight: 23, minHeight: 120, padding: 12, textAlignVertical: "top" },

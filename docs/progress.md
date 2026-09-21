@@ -680,3 +680,11 @@ next: <下一阶段>
 本节点只调整范围、能力元数据、验收和验证入口，不修改协议事件、状态机或 SQLite schema。Windows、Node 24.19.0、pnpm 10.28.0 的验证结果：文档检查通过（23 个 Markdown、13 阶段、14 FR、32 AT、8 项 Bash + 8 项常用移动流程、135 个合成事件、12 张表）；全仓 typecheck 与 lint 通过；`pnpm verify:S02` 为 10 passed / 3 failed，其中新能力清单通过，失败仍是 live-sdk、parity-bash-sdk、parity-tui-sdk 报告源码身份过期，未改成 skip 或成功。
 
 额外 Windows 全量单测为 265/279 通过。14 项失败集中在目录 `fsync` 的 EPERM、创建符号链接权限、Windows 绝对路径 staging 及其派生的 artifact/backlog 流程；这些测试以 Linux 为交付环境，本节点没有放宽断言或据此覆盖此前 WSL 40 文件 / 279 项通过的证据。真实 provider 剩余流程、当前源码 Docker/升级/恢复复验及 Android/iOS 真机仍未完成。
+
+## 2026-09-22 常用手机流程收口
+
+手机执行页修复三个实际入口缺口。活动 Run 出现时，普通输入自动切为 steer，并可显式改成 follow-up；Run 结束后恢复 prompt，避免默认普通 prompt 在活动期走到 busy/错误路径。统一输入现在识别 `/`，按名称或中文说明搜索全部 23 个托管内置命令，点击填入后通过 extension_command 执行；自定义扩展命令继续可直接输入，带附件的 slash 会在本地明确拒绝而不丢附件或误投模型。
+
+历史页和实时执行页为工具输出、助手文本、thinking、工具参数及用户 Bash 的 artifactId 增加按需文本预览。客户端带设备鉴权和 `Range: bytes=0-65535` 请求，只读取最多 64 KiB；服务器仍有后续字节时明确提示，不自动下载大文件。失败保留已持久化的展示副本并可重试。协议 schema、数据库和服务端 artifact 归属规则未改变。
+
+验证环境：Windows、Node 24.19.0、pnpm 10.28.0。手机 view-model / API 定向测试 2 文件 14 项通过，覆盖运行态输入模式、slash 名称/说明搜索、鉴权 Range 与截断标记；全仓 typecheck 与 lint 通过。首次 `pnpm verify:S10` 暴露持久命令测试用 POSIX shell 写 Windows 临时路径时未产生副作用文件，改为独立 Node 子进程执行同一真实文件副作用后，定向持久命令测试 8/8 通过。最终 `pnpm verify:S10` 为 17 passed / 2 not_run，移动合同共 9 文件 41 项、协议构建、Android/iOS JavaScript 构建、lint、typecheck 和 docs 均通过；Android 设备/模拟器和 Xcode/iOS Simulator 不可用，两个设备项保持 not_run，阶段状态为 blocked。报告位于 `test-results/s10/report.json`（默认不提交）。

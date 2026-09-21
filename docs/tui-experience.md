@@ -80,7 +80,9 @@ ctx.ui.onTerminalInput 已接入当前 Session 的 custom/editor 虚拟终端，
 
 普通提交经 SDK prompt，运行中使用 steer；扩展 slash 保留即时处理；`!` / `!!` 使用原生用户 Bash hook 和执行器，不误发为模型文本。后续用户提交不归因于早先安装编辑器的扩展命令：独立 Operation、原生因果 Run，外部 Command 可空。提交异常保留文本为草稿，不自动重发、不覆盖用户较新的草稿。取消编辑器控件/恢复默认/会话替换会关闭旧按键并保留草稿；停止编辑器不停止已开始的模型任务。worker 重启不恢复内存回调。
 
-编辑器内置命令以[命令与快捷键状态表](editor-command-status.md)为当前清单。已接入入口使用独立操作；尚未接入的范围内流程逐项说明缺口并保留文本，不能当普通 prompt 发给模型。follow-up/dequeue 已覆盖压缩/生成使用同一 SDK 队列路径；图片粘贴复用手机 artifact 上传并进入 SDK 图片输入；挂起在共享服务架构中保持任务运行。真机键盘/图片选择仍待验收；服务器系统剪贴板和完整交互式 TUI 不属于 V1。
+编辑器内置命令以[命令与快捷键状态表](editor-command-status.md)为当前清单。手机统一输入识别 `/`，搜索/快捷填入 23 个托管命令并通过 extension_command 执行；自定义扩展命令也可直接输入，slash 不误发模型。运行开始后普通输入默认 steer，可切 follow-up，空闲后恢复 prompt。follow-up/dequeue 已覆盖压缩/生成使用同一 SDK 队列路径；图片粘贴复用手机 artifact 上传并进入 SDK 图片输入；挂起在共享服务架构中保持任务运行。真机键盘/图片选择仍待验收；服务器系统剪贴板和完整交互式 TUI 不属于 V1。
+
+工具输出、助手文本、thinking、工具参数或 Bash 展示副本带 artifactId 时，历史页和执行页均可按需读取服务器 artifact 的 64 KiB 鉴权文本预览。请求使用 Range，不自动下载整个大文件；仍有后续字节时明确标记。网络或权限失败保留原展示副本并允许重试。
 
 应用输入监听按注册顺序安装到原生 TUI，支持 consume、data 改写、晚注册和取消订阅；组件自身的 tui.addInputListener 保持原生相对顺序。会话替换清理旧应用监听，仍待答的源 custom 组件保留自己的局部监听和按键能力；新 Session 不继承旧监听。worker 退出释放全部订阅。扩展 registerShortcut 使用原生 getShortcuts 的冲突处理及 matchesKey，绑定到具有 actionHandlers 的 CustomEditor；保留扩展自定义 onExtensionShortcut。快捷键回调使用 SDK createContext，异步不阻塞输入，错误归属原编辑器 Session，不能把快捷键注册套到所有普通 custom 组件。
 

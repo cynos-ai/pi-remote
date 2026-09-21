@@ -5,6 +5,8 @@ import {
   mergeHistoryPage,
   offlineCacheLabel,
   projectActivityLabel,
+  reconcileSendMode,
+  slashCommandSuggestions,
   sessionStatusLabel
 } from "../../apps/mobile/src/app-model";
 
@@ -81,5 +83,19 @@ describe("S09 list, history, and offline view model", () => {
     expect(formatRelativeTime("2026-09-12T23:00:00.000Z", now)).toBe("1 小时前");
     expect(formatRelativeTime("bad timestamp", now)).toBe("时间未知");
     expect(offlineCacheLabel(now - 60_000)).toContain("离线缓存");
+  });
+
+  it("routes active input to steer/follow-up and resets idle input to prompt", () => {
+    expect(reconcileSendMode("run-a", "prompt")).toBe("steer");
+    expect(reconcileSendMode("run-a", "follow_up")).toBe("follow_up");
+    expect(reconcileSendMode(null, "steer")).toBe("prompt");
+    expect(reconcileSendMode(null, "follow_up")).toBe("prompt");
+  });
+
+  it("discovers common slash commands by name or description", () => {
+    expect(slashCommandSuggestions("", 3).map((item) => item.command)).toEqual(["/model", "/thinking", "/compact"]);
+    expect(slashCommandSuggestions("/think").map((item) => item.command)).toEqual(["/thinking"]);
+    expect(slashCommandSuggestions("provider").map((item) => item.command)).toEqual(["/login", "/logout"]);
+    expect(slashCommandSuggestions("missing-command")).toEqual([]);
   });
 });

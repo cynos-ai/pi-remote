@@ -181,7 +181,11 @@ describe("R13 durable command identity", () => {
           // Deterministic accepting-server fixture with a real shell side effect.
           stored = { body, commandId: `command-${receipts.size + 1}` };
           receipts.set(key, stored);
-          execFileSync("sh", ["-c", 'printf "effect\\n" >> "$1"', "sh", effects]);
+          execFileSync(process.execPath, [
+            "-e",
+            'require("node:fs").appendFileSync(process.argv[1], "effect\\n")',
+            effects
+          ]);
         }
         expect(body).toBe(stored.body);
         if (losses-- > 0) throw new Error("accepted, response lost");

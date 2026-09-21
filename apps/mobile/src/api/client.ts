@@ -80,6 +80,12 @@ export interface SessionMutationResponse {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+export interface ArtifactTextPreview {
+  text: string;
+  mimeType: string;
+  truncated: boolean;
+}
+
 export type MobileApiErrorCode =
   | "INVALID_SERVER_URL"
   | "NETWORK_UNAVAILABLE"
@@ -384,6 +390,55 @@ export class PiRemoteApi {
         response.status
       );
     }
+  }
+
+  /** Read a bounded UTF-8 preview of a server-owned text/JSON artifact. */
+  async previewArtifact(artifactId: string, requestedBytes = 64 * 1024): Promise<ArtifactTextPreview> {
+    const maxBytes = Math.min(64 * 1024, Math.max(1024, Math.trunc(requestedBytes)));
+    const headers: Record<string, string> = {
+      Accept: "text/plain, application/json;q=0.9, */*;q=0.1",
+      Range: `bytes=0-${maxBytes - 1}`
+    };
+    if (this.deviceToken !== undefined) headers.Authorization = `Bearer ${this.deviceToken}`;
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}/v1/artifacts/${encodeURIComponent(artifactId)}`, { headers });
+    } catch {
+      throw new MobileApiError("NETWORK_UNAVAILABLE", "无法读取完整输出，网络恢复后可重试", undefined, undefined, true);
+    }
+    const text = await response.text();
+    if (!response.ok) {
+      let body: unknown = null;
+      try { body = text.length > 0 ? JSON.parse(text) : null; } catch { /* Use the bounded fallback below. */ }
+      const parsed = errorResponseSchema.safeParse(body);
+      const code = parsed.success
+        ? parsed.data.error.code
+        : response.status === 401
+          ? "UNAUTHENTICATED"
+          : response.status === 403
+            ? "DEVICE_REVOKED"
+            : `HTTP_${response.status}`;
+      throw new MobileApiError(
+        code,
+        responseMessage(body, `完整输出读取失败（${response.status}）`),
+        response.status,
+        parsed.success ? parsed.data.error.details : undefined,
+        response.status >= 500 || response.status === 408 || response.status === 429
+      );
+    }
+    const contentRange = response.headers.get("content-range");
+    const rangeMatch = contentRange?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+    const end = rangeMatch ? Number(rangeMatch[2]) : text.length - 1;
+    const total = rangeMatch && rangeMatch[3] !== "*" ? Number(rangeMatch[3]) : null;
+    const contentLength = Number(response.headers.get("content-length"));
+    const truncated = total !== null
+      ? total > end + 1
+      : response.status === 206 || (Number.isFinite(contentLength) && contentLength > maxBytes);
+    return {
+      text,
+      mimeType: response.headers.get("content-type")?.split(";", 1)[0]?.trim() || "text/plain",
+      truncated
+    };
   }
 
   private async request<T>(path: string, options: RequestOptions, schema: ParseSchema<T>): Promise<T> {
