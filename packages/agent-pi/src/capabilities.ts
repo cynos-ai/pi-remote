@@ -141,11 +141,11 @@ export const NATIVE_CAPABILITIES: readonly NativeCapability[] = [
   {
     id: "extension.custom-renderers",
     area: "ui",
-    status: "needs_adapter",
-    evidence: "sdk_api",
+    status: "available",
+    evidence: "contract_smoke",
     sdkEntryPoints: ["registerMessageRenderer", "registerEntryRenderer", "ExtensionUIContext.setWidget", "setFooter", "setHeader"],
-    adapterPlan: "S07 defines structured fallback DTOs; S10 renders supported widgets and labels unsupported terminal-only parts.",
-    notes: "A missing mobile renderer is an adapter task, not a reason to disable the extension or tool."
+    adapterPlan: "S07 renders native components to bounded 80-column text; S10 persists and labels the mobile projection.",
+    notes: "Message fallback and entry failure semantics follow SDK 0.85.1; terminal pixels, colors, and device parity remain separate evidence."
   },
   {
     id: "tui.terminal-components",

@@ -18,11 +18,11 @@
 | `extension.interactions` | available | sdk_api | S07 / S10 以 operationId 桥接标准表单 |
 | `resources.native-discovery` | available | sdk_api | S06 / S12 保留原生 loader、trust 与显式部署路径 |
 | `bash.native-executor` | available | sdk_api | S06 / S07 / S10 / S12 透传原生 Bash 生命周期 |
-| `extension.custom-renderers` | needs_adapter | sdk_api | S07 定义结构化回退，S10 支持移动端 renderer |
+| `extension.custom-renderers` | available | contract_smoke | S07 在 worker 执行 renderer 并生成有界 80 列纯文本；S10 持久化、重连重放并标注移动端投影 |
 | `tui.terminal-components` | needs_adapter | sdk_api | S02 记录归属，S07 / S10 实现可观察的触控等价物 |
 
 当前没有 `disabled_by_owner` 或 `upstream_unavailable` 项。真实配置缺失只影响对应 live 证据，不会把能力清单静默改成可用或禁用。
 
 
 
-2026-09-15 审核修复已接通真实 worker 的 runtime replacement、无命令消息/Run、标准 UI 状态/编辑器、实际模型目录和队列取回；详见[修复记录](reviews/2026-09-15-code-review-fixes.md)。终端 custom renderer、主题/终端组件仍需扩展提供文本或标准表单回退。此差异不限制原生工具或 Bash 执行；Android/iOS 真机和真实运营者 provider 对照仍单独验收。
+2026-09-15 审核修复已接通真实 worker 的 runtime replacement、无命令消息/Run、标准 UI 状态/编辑器、实际模型目录和队列取回；详见[修复记录](reviews/2026-09-15-code-review-fixes.md)。2026-09-22 又接通 custom message / entry renderer 的 worker 内文本投影；函数、组件和 SDK 类型不越过协议，颜色、主题、终端图片与任意交互式组件仍归 `tui.terminal-components`。Android/iOS 真机和真实运营者 provider 对照仍单独验收。

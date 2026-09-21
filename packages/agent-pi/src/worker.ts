@@ -7,7 +7,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventBacklog } from "./event-backlog.js";
-import { WidgetHost, type WidgetFactory } from "./widget-host.js";
+import { WidgetHost, nativeTextTheme, renderTextComponent, type WidgetFactory } from "./widget-host.js";
 import { SurfaceHost, type SurfaceMethod } from "./surface-host.js";
 import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
@@ -24,7 +24,7 @@ import { EDITOR_COMMANDS, PENDING_EDITOR_COMMANDS, sessionInformation, hotkeyInf
 import { createSessionSelector } from "./session-selector.js";
 import { createForkSelector } from "./fork-selector.js";
 import { createTreeSelector } from "./tree-selector.js";
-import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
+import { CombinedAutocompleteProvider, matchesKey, type Component } from "@earendil-works/pi-tui";
 import { TerminalInputHub } from "./terminal-input.js";
 import { encodeSpooledOutbound } from "./outbound-spool.js";
 import { fileURLToPath } from "node:url";
@@ -39,7 +39,8 @@ import {
   type ModelInfo,
   type ProtocolEvent,
   type OperationKind,
-  type OperationStatus
+  type OperationStatus,
+  type TerminalRendererProjection
 } from "@pi-remote/protocol";
 import {
   createPiWorkerSession,
@@ -356,6 +357,34 @@ function errorMessage(error: unknown): string {
 
 function bounded(value: string, max = 32768): string {
   return value.length <= max ? value : value.slice(0, max);
+}
+
+function terminalRendererProjection(
+  component: Component,
+  expanded: boolean,
+  failed = false
+): TerminalRendererProjection {
+  const rendered = renderTextComponent(component);
+  const lines: string[] = [];
+  let remaining = 32768;
+  let truncated = rendered.length > 256;
+  for (const line of rendered.slice(0, 256)) {
+    if (remaining <= 0) { truncated = true; break; }
+    if (line.length > remaining) {
+      lines.push(line.slice(0, remaining));
+      truncated = true;
+      break;
+    }
+    lines.push(line);
+    remaining -= line.length;
+  }
+  return {
+    lines,
+    expanded,
+    width: 80,
+    ...(truncated ? { truncated: true } : {}),
+    ...(failed ? { failed: true } : {})
+  };
 }
 
 function jsonObject(value: unknown): JsonObject {
@@ -2713,6 +2742,7 @@ export class PiWorker {
             break;
           }
         case "entry_appended":
+          if (event.entry.type === "custom") this.customEntryAppended(event.entry);
           this.notifyPersistence();
           break;
         case "queue_update":
@@ -2759,6 +2789,44 @@ export class PiWorker {
       }
     } catch (error) {
       this.fatal("SDK_EVENT_ADAPTER_FAILED", errorMessage(error));
+    }
+  }
+
+  private customEntryAppended(entry: Extract<AgentSessionEvent, { type: "entry_appended" }>["entry"]): void {
+    if (entry.type !== "custom") return;
+    const renderer = this.handle?.session.extensionRunner.getEntryRenderer(entry.customType);
+    if (!renderer) return;
+    let projection: TerminalRendererProjection;
+    let component: Component | undefined;
+    try {
+      component = renderer(entry, { expanded: this.toolsExpanded }, nativeTextTheme());
+      if (!component) return;
+      projection = terminalRendererProjection(component, this.toolsExpanded);
+    } catch (error) {
+      projection = {
+        lines: [bounded(`[${entry.customType}] renderer failed: ${errorMessage(error)}`)],
+        expanded: this.toolsExpanded,
+        width: 80,
+        failed: true
+      };
+    } finally {
+      try { (component as Component & { dispose?(): void } | undefined)?.dispose?.(); } catch { /* projection is already immutable */ }
+    }
+    const parent = this.operationContext();
+    const context = parent ?? this.createStandaloneOperation();
+    this.emitEvent({
+      sessionId: this.sessionId,
+      seq: 1,
+      runId: context.runId,
+      operationId: context.operationId,
+      schemaVersion: 1,
+      timestamp: nowTimestamp(),
+      type: "custom_entry.appended",
+      payload: { entryId: entry.id, type: entry.customType, renderer: projection }
+    });
+    if (!parent) {
+      this.standaloneOperations.delete(context.operationId);
+      this.emitOperationStatus("completed", context);
     }
   }
 
@@ -2945,10 +3013,12 @@ export class PiWorker {
     const blocks = contentBlocks(message, messageId);
     const payload: RecordValue = { messageId, role, blocks };
     if (role === "custom") {
+      const renderer = this.customMessageRenderer(message);
       payload.custom = {
         type: stringValue(record.customType) ?? "custom",
         display: boolValue(record.display),
-        ...(recordValue(record.details) ? { details: recordValue(record.details) } : {})
+        ...(recordValue(record.details) ? { details: recordValue(record.details) } : {}),
+        ...(renderer ? { renderer } : {})
       };
     } else if (role === "bash") {
       const exitCode = typeof record.exitCode === "number" ? record.exitCode : undefined;
@@ -2990,6 +3060,27 @@ export class PiWorker {
     this.messageContexts.delete(messageId);
     if (this.uiContextStorage.getStore()?.operationId !== context.operationId && this.standaloneOperations.delete(context.operationId)) {
       this.emitOperationStatus("completed", { ...context, kind: "extension" });
+    }
+  }
+
+  private customMessageRenderer(message: unknown): TerminalRendererProjection | undefined {
+    const record = recordValue(message);
+    const customType = stringValue(record?.customType);
+    if (!record || !customType || !boolValue(record.display)) return undefined;
+    const renderer = this.handle?.session.extensionRunner.getMessageRenderer(customType);
+    if (!renderer) return undefined;
+    let component: Component | undefined;
+    try {
+      component = renderer(record as unknown as Parameters<typeof renderer>[0], {
+        expanded: this.toolsExpanded,
+        outputPad: this.handle?.services.settingsManager.getOutputPad() ?? 1
+      }, nativeTextTheme());
+      return component ? terminalRendererProjection(component, this.toolsExpanded) : undefined;
+    } catch {
+      // The pinned TUI falls back to the ordinary custom-message rendering.
+      return undefined;
+    } finally {
+      try { (component as Component & { dispose?(): void } | undefined)?.dispose?.(); } catch { /* no live renderer state crosses IPC */ }
     }
   }
 

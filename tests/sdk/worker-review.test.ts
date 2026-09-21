@@ -443,6 +443,66 @@ export default function(pi) {
     expect(h.sent.filter((message) => message.type === "extension_error")).toEqual([]);
   });
 
+  it("R10 projects native custom message and entry renderers without leaking components into the protocol", async () => {
+    const h = await harness({ extensionSource: () => `
+import { Text } from "@earendil-works/pi-tui";
+export default function(pi) {
+  pi.registerMessageRenderer("review.message", (message, options) => new Text(
+    "rendered message | " + message.content + " | expanded=" + options.expanded + " | pad=" + options.outputPad, 0, 0
+  ));
+  pi.registerMessageRenderer("review.undefined", () => undefined);
+  pi.registerMessageRenderer("review.throw", () => { throw new Error("message renderer failed"); });
+  pi.registerMessageRenderer("review.long", () => new Text(Array.from({ length: 300 }, (_, index) => "line-" + index).join("\\n"), 0, 0));
+  pi.registerEntryRenderer("review.entry", (entry, options) => new Text(
+    "rendered entry | " + entry.data.marker + " | expanded=" + options.expanded, 0, 0
+  ));
+  pi.registerEntryRenderer("review.entry.undefined", () => undefined);
+  pi.registerEntryRenderer("review.entry.throw", () => { throw new Error("entry renderer failed"); });
+  pi.registerCommand("review-renderers", { handler: async (_args, ctx) => {
+    ctx.ui.setToolsExpanded(true);
+    pi.sendMessage({ customType: "review.message", content: "model-visible", display: true }, { triggerTurn: false });
+    pi.sendMessage({ customType: "review.undefined", content: "undefined fallback", display: true }, { triggerTurn: false });
+    pi.sendMessage({ customType: "review.throw", content: "throw fallback", display: true }, { triggerTurn: false });
+    pi.sendMessage({ customType: "review.message", content: "hidden", display: false }, { triggerTurn: false });
+    pi.sendMessage({ customType: "review.long", content: "long fallback", display: true }, { triggerTurn: false });
+    pi.appendEntry("review.entry", { marker: "state-only" });
+    pi.appendEntry("review.entry.undefined", { marker: "not displayed" });
+    pi.appendEntry("review.entry.throw", { marker: "failure is visible" });
+  }});
+}` });
+    await h.execute({ kind: "extension_command", text: "/review-renderers", commandId: "renderer-command", operationId: "renderer-op" });
+    expect(await h.completed("renderer-command")).toMatchObject({ payload: { status: "completed" } });
+    const state = h.state();
+    const customMessages = state.timelineItems.filter((item) => item.kind === "message" && item.data.role === "custom");
+    expect(customMessages).toHaveLength(5);
+    const rendered = customMessages.find((item) => item.kind === "message" && item.data.custom?.type === "review.message" && item.data.custom.display);
+    expect(rendered && rendered.kind === "message" ? rendered.data.custom?.renderer : undefined).toMatchObject({
+      lines: [expect.stringContaining("rendered message | model-visible | expanded=true")], expanded: true, width: 80
+    });
+    for (const type of ["review.undefined", "review.throw"]) {
+      const fallback = customMessages.find((item) => item.kind === "message" && item.data.custom?.type === type);
+      expect(fallback && fallback.kind === "message" ? fallback.data.custom?.renderer : undefined).toBeUndefined();
+      expect(fallback && fallback.kind === "message" ? fallback.data.blocks : []).toEqual([
+        expect.objectContaining({ kind: "text", text: expect.stringContaining("fallback") })
+      ]);
+    }
+    const hidden = customMessages.find((item) => item.kind === "message" && item.data.custom?.display === false);
+    expect(hidden && hidden.kind === "message" ? hidden.data.custom?.renderer : undefined).toBeUndefined();
+    const long = customMessages.find((item) => item.kind === "message" && item.data.custom?.type === "review.long");
+    expect(long && long.kind === "message" ? long.data.custom?.renderer : undefined).toMatchObject({ truncated: true });
+    expect(long && long.kind === "message" ? long.data.custom?.renderer?.lines : []).toHaveLength(256);
+    const entries = state.timelineItems.filter((item) => item.kind === "custom_entry");
+    expect(entries).toHaveLength(2);
+    expect(entries.find((item) => item.data.type === "review.entry")?.data.renderer).toMatchObject({
+      lines: [expect.stringContaining("rendered entry | state-only | expanded=true")], expanded: true, width: 80
+    });
+    expect(entries.find((item) => item.data.type === "review.entry.throw")?.data.renderer).toMatchObject({
+      lines: [expect.stringContaining("[review.entry.throw] renderer failed: entry renderer failed")], failed: true
+    });
+    expect(JSON.stringify(snapshotSchema.parse(toSnapshot(state)))).not.toContain("unsupportedRenderer");
+    expect(h.sent.filter((message) => message.type === "fatal" || message.type === "extension_error")).toEqual([]);
+  });
+
   it.each([false, true])("R10 delayed native thinking hook opens a child Operation after configure returned (streaming=%s)", async (streaming) => {
     const h = await harness({ extensionSource: (root) => `
 import { existsSync } from "node:fs";

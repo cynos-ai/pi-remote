@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   EventStore,
@@ -13,6 +13,7 @@ import {
   SessionRepository,
   decodeHistoryCursor,
   loadReducerState,
+  migrateDatabase,
   openServerDatabase,
   readEvents,
   readHistory,
@@ -180,6 +181,50 @@ describe("S04 SQLite storage contract", () => {
     expect(count(reopened, "schema_migrations")).toBe(1);
     expect(count(reopened, "users")).toBe(1);
     expect(new OwnerRepository(reopened).get(OWNER_A)).toMatchObject({ id: OWNER_A, displayName: "Owner A" });
+  });
+
+  it("upgrades the stable v1 timeline constraint for custom renderer entries without losing history", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(`
+        CREATE TABLE projects(id TEXT PRIMARY KEY) STRICT;
+        CREATE TABLE sessions(id TEXT PRIMARY KEY) STRICT;
+        CREATE TABLE runs(id TEXT NOT NULL, session_id TEXT NOT NULL, UNIQUE(id, session_id)) STRICT;
+        CREATE TABLE events(session_id TEXT NOT NULL, seq INTEGER NOT NULL, PRIMARY KEY(session_id, seq)) STRICT;
+        INSERT INTO sessions VALUES ('session');
+        INSERT INTO events VALUES ('session', 1), ('session', 2), ('session', 3);
+        CREATE TABLE timeline_items (
+          session_id TEXT NOT NULL,
+          item_id TEXT NOT NULL,
+          operation_id TEXT NOT NULL,
+          run_id TEXT,
+          kind TEXT NOT NULL CHECK(kind IN ('message','tool')),
+          completeness TEXT NOT NULL CHECK(completeness IN ('complete','partial')),
+          end_reason TEXT CHECK(end_reason IN ('failed','aborted','interrupted')),
+          ordinal_seq INTEGER NOT NULL,
+          finalized_seq INTEGER NOT NULL CHECK(finalized_seq >= ordinal_seq),
+          payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+          PRIMARY KEY(session_id, item_id),
+          CHECK ((completeness = 'complete' AND end_reason IS NULL)
+            OR (completeness = 'partial' AND end_reason IS NOT NULL))
+        ) STRICT;
+        CREATE INDEX timeline_page_idx ON timeline_items(session_id, ordinal_seq DESC, item_id);
+        INSERT INTO timeline_items VALUES ('session', 'old-message', 'operation', NULL, 'message', 'complete', NULL, 1, 2, '{}');
+        PRAGMA foreign_keys = ON;
+        PRAGMA user_version = 1;
+      `);
+      migrateDatabase(database, FIXED_NOW);
+      const table = database.prepare("SELECT sql FROM sqlite_master WHERE name = 'timeline_items'").get() as { sql: string };
+      expect(table.sql).toContain("custom_entry");
+      expect(count(database, "timeline_items")).toBe(1);
+      database.prepare("INSERT INTO timeline_items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+        "session", "entry", "operation", null, "custom_entry", "complete", null, 3, 3, "{}"
+      );
+      expect(count(database, "timeline_items")).toBe(2);
+      expect(database.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 1 });
+    } finally {
+      database.close();
+    }
   });
 
   it("assigns per-session sequence numbers, stores projections, and deduplicates IPC batches", async () => {

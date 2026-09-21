@@ -16,6 +16,8 @@ custom UI 为独立 extension 子 Operation：工厂、连续按键表单及异�
 
 header/footer 为无焦点组件，工厂及 FooterDataProvider 留在 worker，以安装时 Session 为归属。异步刷新若原 Operation 已关闭，创建同 Session 的新 Operation；不能沿用后来目标会话的归属。替换/清除销毁旧组件，worker 退出清理 provider 的 Git watcher。footer 状态数据来自 setStatus，可用 provider 数量按原生 scopedModels 或 available snapshot 计算，不为渲染额外发起模型请求。
 
+custom message / entry renderer 只在拥有 ExtensionRunner 的 worker 内执行。固定 80 列文本投影记录实际 expanded 与原生 outputPad，去除 ANSI，最多 256 行 / 32768 字；协议不携带 renderer 函数或 Component。message 的 undefined / 异常沿 SDK 回退 blocks，`display:false` 不执行；entry 的 undefined 不显示，异常保存失败画面。entry 若没有仍开放的父 Operation，必须创建无 Run extension Operation，先持久化开始，再封存 `custom_entry.appended`，最后结束操作。snapshot / 历史重放只恢复文本，不重新执行扩展代码。
+
 editor 工厂用独立 extension Operation 跨连续按键存活；安装立即返回，不阻塞扩展命令或初始化。替换、取消、会话替换和退出使旧控件失效，迟到 onSubmit / onChange 不操作新组件。后续用户提交清除安装时的命令因果关系，创建独立操作，SDK 产生的 Run 可无外部 Command。onSubmit 异常只保留草稿、不自动重试；已开始的 SDK 任务不因编辑器被替换而停止。异步失败明确携带安装时 Session 归属。相同 editor_state 文本不调用组件 setText，避免重置原生光标。
 
 onTerminalInput 订阅按 Session 隔离，直接注册到各原生交互 TUI；消费/改写及局部监听顺序由 SDK 负责。移除控件解除其绑定但保留有效应用订阅供之后组件使用；原生会话替换清除旧应用订阅，不能将新会话监听绑定到源会话仍待答的 custom。扩展快捷键只接入原生 CustomEditor 的 onExtensionShortcut，沿用 getShortcuts 和原上下文；已有回调不覆盖，异常通知不关闭编辑器。

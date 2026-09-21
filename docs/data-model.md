@@ -62,7 +62,7 @@ pi_session_file 必须来自 SDK 创建结果并位于配置的会话存储目�
 | runs | 每次 prompt / compact，唯一 operation_id；source 为 command / extension / runtime，command_id 可空且非唯一；一个 Session 最多一个 active Run，queued 可有多个；分派前保存 execution_scope_key |
 | events | PK(session_id,seq)，operation_id 与可空 run_id 记录执行归属；Run 复合 FK 保证同 Session，Operation 关系由事件事务校验 |
 | ipc_batches | workerEpoch + batchNo 去重，提交后返回相同 ACK |
-| timeline_items | 封存消息 / 工具结果不可变，包括中断 partial；必带 operation_id、可空同 Session run_id、completeness / end_reason，保留开始及封存 seq |
+| timeline_items | 封存消息 / 工具结果及非模型 custom entry 的 renderer 文本投影不可变，包括中断 partial；必带 operation_id、可空同 Session run_id、completeness / end_reason，保留开始及封存 seq |
 | interactions | operation_id、origin、可空 run_id / command_id、workerEpoch、pending / 到期及一次性回答 CAS |
 | artifacts | 服务端生成的相对路径、大小、摘要，下载时检查会话归属 |
 
@@ -83,6 +83,8 @@ custom UI 工厂使用独立 extension 子 Operation 跨多次 select/input 控�
 overlay 复用上述画面和表单；其 handle、几何、焦点和输入监听仅存在于该 custom 的虚拟 TUI 内存，不持久化 SDK 对象，不因重放旧画面重新创建组件。
 
 header/footer 同样使用 runtime.notice 保存文本画面、null 清除及 rendererError 失败信息，不增加表或迁移。工厂与原生 footer 数据保留在 worker 内存，异步刷新按安装时 Session 创建 Operation；客户端历史重放只恢复显示副本，不恢复 watcher 或执行回调。
+
+custom message renderer 作为消息的可选 80 列纯文本显示投影随 timeline payload 保存，不替换模型上下文 blocks；无 renderer、undefined、异常及 `display:false` 遵循 SDK 默认显示规则。可见 custom entry 使用 `timeline_items.kind=custom_entry` 单独保存，明确不进入模型上下文；renderer undefined 不产生显示项，失败保存有界错误画面。既有 schema v1 数据库启动时重建该表的 kind CHECK 并复制旧行，`user_version` 保持 1；迁移测试必须证明旧消息不丢失且新 kind 可写。
 
 editor 复用 custom 画面和持久 Interaction，草稿通过 setEditorText 投影；工厂、补全包装器与光标留在 worker 内存。重启只恢复显示/草稿，不恢复组件或重发 onSubmit。后续用户提交与安装 Command 分离；普通模型执行由原生事件建立 Run，用户 Bash 无模型 Run，respond 的完成状态不是模型或 shell 副作用成功保证。
 

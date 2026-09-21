@@ -163,7 +163,7 @@ CREATE TABLE timeline_items (
   item_id TEXT NOT NULL,
   operation_id TEXT NOT NULL,
   run_id TEXT,
-  kind TEXT NOT NULL CHECK(kind IN ('message','tool')),
+  kind TEXT NOT NULL CHECK(kind IN ('message','tool','custom_entry')),
   completeness TEXT NOT NULL CHECK(completeness IN ('complete','partial')),
   end_reason TEXT CHECK(end_reason IN ('failed','aborted','interrupted')),
   ordinal_seq INTEGER NOT NULL,

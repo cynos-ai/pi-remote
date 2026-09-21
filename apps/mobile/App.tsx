@@ -27,6 +27,7 @@ import type {
   ReducerState,
   SessionSummary,
   Snapshot,
+  TerminalRendererProjection,
   TimelineItem
 } from "@pi-remote/protocol";
 import type { InteractionResponse } from "@pi-remote/protocol";
@@ -699,6 +700,16 @@ function SessionsScreen({
 }
 
 function TimelineRow({ item }: { item: TimelineItem }) {
+  if (item.kind === "custom_entry") {
+    return (
+      <View style={styles.timelineCard}>
+        <Text style={styles.timelineTitle}>扩展记录 · {item.data.type}</Text>
+        <Text style={item.data.renderer.failed ? styles.errorText : styles.codeText}>{item.data.renderer.lines.join("\n")}</Text>
+        <Text style={styles.toolMeta}>终端 renderer 文本投影 · 80 列{item.data.renderer.expanded ? " · 展开" : " · 收起"}</Text>
+        {item.data.renderer.truncated ? <Text style={styles.warningText}>renderer 文本投影已截断。</Text> : null}
+      </View>
+    );
+  }
   if (item.kind === "tool") {
     return (
       <View style={styles.timelineCard}>
@@ -712,7 +723,9 @@ function TimelineRow({ item }: { item: TimelineItem }) {
   return (
     <View style={styles.timelineCard}>
       <Text style={styles.timelineTitle}>{item.data.role === "assistant" ? "pi" : item.data.role === "user" ? "你" : item.data.role}</Text>
-      {item.data.blocks.map((block, index) => {
+      {item.data.custom?.renderer ? (
+        <TerminalRendererText renderer={item.data.custom.renderer} />
+      ) : item.data.blocks.map((block, index) => {
         if (block.kind === "text" || block.kind === "thinking") {
           return (
             <Text key={`${item.itemId}-${index}`} style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
@@ -897,6 +910,18 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
   if (item.kind === "message" && item.data.custom && !item.data.custom.display) return null;
   const live = "displayState" in item;
   const completeness = live ? "live" : item.completeness;
+  if (item.kind === "custom_entry") {
+    return (
+      <View style={styles.timelineCard}>
+        <View style={styles.timelineHeadingRow}>
+          <Text style={styles.timelineTitle}>扩展记录 · {item.data.type}</Text>
+          <Text style={styles.cardMeta}>已记录</Text>
+        </View>
+        <Text style={styles.toolMeta}>Operation · {item.operationId}{item.runId ? ` · Run ${item.runId}` : " · 无 Run 内容"}</Text>
+        <TerminalRendererText renderer={item.data.renderer} />
+      </View>
+    );
+  }
   if (item.kind === "tool") {
     return (
       <View style={styles.timelineCard}>
@@ -926,7 +951,9 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
         </Text>
       </View>
       <Text style={styles.toolMeta}>Operation · {item.operationId}{item.runId ? ` · Run ${item.runId}` : " · 无 Run 内容"}</Text>
-      {item.data.blocks.map((block, index) => {
+      {item.data.custom?.renderer ? (
+        <TerminalRendererText renderer={item.data.custom.renderer} />
+      ) : item.data.blocks.map((block, index) => {
         if (block.kind === "text" || block.kind === "thinking") {
           return (
             <Text key={`${item.itemId}-${index}`} style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
@@ -957,6 +984,16 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
       {item.data.custom ? <Text style={styles.toolMeta}>自定义消息 · {item.data.custom.type}</Text> : null}
       {!live && item.completeness === "partial" ? <Text style={styles.warningText}>消息已中断（{item.endReason}），已停止等待，不会伪造完成。</Text> : null}
     </View>
+  );
+}
+
+function TerminalRendererText({ renderer }: { renderer: TerminalRendererProjection }) {
+  return (
+    <>
+      <Text style={renderer.failed ? styles.errorText : styles.codeText}>{renderer.lines.join("\n")}</Text>
+      <Text style={styles.toolMeta}>终端 renderer 文本投影 · {renderer.width} 列{renderer.expanded ? " · 展开" : " · 收起"}</Text>
+      {renderer.truncated ? <Text style={styles.warningText}>renderer 文本投影已截断。</Text> : null}
+    </>
   );
 }
 

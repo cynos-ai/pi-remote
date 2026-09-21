@@ -57,7 +57,7 @@ header/footer 工厂补充 AT21 / AT22 / AT32：原生工厂及主题、真实 G
 | AT29 | FR04, FR08, FR09, FR12 | S11 | live + device | 两台手机连接同一 Linux 后端：开始真实任务→另一台观察→回答表单→锁屏 / 换网→steer→完成→重启后继续；状态、文本和文件结果一致 |
 | AT30 | FR01, FR02, FR03, FR04, FR05, FR06, FR07, FR08, FR09, FR10, FR11, FR12, FR13, FR14 | S13 | 全部 | AT01–AT29、AT31 及 AT32 的必需子集 / 环境全部通过，干净安装可复现；无 skip / not_run 冒充通过；整体 TUI / Bash 兼容、安装、升级及恢复说明和实际行为一致 |
 | AT31 | FR04, FR05, FR10, FR11, FR12, FR13 | S02, S06, S08, S10, S12 | linux + live + device + docker | 按 [Bash 兼容矩阵](bash-compatibility.md) B01–B08 对照同版本原生 SDK / TUI：复杂命令、网络 / 依赖、无默认超时、后台服务、定向停止、非零退出后修复、模型原生输出及故障区分。S02 建基线；S06 验跨 Run / 可选回收；S08 验展示配额不影响模型结果；S10 验 Android / iOS 实际观察与控制；S12 同镜像复验。不以命令过滤、审批、杀后台服务或无依据的项目冻结取得通过 |
-| AT32 | FR14 | S02, S06, S07, S10, S12 | linux + live + device + docker | 按 [整体 TUI 矩阵](tui-experience.md) T01–T08 对照原生资源、输入、模型 / 压缩、全阶段交互、会话并发与归档、连续使用、能力适配清单及限制依据。S02 建清单 / 基线；S06 验运行与恢复；S07 验控制 / 标准交互 / 归档时继续；S10 验双端入口；S12 复验普通 Linux 部署。补充验证无 Run custom / 用户 Bash、延迟交付、自主和一命令多 Run、stop 草稿与 compact 差异、原生标题 / 异步 hook、合法历史与 new / switch / fork / import 的目标归属；基础能力完成适配，未完成项有具体步骤，不能用默认关闭 / 自动取消 / 永久 needs_adapter 绕过要求 |
+| AT32 | FR14 | S02, S06, S07, S10, S12 | linux + live + device + docker | 按 [整体 TUI 矩阵](tui-experience.md) T01–T08 对照原生资源、输入、模型 / 压缩、全阶段交互、会话并发与归档、连续使用、能力适配清单及限制依据。S02 建清单 / 基线；S06 验运行与恢复；S07 验控制 / 标准交互 / 归档时继续；S10 验双端入口；S12 复验普通 Linux 部署。补充验证无 Run custom / 用户 Bash、custom message / entry renderer 的成功、undefined、异常、隐藏、截断及重连投影、延迟交付、自主和一命令多 Run、stop 草稿与 compact 差异、原生标题 / 异步 hook、合法历史与 new / switch / fork / import 的目标归属；基础能力完成适配，未完成项有具体步骤，不能用默认关闭 / 自动取消 / 永久 needs_adapter 绕过要求 |
 
 ## 通过标准与报告
 

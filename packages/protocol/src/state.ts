@@ -2,8 +2,10 @@ import { z } from "zod";
 import {
   contentBlockSchema,
   customMessageSchema,
+  terminalRendererProjectionSchema,
   type ContentBlock,
   type CustomMessage,
+  type TerminalRendererProjection,
   type BashMessage,
   bashMessageSchema,
   toolOutputSnapshotSchema,
@@ -189,7 +191,13 @@ export interface ToolData {
   outcome?: "succeeded" | "failed" | "unknown";
 }
 
-export type TimelineItemData = MessageData | ToolData;
+export interface CustomEntryData {
+  entryId: string;
+  type: string;
+  renderer: TerminalRendererProjection;
+}
+
+export type TimelineItemData = MessageData | ToolData | CustomEntryData;
 
 export interface LiveMessageItem {
   itemId: string;
@@ -211,11 +219,22 @@ export interface LiveToolItem {
 
 export type LiveItem = LiveMessageItem | LiveToolItem;
 
-export type TimelineItem = (LiveMessageItem | LiveToolItem) & {
+export interface CustomEntryTimelineItem {
+  itemId: string;
+  kind: "custom_entry";
+  operationId: string;
+  runId: string | null;
+  ordinalSeq: number;
+  finalizedSeq: number;
+  completeness: "complete";
+  data: CustomEntryData;
+}
+
+export type TimelineItem = ((LiveMessageItem | LiveToolItem) & {
   finalizedSeq: number;
   completeness: "complete" | "partial";
   endReason?: "failed" | "aborted" | "interrupted";
-};
+}) | CustomEntryTimelineItem;
 
 export interface QueueProjection {
   state: QueueState;
@@ -318,6 +337,14 @@ export const toolDataSchema = z
   })
   .passthrough();
 
+export const customEntryDataSchema = z
+  .object({
+    entryId: idSchema,
+    type: z.string().min(1).max(160),
+    renderer: terminalRendererProjectionSchema
+  })
+  .strict();
+
 const liveItemSchema = z.discriminatedUnion("kind", [
   z.object({ itemId: idSchema, kind: z.literal("message"), operationId: idSchema, runId: idSchema.nullable(), ordinalSeq: positiveIntSchema, data: stateMessageDataSchema }).strict(),
   z.object({ itemId: idSchema, kind: z.literal("tool"), operationId: idSchema, runId: idSchema.nullable(), ordinalSeq: positiveIntSchema, data: toolDataSchema }).strict()
@@ -367,6 +394,16 @@ export const timelineItemSchema = z.union([
     completeness: z.literal("partial"),
     endReason: z.enum(["failed", "aborted", "interrupted"]),
     data: toolDataSchema
+  }).strict(),
+  z.object({
+    itemId: idSchema,
+    kind: z.literal("custom_entry"),
+    operationId: idSchema,
+    runId: idSchema.nullable(),
+    ordinalSeq: positiveIntSchema,
+    finalizedSeq: positiveIntSchema,
+    completeness: z.literal("complete"),
+    data: customEntryDataSchema
   }).strict()
 ]);
 

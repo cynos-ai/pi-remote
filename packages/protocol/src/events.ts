@@ -86,14 +86,40 @@ export type PartialToolCallBlock = z.infer<typeof partialToolCallBlockSchema>;
 export const liveContentBlockSchema = z.union([contentBlockSchema, partialToolCallBlockSchema]);
 export type LiveContentBlock = z.infer<typeof liveContentBlockSchema>;
 
+export const terminalRendererProjectionSchema = z
+  .object({
+    lines: z.array(z.string().max(32768)).max(256),
+    expanded: z.boolean(),
+    width: z.literal(80),
+    truncated: z.boolean().optional(),
+    failed: z.boolean().optional()
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.lines.reduce((total, line) => total + line.length, 0) > 32768) {
+      context.addIssue({ code: "custom", path: ["lines"], message: "renderer text exceeds 32768 characters" });
+    }
+  });
+export type TerminalRendererProjection = z.infer<typeof terminalRendererProjectionSchema>;
+
 export const customMessageSchema = z
   .object({
     type: z.string().min(1).max(160),
     display: z.boolean(),
-    details: jsonObjectSchema.optional()
+    details: jsonObjectSchema.optional(),
+    renderer: terminalRendererProjectionSchema.optional()
   })
   .strict();
 export type CustomMessage = z.infer<typeof customMessageSchema>;
+
+export const customEntryAppendedPayloadSchema = z
+  .object({
+    entryId: idSchema,
+    type: z.string().min(1).max(160),
+    renderer: terminalRendererProjectionSchema
+  })
+  .strict();
+export type CustomEntryAppendedPayload = z.infer<typeof customEntryAppendedPayloadSchema>;
 
 export const bashOutcomeSchema = z.enum(["running", "succeeded", "failed", "aborted", "unknown"]);
 export const bashMessageSchema = z
@@ -458,6 +484,10 @@ export const messageCompletedEventSchema = eventSchema(
   "message.completed",
   messageCompletedPayloadSchema
 );
+export const customEntryAppendedEventSchema = eventSchema(
+  "custom_entry.appended",
+  customEntryAppendedPayloadSchema
+);
 export const toolStartedEventSchema = eventSchema("tool.started", toolStartedPayloadSchema);
 export const toolUpdatedEventSchema = eventSchema("tool.updated", toolUpdatedPayloadSchema);
 export const toolFinishedEventSchema = eventSchema("tool.finished", toolFinishedPayloadSchema);
@@ -479,6 +509,7 @@ export const eventSchemaUnion = z.discriminatedUnion("type", [
   contentDeltaEventSchema,
   contentEndedEventSchema,
   messageCompletedEventSchema,
+  customEntryAppendedEventSchema,
   toolStartedEventSchema,
   toolUpdatedEventSchema,
   toolFinishedEventSchema,
@@ -503,6 +534,7 @@ const eventsRequiringOperation = new Set<EventType>([
   "content.delta",
   "content.ended",
   "message.completed",
+  "custom_entry.appended",
   "tool.started",
   "tool.updated",
   "tool.finished",

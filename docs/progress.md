@@ -654,3 +654,19 @@ next: <下一阶段>
 ```
 
 本地运行生成的详细报告放 `test-results/`（默认不提交）；只将清洗后的摘要、必要截图和可公开访问的 CI 证据纳入交接。
+
+## 2026-09-22 custom renderer 文本投影
+
+完成 `registerMessageRenderer` / `registerEntryRenderer` 的远程显示适配。renderer 继续只在固定 pi SDK `0.85.1` 的 worker 内执行，使用 SDK dark theme、原生 outputPad 和当前工具展开状态渲染为 80 列纯文本；公共协议只保存 `lines / expanded / width / truncated / failed`，不传函数、Component 或回调。custom message 保留原模型上下文 blocks，renderer 缺失、undefined、异常和 `display:false` 沿原生回退 / 隐藏语义；custom entry 作为不进入模型上下文的 `custom_entry.appended` 独立封存。移动历史与执行页均标注“终端 renderer 文本投影”，snapshot、历史分页和重连恢复同一持久结果。
+
+投影限制为 256 行且总计 32768 字；协议再次验证总量，worker 对超长输出明确标记 truncated。SQLite `user_version` 保持 1：新库允许 `timeline_items.kind=custom_entry`，既有 v1 数据库通过 savepoint 原位重建 CHECK、复制历史并恢复索引；启用 foreign key 的升级回归证明旧行保留且新 kind 可写。能力清单将 `extension.custom-renderers` 更新为 `available / contract_smoke`；任意终端组件、颜色、主题、终端图片、动态视口、跨 custom 共享焦点以及真实设备像素对照仍属于 `tui.terminal-components` 或外部验收，不因此宣称完整 TUI 已通过。
+
+验证环境：WSL Linux、Node 24.19.0、pnpm 10.28.0、pi SDK 0.85.1；扩展测试使用临时 agentDir、合成鉴权且不调用付费模型。
+
+- renderer 聚焦回归：协议、真实 SDK worker 扩展、移动 view-model、SQLite 共 4 个文件 / 39 个测试通过；覆盖成功、undefined、抛错、隐藏、展开 / outputPad、截断、custom entry 非模型归属、snapshot 重放与 v1 升级。
+- `pnpm test:unit`：40 个文件 / 279 个测试全部通过。
+- `pnpm build:server`、`pnpm lint`、`pnpm typecheck`、`python3 scripts/check_docs.py`：通过；文档检查为 23 个 Markdown、13 阶段、14 FR、32 AT、135 个合成事件和 12 张 SQLite 参考表。
+- `pnpm verify:S07`：14 passed / 2 failed；实现、server build、命令合同、原生表单 / Session 进程、lint、typecheck 和 docs 通过。`live-commands`、`parity-tui-commands` 仍因报告源码身份过期失败，本轮没有真实 provider / TUI 配置可重采，未改成 skip 或成功。
+- `pnpm verify:S10`：17 passed / 2 not_run；Android / iOS JavaScript 构建、移动合同、lint、typecheck 和 docs 通过。Android 设备 / 模拟器与 Xcode / iOS Simulator 不可用，两个设备项保持 not_run。
+
+本节点提交信息为 `feat: project custom renderers to mobile`，完成后推送 `cynos-ai/pi-remote` 的 `main`。仍未运行真实 provider、交互式原生 TUI、Android / iOS 真机及完整 Docker 组合验收。

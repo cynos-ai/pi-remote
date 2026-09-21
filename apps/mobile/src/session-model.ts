@@ -106,6 +106,8 @@ export function activeRunId(state: ReducerState): string | null {
 
 export function eventDisplayText(item: SessionTimelineItem): string {
   if (item.kind === "tool") return item.data.output?.text ?? "等待工具输出";
+  if (item.kind === "custom_entry") return item.data.renderer.lines.join("\n");
+  if (item.data.custom?.renderer) return item.data.custom.renderer.lines.join("\n");
   return item.data.blocks
     .filter((block) => block.kind === "text" || block.kind === "thinking")
     .map((block) => block.text)

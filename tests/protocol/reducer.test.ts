@@ -91,6 +91,23 @@ describe("S03 protocol schemas", () => {
     })).toThrow();
   });
 
+  it("rejects renderer projections above the shared text budget", () => {
+    expect(() => parseProtocolEvent({
+      schemaVersion: 1,
+      sessionId: "renderer-session",
+      seq: 1,
+      runId: null,
+      operationId: "renderer-operation",
+      type: "custom_entry.appended",
+      timestamp: "2026-09-22T00:00:00.000Z",
+      payload: {
+        entryId: "renderer-entry",
+        type: "review.renderer",
+        renderer: { lines: ["x".repeat(20000), "y".repeat(20000)], expanded: false, width: 80, truncated: true }
+      }
+    })).toThrow("renderer text exceeds 32768 characters");
+  });
+
   it("replays the normal stream with cumulative tool snapshots", async () => {
     const data = await fixture("stream.json");
     const events = expandEvents(data, data.events ?? [], { sessionId: data.sessionId });
@@ -111,7 +128,7 @@ describe("S03 protocol schemas", () => {
     const state = replayEvents(scenario.sessionId, events);
     const partialTool = state.timelineItems.find((item) => item.itemId === "long-tool");
     expect(partialTool?.completeness).toBe("partial");
-    expect(partialTool?.endReason).toBe("interrupted");
+    expect(partialTool && "endReason" in partialTool ? partialTool.endReason : undefined).toBe("interrupted");
     expect(partialTool && partialTool.kind === "tool" ? partialTool.data.outcome : undefined).toBe("unknown");
     expect(partialTool && partialTool.kind === "tool" ? partialTool.data.exitCode : undefined).toBeUndefined();
     expect(state.queue.state).toBe("paused");
@@ -194,5 +211,29 @@ describe("S03 reducer sequencing", () => {
     const output = state.timelineItems.find((item) => item.itemId === "tool-1");
     expect(output && output.kind === "tool" ? output.data.output?.text : undefined).toBe("one\ntwo\n");
     expect(state.timelineItems.filter((item) => item.itemId === "tool-1")).toHaveLength(1);
+  });
+
+  it("persists rendered custom entries as non-LLM timeline items", () => {
+    const envelope = {
+      schemaVersion: 1 as const,
+      sessionId: "s1",
+      operationId: "extension-op",
+      runId: null,
+      timestamp: "2026-09-22T00:00:00.000Z"
+    };
+    const state = reduceEvents(createInitialState("s1"), [
+      { ...envelope, seq: 1, type: "operation.updated", payload: { operationId: "extension-op", kind: "extension", status: "running" } },
+      { ...envelope, seq: 2, type: "custom_entry.appended", payload: {
+        entryId: "entry-1", type: "review.marker",
+        renderer: { lines: ["projected marker"], expanded: false, width: 80 }
+      } },
+      { ...envelope, seq: 3, type: "operation.updated", payload: { operationId: "extension-op", kind: "extension", status: "completed" } }
+    ]);
+    expect(state.timelineItems).toContainEqual(expect.objectContaining({
+      itemId: "entry-1",
+      kind: "custom_entry",
+      data: { entryId: "entry-1", type: "review.marker", renderer: { lines: ["projected marker"], expanded: false, width: 80 } }
+    }));
+    expect(snapshotSchema.parse(toSnapshot(state)).items).toEqual(state.timelineItems);
   });
 });

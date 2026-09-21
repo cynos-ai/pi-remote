@@ -530,6 +530,30 @@ function handleMessageCompleted(state: ReducerState, event: Extract<ProtocolEven
   finalizeLiveItem(state, { ...item, data }, event.seq, "complete");
 }
 
+function handleCustomEntryAppended(state: ReducerState, event: Extract<ProtocolEvent, { type: "custom_entry.appended" }>): void {
+  const operationId = operationIdOf(event);
+  ensureOperationOpen(state, operationId, event.type);
+  ensureEnvelopeOwnership(state, operationId, event.runId);
+  const entryId = event.payload.entryId;
+  if (state.liveItems[entryId] || state.timelineItems.some((item) => item.itemId === entryId)) {
+    fail(`custom entry ${entryId} already exists`);
+  }
+  addTimelineItem(state, {
+    itemId: entryId,
+    kind: "custom_entry",
+    operationId,
+    runId: event.runId,
+    ordinalSeq: event.seq,
+    finalizedSeq: event.seq,
+    completeness: "complete",
+    data: {
+      entryId,
+      type: event.payload.type,
+      renderer: structuredClone(event.payload.renderer)
+    }
+  });
+}
+
 function handleToolStarted(state: ReducerState, event: Extract<ProtocolEvent, { type: "tool.started" }>): void {
   const operationId = operationIdOf(event);
   ensureOperationOpen(state, operationId, event.type);
@@ -780,6 +804,9 @@ function reduceParsedEvent(state: ReducerState, event: ProtocolEvent): void {
       break;
     case "message.completed":
       handleMessageCompleted(state, event);
+      break;
+    case "custom_entry.appended":
+      handleCustomEntryAppended(state, event);
       break;
     case "tool.started":
       handleToolStarted(state, event);

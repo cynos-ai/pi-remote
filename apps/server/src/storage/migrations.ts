@@ -15,6 +15,51 @@ function ensureV1CompatibilityColumns(database: DatabaseSync): void {
   if (!columns.some((column) => column.name === "git_common_dir")) {
     database.exec("ALTER TABLE projects ADD COLUMN git_common_dir TEXT");
   }
+  const timeline = database.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'timeline_items'").get() as { sql?: unknown } | undefined;
+  if (typeof timeline?.sql === "string" && !timeline.sql.includes("custom_entry")) {
+    database.exec("SAVEPOINT timeline_items_v1_compat_upgrade");
+    try {
+      database.exec(`
+      CREATE TABLE timeline_items_v1_compat (
+        session_id TEXT NOT NULL REFERENCES sessions(id),
+        item_id TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        run_id TEXT,
+        kind TEXT NOT NULL CHECK(kind IN ('message','tool','custom_entry')),
+        completeness TEXT NOT NULL CHECK(completeness IN ('complete','partial')),
+        end_reason TEXT CHECK(end_reason IN ('failed','aborted','interrupted')),
+        ordinal_seq INTEGER NOT NULL,
+        finalized_seq INTEGER NOT NULL CHECK(finalized_seq >= ordinal_seq),
+        payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+        PRIMARY KEY(session_id, item_id),
+        CHECK ((completeness = 'complete' AND end_reason IS NULL)
+          OR (completeness = 'partial' AND end_reason IS NOT NULL)),
+        FOREIGN KEY(run_id, session_id) REFERENCES runs(id, session_id),
+        FOREIGN KEY(session_id, ordinal_seq) REFERENCES events(session_id, seq),
+        FOREIGN KEY(session_id, finalized_seq) REFERENCES events(session_id, seq)
+      ) STRICT;
+      INSERT INTO timeline_items_v1_compat(
+        session_id, item_id, operation_id, run_id, kind, completeness, end_reason,
+        ordinal_seq, finalized_seq, payload_json
+      ) SELECT
+        session_id, item_id, operation_id, run_id, kind, completeness, end_reason,
+        ordinal_seq, finalized_seq, payload_json
+      FROM timeline_items;
+      DROP TABLE timeline_items;
+      ALTER TABLE timeline_items_v1_compat RENAME TO timeline_items;
+      CREATE INDEX timeline_page_idx ON timeline_items(session_id, ordinal_seq DESC, item_id);
+      `);
+      database.exec("RELEASE SAVEPOINT timeline_items_v1_compat_upgrade");
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK TO SAVEPOINT timeline_items_v1_compat_upgrade");
+        database.exec("RELEASE SAVEPOINT timeline_items_v1_compat_upgrade");
+      } catch {
+        // Preserve the migration error.
+      }
+      throw error;
+    }
+  }
 }
 
 export function migrateDatabase(database: DatabaseSync, now = Date.now()): void {

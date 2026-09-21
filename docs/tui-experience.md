@@ -54,7 +54,7 @@
 | T07 适配清单 | 附件、用户 Bash、custom、树 / fork、导入导出及 UI 均有入口 / 步骤；合法 header-only / 非 assistant 历史可恢复，原生替换和后续执行不串 Session |
 | T08 问题驱动的限制 | 任一新增默认限制都有实际复现或用户配置依据，范围和解除方式明确；普通启动无需清理证明，故障记录不阻止无关操作 |
 
-S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制与标准交互；S10 验证移动入口；S12 复验正常 Linux 部署；S13 汇总证据。当前合同、Linux、Docker 子集已有对应阶段报告；真实 provider、交互式原生 TUI、Android / iOS 实机及终端专用 custom renderer 对照仍未完成，不将这些缺口描述为已通过。
+S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制与标准交互；S10 验证移动入口；S12 复验正常 Linux 部署；S13 汇总证据。当前合同、Linux、Docker 子集已有对应阶段报告；真实 provider、交互式原生 TUI、Android / iOS 实机及 renderer 的终端像素对照仍未完成，不将这些缺口描述为已通过。
 
 扩展的 `setWorkingVisible`、`setWorkingIndicator({ frames, intervalMs })`、`setHiddenThinkingLabel`、`setTitle` 和 `setToolsExpanded` 通过已持久化的 `runtime.notice` 投影到手机。托管编辑器的思考块动作另发布内部 `setThinkingVisible` 显示状态，同样支持快照和断线重放。工作行只在活动 Run 中显示，空 frames 隐藏指示器，无参数恢复默认指示器；隐藏思考标签用于 redacted 或用户主动隐藏的内容。窗口标题独立显示，不修改 Session 名称。工具默认折叠，可逐项手动展开；扩展再次设置时覆盖本地展开选择，完整输出和模型工具结果不受影响。
 
@@ -63,6 +63,8 @@ S02 交付清单与原生基线；S06 验证运行 / 恢复；S07 完成控制�
 widget 工厂现在由固定版本 `pi-tui@0.85.1` 的 `TuiMainScreen` 对象及 SDK dark 主题承载，在 80 列视口调用原生组件 `render()`，向手机发布去除 ANSI 控制序列后的文本。`requestRender()` 支持异步刷新、相同内容去重；同名替换、移除和 worker 退出调用 dispose，过期刷新不再覆盖新内容。编辑器上下 placement 对文本及工厂 widget 都生效。异步刷新在原 Operation 已终态时创建归属原 Session 的独立 Operation。
 
 这属于无焦点文本 widget 适配；颜色、自定义主题、终端图片、动态视口仍待完成。终端图片和渲染异常显式报告，不能用上次成功内容冒充新结果。宿主不启动本地终端或占用 worker 的 stdin/stdout，组件输出不会混入 IPC。
+
+`registerMessageRenderer` 与 `registerEntryRenderer` 使用同一固定 80 列纯文本边界。worker 从当前 ExtensionRunner 取 renderer，以 SDK dark theme、当前工具展开值和原生 outputPad 执行；只把去除 ANSI 的有界文本投影写入协议。custom message 的 renderer 返回 undefined、抛错或渲染失败时沿固定 SDK 回退到原消息内容，`display:false` 不执行 renderer。custom entry 不进入模型上下文：没有 renderer 或返回 undefined 时不创建手机时间线项，成功时写独立 `custom_entry`，调用或渲染异常时保存原生风格失败文本。最多保存 256 行 / 32768 字并显式标记截断；函数、组件、dispose 回调和扩展数据不作为可执行对象重放。SQLite v1 兼容升级扩展 timeline kind，旧历史原样复制；snapshot、历史分页和 WSS 重连重放同一不可变投影。
 
 `setHeader` / `setFooter` 工厂复用 80 列文本宿主，手机分别在会话内容顶部和输入区下方显示；undefined 清除扩展画面并恢复普通布局。footer 使用原生 FooterDataProvider，提供真实工作目录的 Git 分支、分支变化订阅、扩展状态和当前可用 provider 数量。状态变更刷新画面；header 的 setExpanded 跟随扩展工具展开设置。替换、清除时销毁组件，worker 退出再清理 Git watcher；异步刷新归属安装时 Session，不转移到后来切换的 Session。渲染失败清除旧画面并提示错误，原始工厂不传到手机。编辑器交互按下文单独验收，不把 header/footer 文本显示当成编辑器支持。
 

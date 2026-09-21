@@ -302,7 +302,7 @@ function syncTimelineRows(database: DatabaseSync, state: ReducerState): void {
       item.runId,
       item.kind,
       item.completeness,
-      item.endReason ?? null,
+      "endReason" in item ? item.endReason ?? null : null,
       item.ordinalSeq,
       item.finalizedSeq,
       JSON.stringify(item.data)
