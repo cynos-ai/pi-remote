@@ -4,8 +4,8 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { inspectPiSessionFile, openPiSessionFile } from "../../packages/agent-pi/src/session-file.js";
-import { createPiAgentSession, createPiAgentRuntime, createPiWorkerSession, readPiModelCatalog } from "../../packages/agent-pi/src/runtime.js";
+import { createRelocatedPiSessionCopy, inspectPiSessionFile, openPiSessionFile } from "../../packages/agent-pi/src/session-file.js";
+import { createPiAgentSession, createPiAgentRuntime, createPiWorkerSession, readPiModelCatalog, type PiSessionReplacementRequest } from "../../packages/agent-pi/src/runtime.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -105,6 +105,72 @@ describe("R06 persisted-state recovery", () => {
     expect(handle.session.sessionId).toBe("recorded-id");
     expect(handle.sessionFileState?.kind).toBe("persisted");
     handle.dispose();
+  });
+});
+
+describe("durable import cwd relocation", () => {
+  it("rewrites only a private copy and accepts header-only files without a trailing newline", async () => {
+    const f = await fixture();
+    const missing = join(f.cwd, "missing"), source = JSON.stringify({ ...header(missing), id: "relocated-id" });
+    await writeFile(f.sessionFile, source);
+    const relocated = await createRelocatedPiSessionCopy(f.sessionFile, f.cwd, f.sessionDir);
+    try {
+      expect(relocated.nativeId).toBe("relocated-id");
+      expect(relocated.path).not.toBe(f.sessionFile);
+      expect(await readFile(f.sessionFile, "utf8")).toBe(source);
+      const state = await inspectPiSessionFile(relocated.path, f.cwd);
+      expect(state.kind === "persisted" && state.header.cwd).toBe(f.cwd);
+      expect(state.kind === "persisted" && state.header.id).toBe("relocated-id");
+    } finally { await relocated.cleanup(); }
+    expect((await inspectPiSessionFile(relocated.path)).kind).toBe("missing");
+  });
+
+  it("imports the corrected bytes so restart validation uses the selected cwd", async () => {
+    const f = await fixture(), missing = join(f.cwd, "missing"), input = join(f.cwd, "moved.jsonl");
+    const source = jsonl([{ ...header(missing), id: "moved-id" }, entry("one")]);
+    await writeFile(input, source);
+    let request: PiSessionReplacementRequest | undefined;
+    const handle = await createPiWorkerSession({ ...f, sessionFile: undefined,
+      onBeforeSessionReplace: async value => { request = value; }
+    });
+    try {
+      await handle.importFromJsonl!(input, f.cwd);
+      expect(request).toMatchObject({ kind: "import", sessionPath: input, relocationCwd: f.cwd });
+      expect(handle.session.sessionId).toBe("moved-id");
+      expect(handle.session.sessionManager.getCwd()).toBe(f.cwd);
+      expect(handle.session.sessionManager.getHeader()?.cwd).toBe(f.cwd);
+      expect(await readFile(input, "utf8")).toBe(source);
+      const copied = handle.session.sessionFile!;
+      const state = await inspectPiSessionFile(copied, f.cwd);
+      expect(state.kind === "persisted" && state.header.id).toBe("moved-id");
+      const reopened = await openPiSessionFile({ path: copied, cwd: f.cwd, sessionId: "moved-id", persistenceState: "persisted" });
+      expect(reopened.manager.getEntries()).toEqual(expect.arrayContaining([expect.objectContaining({ id: "one" })]));
+    } finally { await handle.shutdown(); }
+  });
+
+  it("requires relocation only when the recorded cwd is gone", async () => {
+    const f = await fixture(), input = join(f.cwd, "existing.jsonl");
+    await writeFile(input, jsonl([{ ...header(f.cwd), id: "existing-id" }]));
+    const handle = await createPiWorkerSession({ ...f, sessionFile: undefined });
+    try {
+      await expect(handle.importFromJsonl!(input, f.cwd)).rejects.toThrow("仍然存在");
+      expect(handle.session.sessionId).not.toBe("existing-id");
+    } finally { await handle.shutdown(); }
+  });
+
+  it("keeps the current runtime when relocation intent is rejected before SDK copy", async () => {
+    const f = await fixture(), input = join(f.cwd, "rejected.jsonl"), missing = join(f.cwd, "gone");
+    const source = jsonl([{ ...header(missing), id: "rejected-id" }]); await writeFile(input, source);
+    const handle = await createPiWorkerSession({ ...f, sessionFile: undefined,
+      onBeforeSessionReplace: async () => { throw new Error("registered project required"); }
+    });
+    const currentId = handle.session.sessionId, files = await readdir(f.sessionDir);
+    try {
+      await expect(handle.importFromJsonl!(input, f.cwd)).rejects.toThrow("registered project required");
+      expect(handle.session.sessionId).toBe(currentId);
+      expect(await readdir(f.sessionDir)).toEqual(files);
+      expect(await readFile(input, "utf8")).toBe(source);
+    } finally { await handle.shutdown(); }
   });
 });
 

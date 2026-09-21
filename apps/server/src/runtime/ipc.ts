@@ -194,7 +194,12 @@ function parseInboundPayload(type: string, value: unknown): unknown {
       return { text: inputText(payload.text, "text"), ...(payload.requestId === undefined ? {} : { requestId: requiredString(payload.requestId, "requestId") }) };
     case "session_replace_ack":
       if (payload.phase !== "intent" && payload.phase !== "bound") throw new IpcProtocolError("invalid replacement ACK phase");
-      return { requestId: requiredString(payload.requestId, "requestId"), phase: payload.phase, appSessionId: requiredString(payload.appSessionId, "appSessionId") };
+      return { requestId: requiredString(payload.requestId, "requestId"), phase: payload.phase,
+        appSessionId: requiredString(payload.appSessionId, "appSessionId"),
+        ...(payload.error === undefined ? {} : { error: {
+          code: requiredString(requiredObject(payload.error, "error").code, "error.code"),
+          message: payloadText(requiredObject(payload.error, "error").message, "error.message")
+        } }) };
     case "batch_ack":
       return { batchNo: positiveInteger(payload.batchNo, "batchNo") };
     case "shutdown":
@@ -223,7 +228,8 @@ function parseOutboundPayload(type: string, value: unknown): unknown {
         requestId: requiredString(payload.requestId, "requestId"), kind: payload.kind,
         piSessionId: requiredString(payload.piSessionId, "piSessionId"), piSessionFile: payloadText(payload.piSessionFile, "piSessionFile"),
         ...(payload.sourceOperationId === undefined ? {} : { sourceOperationId: requiredString(payload.sourceOperationId, "sourceOperationId") }),
-        ...(payload.targetFile === undefined ? {} : { targetFile: payloadText(payload.targetFile, "targetFile") })
+        ...(payload.targetFile === undefined ? {} : { targetFile: payloadText(payload.targetFile, "targetFile") }),
+        ...(payload.relocationCwd === undefined ? {} : { relocationCwd: payloadText(payload.relocationCwd, "relocationCwd") })
       };
     case "session_replaced":
       return {

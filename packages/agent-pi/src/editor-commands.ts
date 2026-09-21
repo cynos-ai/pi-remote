@@ -7,7 +7,7 @@ export const EDITOR_COMMANDS = {
   "scoped-models": "模型范围", export: "导出到服务端路径（HTML/JSONL）", copy: "显示最后回复供手机复制",
   name: "查看/修改会话标题", session: "会话统计", changelog: "SDK 更新记录", hotkeys: "键位与入口能力清单",
   fork: "选择用户消息分叉", clone: "克隆当前分支到叶节点（包含该节点）", new: "新会话", compact: "原生手动压缩", resume: "恢复会话",
-  quit: "退出远程编辑器，后端会话继续运行", import: "确认后导入 JSONL（工作目录须存在）", reload: "清理旧扩展 UI 并重载资源",
+  quit: "退出远程编辑器，后端会话继续运行", import: "确认后导入 JSONL；缺失 cwd 可显式重定位到已注册项目", reload: "清理旧扩展 UI 并重载资源",
   trust: "当前目录/父目录的原生信任决定；保存后重启 worker 生效",
   logout: "选择 provider 并移除已保存凭据；环境变量和模型配置不变",
   login: "API key / OAuth 登录；授权链接和设备码临时显示，回调走秘密输入",

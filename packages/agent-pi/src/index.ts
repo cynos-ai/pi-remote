@@ -23,6 +23,7 @@ export {
 } from "./capabilities.js";
 export {
   inspectPiSessionFile,
+  createRelocatedPiSessionCopy,
   openPiSessionFile,
   PiSessionHistoryError,
   type OpenPiSessionFileOptions,

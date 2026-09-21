@@ -2,6 +2,14 @@
 
 最后更新：2026-09-21。
 
+### 2026-09-21 导入缺失 cwd 的持久重定位（本次提交）
+
+- 基线 `2bbd559`；`/import` 遇到原 header.cwd 不存在时，确认页显示原路径并要求显式提交当前 owner 已注册项目目录。worker 在受管 session 目录排他创建副本，仅修订 header.cwd 并完整复验原生 ID/cwd，再由固定 SDK 直接采用；副本在 session_replaced 前已经持久正确，源 JSONL 字节不变。原 cwd 尚存时拒绝 override，避免静默改变归属。未采用的副本在取消/拒绝后删除，已采用或 bound 结果未知的副本保留供恢复。无公共 DTO 或 SQL migration。
+- 内部 replacement intent 增加 relocationCwd；主服务验证目标真实目录、既有项目与 owner。intent ACK 增加成功/结构化拒绝二选一：无效、未注册或越权目标在 SDK 替换前失败，worker 保持当前 runtime，编辑器保留提交草稿。首轮真实进程 2/3（`import-relocation-process.log`）发现拒绝 intent 没有负向 ACK，导致草稿等待超时；已修复且保留失败证据，没有放宽断言。
+- WSL 2 Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。定向最终 67/67（`import-relocation-targeted-release.log`），覆盖无尾换行 header-only、副本清理、源字节、重启校验、原 cwd 存在时拒绝 override、intent 失败不切 runtime，以及 IPC 成功/拒绝。真实 server/worker 3/3（`import-relocation-process-release.log`）：正常导入与重启续聊、取消/未注册目录/损坏历史、bound 前真实 SIGKILL 后由历史找回显式认领，均无自动重放。
+- `pnpm verify:S07`：14 passed / 2 failed（`test-results/import-relocation-s07-final.log`、`s07/report.json`）；构建、命令契约、完整真实表单/会话进程、lint、全仓 typecheck、文档均通过。失败仍为 live-commands / parity-tui-commands 已有报告源码身份过期，未用合成结果替代真实验收。本次未修改手机代码，未重跑 S10。
+- 尚未运行真实 provider、原生交互 TUI 与 Android/iOS 设备；通用 input/confirm 已走现有手机协议，但 JS/进程测试不替代设备验收。映射前崩溃留下的修订副本作为受管孤立历史保留，由用户显式找回；未知导入不会自动重试。
+
 ### 2026-09-21 分享预览与确认上传（本次提交）
 
 - 基线 `3577cb0`；接入最后一个托管内置命令 `/share`，23 个命令均已有入口。目标选择后检查 GitHub CLI / Radius 登录状态，使用 SDK 原生 HTML 或带 pi.share 元数据的分支 JSONL；完整原文分页预览、字节数/SHA-256 与可见范围确认后上传固定副本。预览期间会话变化不改变上传内容，临时导出及时删除；取消未确认流程不上传，未知上传结果不重试、不自动切换服务。沿已有 Operation/交互协议，无 SQL migration。

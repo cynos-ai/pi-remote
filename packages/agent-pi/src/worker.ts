@@ -3,6 +3,7 @@ import type { AuthDisplay } from "@pi-remote/protocol";
 import { createInterface, type Interface } from "node:readline";
 import { randomUUID } from "node:crypto";
 import { readFileSync, mkdtempSync, openSync, readSync, closeSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventBacklog } from "./event-backlog.js";
@@ -190,7 +191,7 @@ export interface WorkerCommandResultPayload {
 }
 
 export type WorkerInboundMessage =
-  | IpcEnvelope<"session_replace_ack", { requestId: string; phase: "intent" | "bound"; appSessionId: string }>
+  | IpcEnvelope<"session_replace_ack", { requestId: string; phase: "intent" | "bound"; appSessionId: string; error?: { code: string; message: string } }>
   | IpcEnvelope<"initialize", WorkerInitializePayload>
   | IpcEnvelope<"session_mapping_ack", { piSessionId: string; piSessionFile: string }>
   | IpcEnvelope<"execute", WorkerExecutePayload>
@@ -209,7 +210,7 @@ export type WorkerInboundMessage =
 
 export type WorkerOutboundMessage =
   | IpcEnvelope<"auth_display", { appSessionId: string; operationId: string; display: AuthDisplay | null }>
-  | IpcEnvelope<"session_replace_intent", { requestId: string; kind: "new" | "switch" | "fork" | "import"; sourceOperationId?: string; piSessionId: string; piSessionFile: string; targetFile?: string }>
+  | IpcEnvelope<"session_replace_intent", { requestId: string; kind: "new" | "switch" | "fork" | "import"; sourceOperationId?: string; piSessionId: string; piSessionFile: string; targetFile?: string; relocationCwd?: string }>
   | IpcEnvelope<"session_replaced", { requestId: string; piSessionId: string; piSessionFile: string; persistenceState: "unflushed" | "persisted" }>
   | IpcEnvelope<"models", { requestId: string; items: ModelInfo[]; availableThinkingLevels: string[] }>
   | IpcEnvelope<"editor_state_ack", { requestId: string }>
@@ -484,7 +485,9 @@ export class PiWorker {
     switch (message.type) {
       case "session_replace_ack": {
         const key = `${message.payload.requestId}:${message.payload.phase}`;
-        this.replacementAcks.get(key)?.resolve(message.payload.appSessionId);
+        const pending = this.replacementAcks.get(key);
+        if (message.payload.error) pending?.reject(new Error(message.payload.error.message));
+        else pending?.resolve(message.payload.appSessionId);
         this.replacementAcks.delete(key);
         return;
       }
@@ -617,7 +620,8 @@ export class PiWorker {
     this.send("session_replace_intent", { requestId, kind: request.kind,
       ...(context ? { sourceOperationId: context.operationId } : {}),
       piSessionId: request.session.sessionId, piSessionFile: request.session.sessionFile!,
-      ...(request.sessionPath ? { targetFile: request.sessionPath } : {}) });
+      ...(request.sessionPath ? { targetFile: request.sessionPath } : {}),
+      ...(request.relocationCwd ? { relocationCwd: request.relocationCwd } : {}) });
     await ack;
   }
 
@@ -1620,10 +1624,23 @@ export class PiWorker {
         if (name === "/import") {
           const path = editorPathArgument(text, name);
           if (!path) throw new Error("用法：/import <服务端路径.jsonl>");
-          const answer = await this.requestInteraction("confirm", "导入会话", { message: `从 ${path} 导入并切换当前会话？原生会话 ID 保留，手机不会回填原历史时间线。` }, { signal });
+          const inspected = await inspectPiSessionFile(path);
+          if (inspected.kind !== "persisted") throw new Error(`导入历史不可用：${inspected.kind === "invalid" ? inspected.reason : inspected.kind}`);
+          const originalCwd = await stat(inspected.header.cwd).catch(() => undefined);
+          const needsRelocation = !originalCwd?.isDirectory();
+          const answer = await this.requestInteraction("confirm", "导入会话", { message: `从 ${path} 导入并切换当前会话？原生会话 ID 保留，手机不会回填原历史时间线。${needsRelocation ? `\n原工作目录不存在：${inspected.header.cwd}\n确认后必须明确选择一个已注册项目目录，源文件不会修改。` : ""}` }, { signal });
           if (!answer?.confirmed || signal.aborted || owner !== this.currentSessionId) { notify("导入已取消"); return; }
           if (!this.handle?.importFromJsonl) throw new Error("当前运行时不支持受管导入");
-          const result = await this.handle.importFromJsonl(path);
+          let relocationCwd: string | undefined;
+          if (needsRelocation) {
+            const selected = await this.requestInteraction("input", "导入工作目录", { prefill: session.sessionManager.getCwd(),
+              message: "输入已在本服务注册、由当前 owner 管理的项目目录。导入副本会持久写入此 cwd；源 JSONL 保持不变。" }, { signal });
+            if (typeof selected?.value !== "string" || !selected.value.trim() || signal.aborted || owner !== this.currentSessionId) {
+              notify("导入已取消"); return;
+            }
+            relocationCwd = selected.value.trim();
+          }
+          const result = await this.handle.importFromJsonl(path, relocationCwd);
           if (result.cancelled) notify("导入已取消");
           return;
         }

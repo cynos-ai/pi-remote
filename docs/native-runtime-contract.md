@@ -92,7 +92,9 @@ SDK 方法返回不总等于扩展回调结束。setThinkingLevel 触发的 thin
 
 fork / import 可能在 runtime factory 返回前已写出目标文件：操作意图先持久化；目标 manager 已可得时，先确认映射再绑定会产生新执行的 session_start / withSession。中间失败保留源历史和可识别的未认领文件，标记实际中断；不能为了满足“所有文件必须先 ACK 才创建”的过强断言禁止原生替换，也不能把未确认结果报成新 Session 创建成功。S02 核实具体调用顺序，S06 / S07 实现身份交接及异常测试。
 
-编辑器 `/clone` 使用原生 fork 的 position=at，包含当前叶节点，ACK 后清草稿且不生成新 prompt。`/import` 先确认、校验输入 JSONL 和已有 cwd，再发送 import 意图；主进程检查原生 ID、项目目录、owner 和目标 worker 占用。原生复制后再次校验目标文件的 ID/cwd，再认领映射并 ACK。导入保留 ID；同项目已映射的同一原生 ID 复用应用 Session 并更新文件路径，不另造重复身份，原输入/旧副本保留。不同 Session 的事件归属不因 worker 更换而混用。固定 SDK cwdOverride 不写回历史头的恢复不一致已有专项测试，缺失目录的持久重定位仍待实现；当前明确拒绝该局部路径，不静默重建或修改源文件。
+编辑器 `/clone` 使用原生 fork 的 position=at，包含当前叶节点，ACK 后清草稿且不生成新 prompt。`/import` 先确认并校验完整 JSONL。原 cwd 存在时保持原语义；缺失时必须显式选择当前 owner 已注册项目目录，worker 在受管 session 目录排他创建仅修订 header.cwd 的副本、重新校验原生 ID/cwd，再把已在目标位置的路径交给固定 SDK。主进程在 intent 阶段检查原生 ID、目标项目、owner 和目标 worker 占用；拒绝通过负向 ACK 返回，不让 SDK 开始替换。原生采用后再次校验目标文件的 ID/cwd，再认领映射并 ACK。导入保留 ID；同项目已映射的同一原生 ID 复用应用 Session 并更新文件路径，不另造重复身份，原输入/旧副本保留。不同 Session 的事件归属不因 worker 更换而混用。
+
+重定位副本在 session_replaced 前已持久正确 cwd。主服务在 bound 前崩溃时，未知导入不重放，副本作为受管孤立历史由现有找回流程显式认领；bound 已提交而 ACK 未到时沿既有映射恢复。源文件始终不修改。原 cwd 仍存在时拒绝 override，未注册/其他 owner 目录、无效路径及损坏历史都在当前 runtime 失效前失败。固定 SDK 只在内存应用 cwdOverride 的差异保留专项回归，产品路径不留下该不一致。
 
 `/reload` 沿原生 streaming/compacting 前置条件；关闭旧 UI 与订阅后调用 SDK reload，shutdown hook 仍可产生待答表单。新 session_start 前再次清理 shutdown hook 留下的旧组件，重装默认编辑器/键位，再允许新扩展设置自己的 UI。清理按应用 Session 归属进行，不关闭其他源会话的存活组件；不复用旧扩展工厂或盲目重发输入。新表单和新快捷键在独立 Operation 中运行，模型目录与资源错误可见。编辑器草稿沿实际当前值保留，不用重载前快照覆盖重载期间的新编辑。
 

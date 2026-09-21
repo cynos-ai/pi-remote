@@ -1,5 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, parse, resolve } from "node:path";
 import {
   migrateSessionEntries,
   SessionManager,
@@ -220,6 +220,55 @@ export async function inspectPiSessionFile(
     hasAssistantMessage: sessionEntries.some(isAssistantMessage),
     hasNonAssistantEntry: hasNonAssistantEntry(sessionEntries)
   };
+}
+
+export interface RelocatedPiSessionCopy {
+  path: string;
+  cwd: string;
+  nativeId: string;
+  cleanup(): Promise<void>;
+}
+
+/**
+ * Create an exclusive managed import copy with only the header cwd changed.
+ * Passing this already-managed path to the pinned SDK avoids its additional
+ * copy. A crash before mapping therefore leaves recoverable history. The
+ * caller removes it only if the SDK never adopts it; the original is untouched.
+ */
+export async function createRelocatedPiSessionCopy(inputPath: string, targetCwd: string, sessionDir: string): Promise<RelocatedPiSessionCopy> {
+  const source = await inspectPiSessionFile(inputPath);
+  if (source.kind !== "persisted") {
+    throw new PiSessionHistoryError({ kind: "invalid", path: source.path,
+      reason: source.kind === "invalid" ? source.reason : `relocation source is ${source.kind}` });
+  }
+  const cwd = await realpath(targetCwd).catch(() => undefined);
+  const cwdInfo = cwd ? await stat(cwd).catch(() => undefined) : undefined;
+  if (!cwd || !cwdInfo?.isDirectory()) throw new Error("导入工作目录不存在或不是目录");
+  const content = await readFile(source.path, "utf8");
+  const newline = content.indexOf("\n"), headerEnd = newline < 0 ? content.length : newline;
+  const header = JSON.parse(content.slice(0, headerEnd)) as Record<string, unknown>;
+  const relocated = `${JSON.stringify({ ...header, cwd })}${content.slice(headerEnd)}`;
+  await mkdir(sessionDir, { recursive: true });
+  const parsed = parse(basename(source.path));
+  let path = join(sessionDir, parsed.base), suffix = 0;
+  let keep = false;
+  try {
+    while (true) {
+      try { await writeFile(path, relocated, { encoding: "utf8", mode: 0o600, flag: "wx" }); break; }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        path = join(sessionDir, `${parsed.name}-${++suffix}${parsed.ext}`);
+      }
+    }
+    const checked = await inspectPiSessionFile(path, cwd);
+    if (checked.kind !== "persisted" || checked.header.id !== source.header.id) {
+      throw new PiSessionHistoryError({ kind: "invalid", path, reason: "relocated copy changed native identity" });
+    }
+    keep = true;
+    return { path, cwd, nativeId: source.header.id, cleanup: () => rm(path, { force: true }) };
+  } finally {
+    if (!keep) await rm(path, { force: true });
+  }
 }
 
 export interface OpenPiSessionFileOptions {

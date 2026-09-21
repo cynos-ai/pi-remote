@@ -144,7 +144,7 @@ S07 / S10 的扩展 UI 适配中，header/footer 工厂须以原生数据源和�
 
 ## S07 — 命令控制与交互表单
 
-编辑器导入/克隆/重载增量：clone 按原生 position=at；import 增加内部意图种类并校验输入/复制后 ID/cwd，同原生 ID 复用映射；reload 清理旧扩展 UI、重载资源并允许新 hook 表单。对应验收见 AT02/AT12/AT19/AT32 补充项。缺失 cwd 的持久重定位不能用仅内存生效的 SDK override 代替，仍需后续专门实现与恢复验证。
+编辑器导入/克隆/重载增量：clone 按原生 position=at；import 增加内部意图种类并校验输入/复制后 ID/cwd，同原生 ID 复用映射；reload 清理旧扩展 UI、重载资源并允许新 hook 表单。对应验收见 AT02/AT12/AT19/AT32 补充项。缺失 cwd 使用显式已注册项目选择、复制前持久修订及 bound 前崩溃后历史找回；不能用仅内存生效的 SDK override 代替。
 
 **产物**：command handlers、Session 操作锁、agent-pi UI bridge、tests/commands 与 tests/interactions。
 

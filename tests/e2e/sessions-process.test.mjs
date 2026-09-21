@@ -392,17 +392,36 @@ test('editor import confirms, validates and maps copied history to its native id
   assert.equal(h.provider.requests.length, 2, 're-import does not replay model input');
 });
 
-test('editor import rejects corrupt and missing-cwd histories without replacing the source', { timeout: 120000 }, async t => {
+test('editor import rejects corruption and durably relocates a missing cwd after explicit directory choice', { timeout: 120000 }, async t => {
   const { h, command, extension, next, answer, key, draft } = await treeHarness(t);
   await command('prompt', { text: 'IMPORT_VALID_SOURCE' }); const source = mapping(h), pid = await h.workerPid();
   const entries = await history(source.pi_session_file); await extension('/r16-editor');
-  for (const [name, content] of [['corrupt.jsonl', JSON.stringify(entries[0]) + '\ninvalid'], ['missing-cwd.jsonl', JSON.stringify({ ...entries[0], id: randomUUID(), cwd: join(h.project, 'missing') }) + '\n']]) {
-    const input = join(h.project, name); await writeFile(input, content);
-    const text = `/import "${input}"`; await extension(`/r16-editor-draft ${text}`); await key('扩展编辑器', 'Enter'); await next('导入会话'); await answer('导入会话', { confirmed: true });
-    await until(async () => await draft() === text, 'failed import draft', 5000);
-    assert.deepEqual(mapping(h), source); assert.equal(await readFile(input, 'utf8'), content); assert.equal(await h.workerPid(), pid);
-  }
-  await command('prompt', { text: 'IMPORT_SOURCE_STILL_WORKS' });
+  const corrupt = join(h.project, 'corrupt.jsonl'), corruptContent = JSON.stringify(entries[0]) + '\ninvalid';
+  await writeFile(corrupt, corruptContent);
+  const corruptText = `/import "${corrupt}"`; await extension(`/r16-editor-draft ${corruptText}`); await key('扩展编辑器', 'Enter');
+  await until(async () => await draft() === corruptText, 'corrupt import draft', 5000);
+  assert.deepEqual(mapping(h), source); assert.equal(await readFile(corrupt, 'utf8'), corruptContent); assert.equal(await h.workerPid(), pid);
+
+  const id = randomUUID(), missing = join(h.project, 'missing'), input = join(h.project, 'missing-cwd.jsonl');
+  const content = entries.map(row => JSON.stringify(row.type === 'session' ? { ...row, id, cwd: missing } : row)).join('\n') + '\n';
+  await writeFile(input, content);
+  const open = async () => { await extension(`/r16-editor-draft /import "${input}"`); await key('扩展编辑器', 'Enter');
+    const form = await next('导入会话'); assert.match(form.message, /原工作目录不存在/); await answer('导入会话', { confirmed: true }); return next('导入工作目录'); };
+  const choose = await open(); assert.equal(choose.prefill, h.project); await answer('导入工作目录', { cancelled: true });
+  assert.deepEqual(mapping(h), source); assert.equal(await readFile(input, 'utf8'), content);
+  await open(); await answer('导入工作目录', { value: h.root });
+  await until(async () => await draft() === `/import "${input}"`, 'unregistered relocation draft', 5000);
+  assert.deepEqual(mapping(h), source); assert.equal(await readFile(input, 'utf8'), content);
+  await open(); await answer('导入工作目录', { value: h.project });
+  const destination = await until(() => h.query('SELECT id, project_id, pi_session_file FROM sessions WHERE pi_session_id = ?', id)[0], 'relocated import mapping', 5000);
+  assert.equal(destination.project_id, h.query('SELECT project_id FROM sessions WHERE id = ?', source.id)[0].project_id);
+  assert.notEqual(destination.pi_session_file, input); assert.equal(await readFile(input, 'utf8'), content);
+  const relocated = await history(destination.pi_session_file); assert.equal(relocated[0].cwd, h.project); assert.equal(relocated[0].id, id);
+  h.sessionId = destination.id; await command('prompt', { text: 'IMPORT_RELOCATED_CONTINUE' });
+  assert.ok(JSON.stringify(h.provider.requests.at(-1)).includes('IMPORT_VALID_SOURCE'));
+  await h.killMain(); await h.start();
+  await command('prompt', { text: 'IMPORT_RELOCATED_AFTER_RESTART' });
+  assert.equal(mapping(h).pi_session_file, destination.pi_session_file); assert.equal(mapping(h).pi_session_id, id);
 });
 
 test('reload resets old UI, loads fresh resources and keeps new hook forms answerable', { timeout: 120000 }, async t => {
@@ -1547,6 +1566,36 @@ async function reachedFault(h, point) {
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   }, point);
 }
+
+test('relocated import SIGKILL before mapping leaves a corrected orphan for explicit history recovery', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, answer, key } = await treeHarness(t, {}, { faults: true });
+  await command('prompt', { text: 'RELOCATE_CRASH_CONTEXT' });
+  const source = mapping(h), projectId = h.query('SELECT project_id FROM sessions WHERE id = ?', h.sessionId)[0].project_id;
+  const rows = await history(source.pi_session_file), nativeId = randomUUID(), missing = join(h.project, 'removed-before-import');
+  const input = join(h.project, 'relocate-crash.jsonl');
+  const original = rows.map(row => JSON.stringify(row.type === 'session' ? { ...row, id: nativeId, cwd: missing } : row)).join('\n') + '\n';
+  await writeFile(input, original); await extension('/r16-editor');
+  await extension(`/r16-editor-draft /import "${input}"`); await key('扩展编辑器', 'Enter');
+  await next('导入会话'); await answer('导入会话', { confirmed: true });
+  const directory = await next('导入工作目录');
+  await armFault(h, 'before-bound');
+  const response = await h.command('respond', { operationId: directory.operationId, interactionId: directory.interactionId, response: { value: h.project } });
+  const checkpoint = await reachedFault(h, 'before-bound');
+  assert.equal(checkpoint.piSessionId, nativeId);
+  const corrected = await history(checkpoint.piSessionFile);
+  assert.equal(corrected[0].cwd, h.project); assert.equal(corrected[0].id, nativeId);
+  assert.equal(await readFile(input, 'utf8'), original); assert.equal(h.query('SELECT COUNT(*) AS count FROM sessions')[0].count, 1);
+  await h.killMain(); await h.start();
+  await h.terminal(response.commandId).catch(() => {});
+  const listed = await h.http('GET', `/v1/projects/${projectId}/recoverable-history`);
+  assert.equal(listed.items.length, 1, JSON.stringify(listed)); const candidate = listed.items[0];
+  const recovered = await h.http('POST', `/v1/projects/${projectId}/history-imports`, { candidateId: candidate.candidateId }, randomUUID());
+  h.sessionId = recovered.session.id;
+  assert.equal(mapping(h).pi_session_file, checkpoint.piSessionFile); assert.equal(mapping(h).pi_session_id, nativeId);
+  await command('prompt', { text: 'RELOCATE_CRASH_RECOVERED' });
+  assert.ok(JSON.stringify(h.provider.requests.at(-1)).includes('RELOCATE_CRASH_CONTEXT'));
+  assert.equal(h.query('SELECT COUNT(*) AS count FROM sessions')[0].count, 2);
+});
 
 test('two phone renames at one version have one winner and native echo does not increment twice', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });

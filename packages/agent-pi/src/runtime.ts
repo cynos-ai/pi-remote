@@ -20,7 +20,7 @@ import type { DefaultResourceLoader, ProjectTrustContext } from "@earendil-works
 import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import { initialProjectTrust, hasTrustRequiringProjectResources, resolveProjectTrust } from "./project-trust.js";
-import { inspectPiSessionFile, openPiSessionFile, PiSessionHistoryError, type PiSessionFileState } from "./session-file.js";
+import { createRelocatedPiSessionCopy, inspectPiSessionFile, openPiSessionFile, PiSessionHistoryError, type PiSessionFileState } from "./session-file.js";
 
 type SdkModel = Parameters<AgentSession["setModel"]>[0];
 type SdkThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
@@ -62,7 +62,7 @@ export interface PiAgentSessionHandle extends CreateAgentSessionResult {
   dispose(): void;
   bindExtensions(bindings: ExtensionBindings): Promise<void>;
   onEvent(listener: (event: AgentSessionEvent) => void): () => void;
-  importFromJsonl?(path: string): Promise<{ cancelled: boolean }>;
+  importFromJsonl?(path: string, relocationCwd?: string): Promise<{ cancelled: boolean }>;
 }
 
 async function resolveSessionManager(options: PiAgentSessionOptions): Promise<{
@@ -248,6 +248,7 @@ export interface PiSessionReplacementRequest {
   session: AgentSession;
   sessionPath?: string;
   entryId?: string;
+  relocationCwd?: string;
 }
 
 export interface PiWorkerSessionOptions extends PiAgentRuntimeOptions {
@@ -347,16 +348,27 @@ export async function createPiWorkerSession(options: PiWorkerSessionOptions): Pr
   };
   return {
     runtime,
-    importFromJsonl: (inputPath: string) => replace(async () => {
+    importFromJsonl: (inputPath: string, relocationCwd?: string) => replace(async () => {
       const path = nativePaths.resolvePath(inputPath);
       const state = await inspectPiSessionFile(path);
       if (state.kind !== "persisted") throw new Error(`导入历史不可用：${state.kind === "invalid" ? state.reason : state.kind}`);
-      // A cwd override is not written back by the pinned SDK. Do not accept an
-      // in-memory repair that would fail durable recovery on the next worker.
       const cwd = await stat(state.header.cwd).catch(() => undefined);
-      if (!cwd?.isDirectory()) throw new Error(`导入工作目录不存在：${state.header.cwd}；请恢复该目录后重试。持久化 cwd 重定位仍待适配`);
-      await before({ kind: "import", sessionPath: path });
-      return runtime.importFromJsonl(path);
+      if (cwd?.isDirectory()) {
+        if (relocationCwd) throw new Error("原导入工作目录仍然存在，不接受重定位以免改变会话归属");
+        await before({ kind: "import", sessionPath: path });
+        return runtime.importFromJsonl(path);
+      }
+      if (!relocationCwd) throw new Error(`导入工作目录不存在：${state.header.cwd}；请选择已注册项目目录进行持久重定位`);
+      const relocated = await createRelocatedPiSessionCopy(path, relocationCwd, runtime.session.sessionManager.getSessionDir());
+      try {
+        await before({ kind: "import", sessionPath: path, relocationCwd: relocated.cwd });
+        return await runtime.importFromJsonl(relocated.path, relocated.cwd);
+      } finally {
+        // Cancellation/rejection happens before adoption and removes the copy.
+        // Once adopted, including an unknown bound result, retain it for
+        // durable recovery rather than deleting the active/orphaned history.
+        if (runtime.session.sessionFile !== relocated.path) await relocated.cleanup();
+      }
     }),
     get session() { return runtime.session; },
     get sessionManager() { return runtime.session.sessionManager; },

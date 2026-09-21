@@ -166,7 +166,7 @@ interface ManagedWorker {
   authDisplays: Map<string, { sessionId: string; display: AuthDisplay }>;
   envelopeSessionId: string;
   ownedSessionIds: Set<string>;
-  replacementIntents: Map<string, { sourceSessionId: string; sourceOperationId?: string; kind: "new" | "switch" | "fork" | "import"; targetFile?: string; targetPiSessionId?: string; targetCwd?: string; projectId: string; destinationSessionId?: string }>;
+  replacementIntents: Map<string, { sourceSessionId: string; sourceOperationId?: string; kind: "new" | "switch" | "fork" | "import"; targetFile?: string; targetPiSessionId?: string; targetCwd?: string; relocationCwd?: string; projectId: string; destinationSessionId?: string }>;
   workerId: string;
   sessionId: string;
   workspaceKey: string;
@@ -1174,9 +1174,15 @@ export class WorkerManager {
         else worker.authDisplays.delete(operationId);
         return;
       }
-      case "session_replace_intent":
-        await this.handleReplacementIntent(worker, message.payload);
+      case "session_replace_intent": {
+        try { await this.handleReplacementIntent(worker, message.payload); }
+        catch (error) {
+          const failure = error instanceof WorkerManagerError ? error : new WorkerManagerError("HISTORY_UNAVAILABLE", "native replacement target is unavailable");
+          this.send(worker, "session_replace_ack", { requestId: message.payload.requestId, phase: "intent", appSessionId: worker.sessionId,
+            error: { code: failure.code, message: failure.message.slice(0, 2000) } });
+        }
         return;
+      }
       case "session_replaced":
         await this.handleReplacementBound(worker, message.payload);
         return;
@@ -1273,6 +1279,7 @@ export class WorkerManager {
     let targetFile: string | undefined;
     let targetPiSessionId: string | undefined;
     let targetCwd: string | undefined;
+    let relocationCwd: string | undefined;
     let nativeLocation: { rootPath: string; rootIdentity: string; workspaceKey: string; gitCommonDir: string | null } | undefined;
     if (payload.kind === "switch" || payload.kind === "import") {
       if (!payload.targetFile) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "native switch requires a target history");
@@ -1280,7 +1287,9 @@ export class WorkerManager {
       if (inspected.kind !== "persisted") throw new WorkerManagerError("HISTORY_UNAVAILABLE", "native switch target history is invalid or missing");
       targetFile = inspected.path;
       targetPiSessionId = inspected.header.id;
-      targetCwd = realpathSync(inspected.header.cwd);
+      if (payload.relocationCwd && payload.kind !== "import") throw new WorkerManagerError("HISTORY_UNAVAILABLE", "only imports may relocate cwd");
+      relocationCwd = payload.relocationCwd ? realpathSync(payload.relocationCwd) : undefined;
+      targetCwd = relocationCwd ?? realpathSync(inspected.header.cwd);
       const info = statSync(targetCwd);
       if (!info.isDirectory()) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "native history cwd is not a directory");
       const gitCommonDir = await new Promise<string | null>((resolveGit) => {
@@ -1316,6 +1325,7 @@ export class WorkerManager {
       if (nativeLocation) {
         const existingProject = projects.findByPhysicalIdentity(nativeLocation.rootPath, nativeLocation.rootIdentity);
         if (existingProject && projects.getOwnerId(existingProject.id) !== ownerId) throw new WorkerManagerError("NOT_FOUND", "native target directory belongs to another owner");
+        if (relocationCwd && !existingProject) throw new WorkerManagerError("HISTORY_UNAVAILABLE", "relocation target must be an existing project owned by this account");
         projectId = existingProject?.id ?? projects.create({
           userId: ownerId, name: (basename(nativeLocation.rootPath) || nativeLocation.rootPath).slice(0, 120),
           ...nativeLocation, now: this.now()
@@ -1329,7 +1339,8 @@ export class WorkerManager {
     worker.replacementIntents.set(payload.requestId, {
       sourceSessionId: worker.sessionId, kind: payload.kind, projectId,
       ...(payload.sourceOperationId ? { sourceOperationId: payload.sourceOperationId } : {}),
-      ...(targetFile ? { targetFile, targetPiSessionId, targetCwd } : {})
+      ...(targetFile ? { targetFile, targetPiSessionId, targetCwd } : {}),
+      ...(relocationCwd ? { relocationCwd } : {})
     });
     this.send(worker, "session_replace_ack", { requestId: payload.requestId, phase: "intent", appSessionId: worker.sessionId });
   }

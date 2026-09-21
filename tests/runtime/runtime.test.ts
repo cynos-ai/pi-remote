@@ -227,10 +227,17 @@ describe("S06 scheduler and IPC contracts", () => {
   });
   it("round-trips import intents and rejects unknown replacement kinds", () => {
     const message = makeIpcEnvelope("session", "epoch", "session_replace_intent", {
-      requestId: "import", kind: "import" as const, piSessionId: "source", piSessionFile: "/tmp/source.jsonl", targetFile: "/tmp/import.jsonl"
+      requestId: "import", kind: "import" as const, piSessionId: "source", piSessionFile: "/tmp/source.jsonl",
+      targetFile: "/tmp/import.jsonl", relocationCwd: "/tmp/project"
     });
     expect(decodeWorkerOutbound(JSON.parse(encodeIpcMessage(message)))).toEqual(message);
     expect(() => decodeWorkerOutbound({ ...message, payload: { ...message.payload, kind: "unknown" } })).toThrow(IpcProtocolError);
+    const rejected = makeIpcEnvelope("session", "epoch", "session_replace_ack", {
+      requestId: "import", phase: "intent" as const, appSessionId: "session",
+      error: { code: "HISTORY_UNAVAILABLE", message: "registered project required" }
+    });
+    expect(decodeWorkerInbound(JSON.parse(encodeIpcMessage(rejected)))).toEqual(rejected);
+    expect(() => decodeWorkerInbound({ ...rejected, payload: { ...rejected.payload, error: { code: "", message: "invalid" } } })).toThrow(IpcProtocolError);
   });
   it("round-trips long native input and diagnostics without the identity-length cap", () => {
     const text = "开发上下文".repeat(1000);

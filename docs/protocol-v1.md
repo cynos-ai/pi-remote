@@ -265,7 +265,7 @@ worker 不是一个额外网络服务。IPC 消息包含 `{ipcVersion:1,sessionI
 
 主 → worker：initialize、session_mapping_ack、execute、bash、steer、abort、abort_bash、respond、set_model、set_thinking、rename、shutdown、batch_ack。worker → 主：session_mapping、session_persisted、ready、command_accepted / rejected、event_batch、heartbeat、fatal、stopped。初始 manager 映射先 ACK 再执行；原生 fork / import 的写文件与映射窗口按补充契约处理。ready 不等于 JSONL 已存在，持久状态按实际有效文件确认。
 
-会话替换使用内部 session_replace_intent / session_replace_ack / session_replaced 消息；kind 为 new / switch / fork / import。import 的 targetFile 是待复制的输入历史，主进程预检身份与 cwd，bound 时校验实际复制结果的相同 ID/cwd 后 ACK；不能按 switch 要求输入路径与目标副本路径相同。公共 Command/事件 schema 不增加字段，意图和绑定证据仍通过既有 runtime.notice 持久化，不新增数据库迁移。缺失 cwd 的持久重定位尚未接入，明确报错，不当作导入成功。
+会话替换使用内部 session_replace_intent / session_replace_ack / session_replaced 消息；kind 为 new / switch / fork / import。import 的 targetFile 是原输入历史；缺失 cwd 时 intent 另带 relocationCwd，主进程要求它是同 owner 已注册项目。worker 在 SDK 替换前于受管 session 目录排他创建 header 已修订的副本，bound 时主进程校验实际采用结果仍为预检 ID 且 cwd 等于目标。不能按 switch 要求原输入路径与目标副本路径相同。intent ACK 始终带 appSessionId，预检拒绝另带结构化 error，使失败不终止 worker、不进入 SDK 替换；bound 仍只在持久映射提交后成功 ACK。公共 Command/事件 schema 不增加字段，意图和绑定证据仍通过既有 runtime.notice 持久化，不新增数据库迁移。
 
 initialize / execute / 配置 hook 均不阻塞控制消息读取。event_batch 使用严格递增 batchNo，保留有界未 ACK 缓冲，ACK 后释放；重发只发送同样字节语义的批次。实际存储失败要如实报告并处理，不能让手机慢连接影响 SDK 执行。
 
