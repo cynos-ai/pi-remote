@@ -35,6 +35,44 @@ async function treeHarness(t, settings = {}, options = {}) {
   return { h, command, extension, snapshot, next, answer, key, combo, open, search, draft, after };
 }
 
+test('editor trust saves native decisions without interrupting generation and invalidates closed menus', { timeout: 120000 }, async t => {
+  const { h, extension, next, key, snapshot } = await treeHarness(t);
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 1, 'active trust test model', 5000);
+  await extension('/r16-editor');
+  const open = async () => { await extension('/r16-editor-draft /trust'); await key('扩展编辑器', 'Enter'); return next('项目信任'); };
+  const file = join(h.agent, 'trust.json');
+  const menu = await open(); assert.equal(menu.runId, null);
+  await open();
+  assert.equal((await snapshot()).pendingInteractions.filter(f => f.title === '项目信任').length, 1);
+  await key('项目信任', 'Esc'); await assert.rejects(readFile(file), { code: 'ENOENT' });
+  await open(); await key('项目信任', '↓'); await key('项目信任', '↓'); await key('项目信任', 'Enter');
+  await until(async () => JSON.parse(await readFile(file, 'utf8'))[h.project] === false, 'untrusted saved', 5000);
+  await open(); await key('项目信任', '↑'); await key('项目信任', 'Enter');
+  const saved = await until(async () => { const value = JSON.parse(await readFile(file, 'utf8')); return value[dirname(h.project)] === true && value; }, 'parent trust saved', 5000);
+  assert.equal(saved[h.project], undefined);
+  assert.equal(h.query('SELECT status FROM runs WHERE id = ?', active.runId)[0].status, 'running');
+  assert.equal(h.provider.requests.length, 1);
+  const stale = await open();
+  await extension('/r16-editor-draft /quit'); await key('扩展编辑器', 'Enter');
+  await until(async () => !(await snapshot()).pendingInteractions.some(f => f.title === '项目信任'), 'trust menu closed with editor', 5000);
+  await assert.rejects(h.command('respond', { operationId: stale.operationId, interactionId: stale.interactionId, response: { value: 'Enter' } }), /INTERACTION_CLOSED/);
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), saved);
+  const stop = await h.command('abort', { targetRunId: active.runId }); await h.terminal(stop.commandId); await h.terminal(active.commandId, 'cancelled');
+});
+
+test('editor trust persistence failure fails its operation and preserves the draft', { timeout: 120000 }, async t => {
+  const { h, command, extension, next, key, draft } = await treeHarness(t);
+  await command('prompt', { text: 'TRUST_SAVE_FAILURE' }); await extension('/r16-editor');
+  await extension('/r16-editor-draft /trust'); await key('扩展编辑器', 'Enter');
+  const menu = await next('项目信任');
+  await mkdir(join(h.agent, 'trust.json'));
+  await key('项目信任', 'Enter');
+  await until(() => h.query("SELECT 1 FROM events WHERE operation_id = ? AND type = 'operation.updated' AND json_extract(payload_json, '$.status') = 'failed'", menu.operationId).length, 'trust operation failed', 5000);
+  await until(async () => await draft() === '/trust', 'trust failure draft', 5000);
+  assert.equal(h.provider.requests.length, 1);
+});
+
 test('editor clone includes the current leaf and preserves source history without prompting', { timeout: 120000 }, async t => {
   const { h, command, extension, key } = await treeHarness(t);
   await command('prompt', { text: 'CLONE_FIRST' }); await command('prompt', { text: 'CLONE_LAST' });
@@ -134,8 +172,8 @@ test('editor information, title, copy and exports stay local and preserve failur
   await until(async () => (await h.lines('builtin history.html')).join('\n').includes('<!DOCTYPE html>'), 'HTML export', 5000);
   await submit('/export /dev/null/fail.jsonl');
   await until(async () => await draft() === '/export /dev/null/fail.jsonl', 'export failure draft preserved', 5000);
-  await submit('/trust');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('项目级信任') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
+  await submit('/login');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('provider 鉴权') && n.message.includes('文本已保留')), 'specific pending command diagnostic', 5000);
   assert.equal(h.provider.requests.length, 1, 'builtin information and exports never prompt the model');
 });
 
@@ -945,9 +983,9 @@ test('real CustomEditor edits, completes and submits once; reset invalidates old
   await draft('!!printf editor-shell'); await key('Enter');
   await until(async () => (await history(mapping(h).pi_session_file)).some(item => item.type === 'message' && item.message.role === 'bashExecution' && item.message.command === 'printf editor-shell' && item.message.excludeFromContext === true), 'editor native Bash');
   assert.ok(h.query("SELECT seq FROM events WHERE type = 'operation.updated' AND json_extract(payload_json, '$.kind') = 'bash'").length > 0);
-  await draft('/trust'); await key('Enter');
-  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/trust') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
-  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/trust');
+  await draft('/login'); await key('Enter');
+  await until(async () => (await snapshot()).notices.some(n => n.message.includes('/login') && n.message.includes('文本已保留')), 'terminal menu diagnostic');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1).details.args[0], '/login');
   assert.equal(h.provider.requests.length, 1, 'Bash and terminal menus never become model prompts');
   await draft('keep');
   await key('Home');

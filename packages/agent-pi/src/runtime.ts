@@ -19,6 +19,7 @@ import {
 import type { DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { stat } from "node:fs/promises";
+import { initialProjectTrust } from "./project-trust.js";
 import { inspectPiSessionFile, openPiSessionFile, PiSessionHistoryError, type PiSessionFileState } from "./session-file.js";
 
 type SdkModel = Parameters<AgentSession["setModel"]>[0];
@@ -94,13 +95,15 @@ async function resolveServices(
   cwd = options.cwd,
   agentDir = options.agentDir
 ): Promise<AgentSessionServices> {
+  const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir, {
+    projectTrusted: initialProjectTrust(agentDir, cwd)
+  });
   if (options.resourceLoader) {
     const modelRuntime = options.modelRuntime ?? await ModelRuntime.create({
       authPath: join(agentDir, "auth.json"),
       modelsPath: join(agentDir, "models.json"),
       refreshOnCreate: false
     });
-    const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
     return {
       cwd,
       agentDir,
@@ -115,7 +118,7 @@ async function resolveServices(
     cwd,
     agentDir,
     modelRuntime: options.modelRuntime,
-    settingsManager: options.settingsManager,
+    settingsManager,
     resourceLoaderOptions: options.resourceLoaderOptions
   });
 }

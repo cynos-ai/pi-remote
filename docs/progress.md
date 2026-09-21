@@ -26,6 +26,14 @@ S01–S12 已有实际工程实现。S01 的干净 Linux checkout 验证通过�
 | S12 | blocked | Docker 部署生命周期子集已有通过证据；完整阶段还缺同镜像原生 TUI / Bash 对照，见 2026-09-18 修订 |
 | S13 | blocked | 发布检查已实现，真实 provider 已有部分证据；完整模型矩阵、原生 TUI、Android / iOS 实机仍未完成 |
 
+## 2026-09-21 项目信任菜单与持久决定
+
+基于 `a7edfd3`，接入固定 SDK TrustSelectorComponent / ProjectTrustStore 的 `/trust` 菜单，保留当前目录、父目录与继承语义，使用原生锁定读/合并/写入。重复打开复用菜单，独立 configure Operation 不借用活动 Run；关闭编辑器后旧响应失效，写入错误导致 Operation 失败并恢复提交草稿。保存成功明确提示新 runtime 生效，不自行停止任务或重启 worker。命令清单现在 20 个已接入、login/logout/share 3 个仍待接入，完整第 1 大节点未完成。
+
+首轮测试发现固定 SDK 的服务工厂不会读取 trust.json，默认初始化为 trusted；修复受管 runtime 创建的 SettingsManager 初始化，读取明确保存的目录/祖先决定。新建、恢复、导入等新 runtime 共用该路径；当前 runtime 及 `/reload` 保留原状态，注入 SettingsManager 的调用者保留自身决定，没有需信任资源时遵循原生可信语义。首次启动 ask、project_trust hook 与默认信任回退完整流程仍待适配；无保存决定时保持现有行为，不以本次保存入口代替完整信任适配。无公共协议字段、schema 或迁移变化。
+
+环境 WSL Linux / Node 24.19.0 / pnpm 10.28.0 / SDK 0.85.1。首轮构建通过（`test-results/trust-build.log`），定向 4/6（`trust-unit.log`）：父目录选择的 null 更新实际删除当前目录键，已按 SDK 语义修正断言；新 runtime 未读取保存决定的问题修复如上。第二轮构建通过（`trust-build-final.log`），菜单与 runtime/历史回归 68/68（`trust-unit-final.log`），真实服务/worker 定向进程 2/2（`trust-process-focus.log`），覆盖运行中保存、取消不落盘、重复菜单、父目录继承、退出失效与真实文件写入失败。补充项目配置实际加载断言后 3/3（`trust-config-regression.log`）。最终 `pnpm verify:S07` 为 **14 passed / 2 failed**（`test-results/trust-s07.log`、`test-results/s07/report.json`）：构建、命令合同、原生表单、46 项会话进程、lint、全量类型和文档检查通过；两项失败为旧 live-commands / parity-tui-commands 报告源码身份失效。最终文档和差异格式检查通过，实现提交可从本节文件历史追溯。未读取密钥或调用付费模型；真实 provider、原生 TUI、Android/iOS 未运行，S07 保持 blocked。
+
 ## 2026-09-21 会话导入、克隆与资源重载批次
 
 基于 `e92f05b`，接入 `/clone` 的原生 fork(leafId, position=at)，目标映射 ACK 后清草稿，不产生新模型请求。`/import` 先确认，完整校验 JSONL 与 cwd，再经独立 import 意图、原生复制、目标 ID/cwd 二次校验、映射 ACK 接通新上下文。同项目已映射原生 ID 复用应用 Session 并更新文件路径，保留原输入/旧副本；目标占用和 owner 校验沿现有映射规则执行。补同步目标原生标题，事件不借用源 Operation。内部 IPC 增加 import 种类，公共协议/schema 无字段新增、无数据库迁移；同步协议、数据模型、计划和验收矩阵。

@@ -11,6 +11,8 @@ import { runCustomUi } from "./custom-ui.js";
 import { EditorHost } from "./editor-host.js";
 import { createModelSelector, findEditorModel, type ModelSelection } from "./model-selector.js";
 import { createThinkingSelector, type ThinkingSelection } from "./thinking-selector.js";
+import { createTrustSelector } from "./trust-selector.js";
+import { saveProjectTrust, type TrustSelection } from "./project-trust.js";
 import { createSettingsSelector } from "./settings-selector.js";
 import { createScopedModelsSelector } from "./scoped-models-selector.js";
 import { EDITOR_COMMANDS, PENDING_EDITOR_COMMANDS, sessionInformation, hotkeyInformation, changelogInformation, editorPathArgument, createInformationViewer } from "./editor-commands.js";
@@ -1448,7 +1450,7 @@ export class PiWorker {
 
   private async commandFromEditor(owner: string, text: string, signal: AbortSignal): Promise<void> {
     if (owner !== this.currentSessionId || !this.handle || signal.aborted) return;
-    const context = this.createStandaloneOperation(owner);
+    const context = this.createStandaloneOperation(owner, text === "/trust" ? "configure" : undefined);
     this.standaloneOperations.delete(context.operationId);
     this.causalCommands.delete(context.operationId);
     const session = this.handle.session;
@@ -1457,6 +1459,22 @@ export class PiWorker {
         const name = text.split(/\s/, 1)[0]!;
         const argument = text.slice(name.length).trim();
         const notify = (message: string) => this.createUiContext().notify(message, "info");
+        if (name === "/trust") {
+          const agentDir = this.handle!.services.agentDir;
+          const selection = await runCustomUi<TrustSelection | undefined>((_tui, _theme, keys, done) =>
+            createTrustSelector(keys, agentDir, session.sessionManager.getCwd(), this.handle!.services.settingsManager.isProjectTrusted(), done), {
+            agentDir, signal, terminalInput: this.terminalInput(owner),
+            publish: lines => this.emitUi("custom.render", [context.operationId, lines]),
+            inputError: message => this.createUiContext().notify(message, "error"),
+            ask: (kind, keys, inputSignal) => this.requestInteraction(kind, kind === "select" ? "项目信任" : "项目信任输入", {
+              ...(keys ? { options: keys } : {}), message: "选择当前目录或父目录的信任决定，Enter 保存，Esc 取消。保存后须重新启动该会话的 worker 才生效；当前任务继续。"
+            }, { signal: inputSignal })
+          });
+          if (!selection || signal.aborted || owner !== this.currentSessionId) return;
+          saveProjectTrust(agentDir, selection);
+          notify(`已保存项目信任：${selection.trusted ? "信任" : "不信任"}；重新启动该会话的 worker 后生效，当前任务与资源保持原状`);
+          return;
+        }
         if (name === "/reload") {
           if (session.isStreaming || session.isCompacting) throw new Error("请等待当前回复或压缩结束后重载（原生前置条件）");
           if (this.reloading.has(owner)) throw new Error("资源正在重载");
@@ -1804,7 +1822,7 @@ export class PiWorker {
     const commandMenus = new Map<string, Promise<void>>();
     const openCommand = (text: string) => {
       const name = text.split(/\s/, 1)[0]!;
-      if (!["/session", "/hotkeys", "/changelog", "/copy"].includes(name)) return this.commandFromEditor(owner, text, controller.signal);
+      if (!["/session", "/hotkeys", "/changelog", "/copy", "/trust"].includes(name)) return this.commandFromEditor(owner, text, controller.signal);
       const existing = commandMenus.get(name);
       if (existing) return existing;
       const pending = this.commandFromEditor(owner, text, controller.signal).finally(() => { commandMenus.delete(name); });
@@ -1913,7 +1931,7 @@ export class PiWorker {
             if (owner !== this.currentSessionId || controller.signal.aborted) throw new Error("编辑器所属会话已切换，未提交");
             const name = /^\/([^\s]+)/.exec(text)?.[1];
             if (text === "/quit") { closeEditor(); return; }
-            if (["/session", "/hotkeys", "/changelog", "/copy", "/clone", "/reload"].includes(text)
+            if (["/session", "/hotkeys", "/changelog", "/copy", "/clone", "/reload", "/trust"].includes(text)
               || ["/name", "/export", "/import", "/compact"].some(command => text === command || text.startsWith(`${command} `))) {
               await openCommand(text); return;
             }
