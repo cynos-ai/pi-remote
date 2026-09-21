@@ -48,7 +48,7 @@ describe("R10 extension UI", () => {
     const calls: [string, unknown[]][] = [
       ["setWorkingVisible", [false]], ["setWorkingMessage", ["checking"]],
       ["setWorkingIndicator", [{ frames: ["a", "b"], intervalMs: 120 }]],
-      ["setHiddenThinkingLabel", ["private reasoning"]], ["setTitle", ["Extension window"]],
+      ["setHiddenThinkingLabel", ["private reasoning"]], ["setThinkingVisible", [false]], ["setTitle", ["Extension window"]],
       ["setToolsExpanded", [true]]
     ];
     const notices = calls.map(([method, args], index) => ({ seq: index + 1, kind: "extension_ui", message: method, details: { method, args } }));
@@ -56,11 +56,11 @@ describe("R10 extension UI", () => {
     source.notices = notices;
     const snapshot = snapshotSchema.parse(toSnapshot(source));
     const ui = snapshot.notices.reduce(applyExtensionNotice, emptyExtensionUi());
-    expect(ui).toMatchObject({ workingVisible: false, workingMessage: "checking", workingIndicator: { frames: ["a", "b"], intervalMs: 120 }, hiddenThinkingLabel: "private reasoning", windowTitle: "Extension window", toolsExpanded: true, toolsExpansionSeq: 6, unsupported: null });
+    expect(ui).toMatchObject({ workingVisible: false, workingMessage: "checking", workingIndicator: { frames: ["a", "b"], intervalMs: 120 }, hiddenThinkingLabel: "private reasoning", thinkingVisible: false, windowTitle: "Extension window", toolsExpanded: true, toolsExpansionSeq: 7, unsupported: null });
     expect(notices.reduce(applyExtensionNotice, ui)).toEqual(ui);
     expect(snapshot.session).toEqual(toSnapshot(createInitialState("session")).session);
-    const apply = (method: string, args: unknown[]) => applyExtensionNotice(ui, { seq: 7, kind: "extension_ui", details: { method, args } });
-    expect(apply("setToolsExpanded", [true]).toolsExpansionSeq).toBe(7);
+    const apply = (method: string, args: unknown[]) => applyExtensionNotice(ui, { seq: 8, kind: "extension_ui", details: { method, args } });
+    expect(apply("setToolsExpanded", [true]).toolsExpansionSeq).toBe(8);
     expect(apply("setToolsExpanded", [false]).toolsExpanded).toBe(false);
     expect(apply("setWorkingVisible", [true]).workingVisible).toBe(true);
     expect(apply("setWorkingIndicator", [{ frames: [] }]).workingIndicator?.frames).toEqual([]);
@@ -68,6 +68,7 @@ describe("R10 extension UI", () => {
     expect(apply("setWorkingIndicator", []).workingIndicator).toBeNull();
     expect(apply("setWorkingIndicator", [{ frames: [123] }]).unsupported).toContain("参数");
     expect(apply("setHiddenThinkingLabel", []).hiddenThinkingLabel).toBe(emptyExtensionUi().hiddenThinkingLabel);
+    expect(apply("setThinkingVisible", [true]).thinkingVisible).toBe(true);
   });
 
   it("restores notices, applies text UI and does not replay editor mutations twice", () => {

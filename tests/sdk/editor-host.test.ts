@@ -131,6 +131,29 @@ describe("native extension editor host", () => {
     expect(e.disposed()).toBe(1);
     expect(h.frames.at(-1)).toBeNull();
   });
+  it("submits the expanded draft through an alternate action and restores only an unchanged failed draft", async () => {
+    const h = setup(), e = editor();
+    const component = { ...e.component, getExpandedText: () => e.component.getText() ? `expanded:${e.component.getText()}` : "" };
+    const result = h.host.run(() => component, h.bridge); await tick();
+    h.host.setText("follow up");
+    const delivered: string[] = [];
+    expect(await h.host.submitCurrent(async text => { delivered.push(text); })).toBe(true);
+    expect(delivered).toEqual(["expanded:follow up"]);
+    expect(e.history).toEqual(["expanded:follow up"]);
+    expect(h.host.getText()).toBe("");
+    expect(await h.host.submitCurrent(async () => {})).toBe(false);
+
+    h.host.setText("failed");
+    await expect(h.host.submitCurrent(async () => { throw new Error("queue failed"); })).rejects.toThrow("queue failed");
+    expect(h.host.getText()).toBe("expanded:failed");
+    h.host.setText("older");
+    let reject!: (error: Error) => void;
+    const pending = h.host.submitCurrent(() => new Promise((_resolve, fail) => { reject = fail; }));
+    await tick(); h.host.setText("newer"); reject(new Error("late failure"));
+    await expect(pending).rejects.toThrow("late failure");
+    expect(h.host.getText()).toBe("newer");
+    h.host.stop(); await result;
+  });
   it("replaces the active editor and ignores old submit/change callbacks", async () => {
     const h = setup(), first = editor(), second = editor();
     const one = h.host.run(() => first.component, h.bridge); await tick();

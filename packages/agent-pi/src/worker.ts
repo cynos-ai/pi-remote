@@ -1072,11 +1072,12 @@ export class PiWorker {
     return cleared;
   }
 
-  private restoreEditorQueue(): void {
+  private restoreEditorQueue(): number {
     const cleared = this.clearSdkQueue();
-    if (!cleared) return;
+    if (!cleared) return 0;
     const queued = [...cleared.steering, ...cleared.followUp];
     if (queued.length) this.editorHost.setText([queued.join("\n\n"), this.editorHost.getText()].filter(text => text.trim()).join("\n\n"));
+    return queued.length;
   }
 
   private persistClearedInputs(delivery: "steer" | "followUp", returned: readonly string[]): void {
@@ -1951,6 +1952,7 @@ export class PiWorker {
     let settingsMenu: Promise<void> | undefined;
     let scopedModelsMenu: Promise<void> | undefined;
     let sessionMenu: Promise<void> | undefined;
+    let externalEditor: Promise<void> | undefined;
     const commandMenus = new Map<string, Promise<void>>();
     const openCommand = (text: string) => {
       const name = text.split(/\s/, 1)[0]!;
@@ -1978,6 +1980,17 @@ export class PiWorker {
         : this.sessionFromEditor(owner, action, controller.signal)).finally(() => { sessionMenu = undefined; });
       return sessionMenu;
     };
+    const openExternalEditor = () => {
+      if (!externalEditor) externalEditor = (async () => {
+        const result = await this.requestInteraction("editor", "编辑完整草稿", {
+          prefill: this.editorHost.getText(),
+          message: "保存后回填当前远程编辑器；取消会保留原草稿。"
+        }, { signal: controller.signal });
+        if (owner !== this.currentSessionId || controller.signal.aborted || typeof result?.value !== "string") return;
+        this.editorHost.setText(result.value);
+      })().finally(() => { externalEditor = undefined; });
+      return externalEditor;
+    };
     const failure = (error: unknown) => this.send("extension_error", {
       sessionId: owner, operationId: context.operationId, extensionPath: "editor", event: "input", error: bounded(errorMessage(error), 2000)
     });
@@ -2003,6 +2016,35 @@ export class PiWorker {
             ["app.exit", closeEditor],
             ["app.message.copy", () => openCommand("/copy")],
             ["app.suspend", () => { throw new Error("远程编辑器挂起/恢复尚待适配；手机可退到后台，服务继续运行，不向 worker 发送 SIGTSTP"); }],
+            ["app.editor.external", () => openExternalEditor()],
+            ["app.message.followUp", async () => {
+              const session = this.handle!.session;
+              if (!session.isStreaming && !session.isCompacting) { await this.editorHost.submitCurrent(); return; }
+              await this.editorHost.submitCurrent(async text => {
+                const submission = this.createStandaloneOperation(owner);
+                this.standaloneOperations.delete(submission.operationId);
+                this.causalCommands.delete(submission.operationId);
+                await this.uiContextStorage.run(submission, async () => {
+                  try {
+                    await session.prompt(text, { source: "interactive", streamingBehavior: "followUp" });
+                    this.emitOperationStatus("completed", submission);
+                  } catch (error) { this.emitOperationStatus("failed", submission); throw error; }
+                });
+              });
+            }],
+            ["app.message.dequeue", () => {
+              const restored = this.restoreEditorQueue();
+              this.createUiContext().notify(restored
+                ? `已将 ${restored} 条排队消息恢复到编辑器`
+                : "没有可恢复的排队消息", "info");
+            }],
+            ["app.thinking.toggle", () => {
+              const settings = this.handle!.services.settingsManager;
+              const hidden = !settings.getHideThinkingBlock();
+              settings.setHideThinkingBlock(hidden);
+              this.emitUi("setThinkingVisible", [!hidden]);
+              this.createUiContext().notify(`思考内容：${hidden ? "已隐藏" : "可见"}`, "info");
+            }],
             ["app.tools.expand", () => this.createUiContext().setToolsExpanded(!this.toolsExpanded)],
             ["app.interrupt", async () => {
               if (owner !== this.currentSessionId || controller.signal.aborted) return;

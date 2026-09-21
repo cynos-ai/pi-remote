@@ -929,7 +929,9 @@ function ExecutionTimelineRow({ item, ui }: { item: SessionTimelineItem; ui: Ext
         if (block.kind === "text" || block.kind === "thinking") {
           return (
             <Text key={`${item.itemId}-${index}`} style={block.kind === "thinking" ? styles.thinkingText : styles.timelineText}>
-              {block.kind === "thinking" ? block.redacted ? ui.hiddenThinkingLabel : `思考：${block.text}` : block.text}
+              {block.kind === "thinking"
+                ? !ui.thinkingVisible || block.redacted ? ui.hiddenThinkingLabel : `思考：${block.text}`
+                : block.text}
               {block.truncated ? "（展示副本已截断）" : ""}
             </Text>
           );

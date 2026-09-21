@@ -45,7 +45,7 @@ export function hotkeyInformation(keys: KeybindingsManager): string {
     "已接入命令", ...Object.entries(EDITOR_COMMANDS).map(([name, help]) => `/${name}: ${help}`),
     "待接入命令", ...Object.entries(PENDING_EDITOR_COMMANDS).map(([name, help]) => `/${name}: ${help}`),
     "远程动作：Ctrl+D（空草稿）、双 Ctrl+C、/quit 关闭编辑器；不会退出后端进程。",
-    "app.suspend、app.editor.external、app.clipboard.pasteImage、app.thinking.toggle、app.message.followUp、app.message.dequeue 待适配；手机附件与 follow-up 入口可独立使用。"
+    "已接入 app.editor.external、app.thinking.toggle、app.message.followUp、app.message.dequeue；app.suspend 与 app.clipboard.pasteImage 仍待适配，手机附件入口可独立使用。"
   ].join("\n");
 }
 

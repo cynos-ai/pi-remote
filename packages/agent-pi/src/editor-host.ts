@@ -30,6 +30,15 @@ export class EditorHost {
   getFactory(): Factory | undefined { return this.factory; }
   getKeybindings(): KeybindingsManager | undefined { return this.keys; }
   getText(): string { return this.component?.getText() ?? this.text; }
+  async submitCurrent(submit = this.bridge?.submit): Promise<boolean> {
+    const editor = this.component;
+    if (!editor || !submit) return false;
+    const expanded = (editor as EditorComponent & { getExpandedText?(): string }).getExpandedText?.();
+    const text = (expanded ?? editor.getText()).trim();
+    if (!text) return false;
+    await this.submitText(editor, text, submit);
+    return true;
+  }
   refreshAutocomplete(): void { if (this.component && this.bridge) this.component.setAutocompleteProvider?.(this.autocomplete()); }
   setPaddingX(value: number): void { this.component?.setPaddingX?.(value); this.refresh?.(); }
   setAutocompleteMaxVisible(value: number): void { this.component?.setAutocompleteMaxVisible?.(value); this.refresh?.(); }
@@ -65,6 +74,20 @@ export class EditorHost {
     this.text = next;
     this.bridge?.changed(this.text);
     this.refresh?.();
+  }
+
+  private async submitText(editor: EditorComponent, text: string, submit: (text: string) => Promise<void>): Promise<void> {
+    editor.addToHistory?.(text);
+    editor.setText(""); this.sync(); this.refresh?.();
+    const submittedRevision = this.revision;
+    try {
+      await submit(text);
+    } catch (error) {
+      if (this.component === editor && this.revision === submittedRevision && editor.getText() === "") {
+        editor.setText(text); this.sync(); this.refresh?.();
+      }
+      throw error;
+    }
   }
 
   async run(factory: Factory, bridge: Bridge): Promise<void> {
@@ -108,13 +131,7 @@ export class EditorHost {
           editor.onChange = () => { if (this.component === editor) { this.sync(); tui.requestRender(); } };
           editor.onSubmit = text => {
             if (this.component !== editor || controller.signal.aborted || !text.trim()) return;
-            editor.addToHistory?.(text);
-            editor.setText(""); this.sync(); tui.requestRender();
-            const submittedRevision = this.revision;
-            void bridge.submit(text.trim()).catch(error => {
-              if (this.component === editor && this.revision === submittedRevision && editor.getText() === "") { editor.setText(text); this.sync(); tui.requestRender(); }
-              bridge.failure(error);
-            });
+            void this.submitText(editor, text.trim(), bridge.submit).catch(bridge.failure);
           };
           editor.setText(this.text);
           if (bridge.paddingX !== undefined) editor.setPaddingX?.(bridge.paddingX);

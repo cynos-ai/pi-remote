@@ -52,8 +52,10 @@ API key / OAuth 登录使用带 sensitive 标记的专用 input：命令保存�
 
 - 空草稿 Ctrl+D、500ms 内双 Ctrl+C 和 `/quit` 使用相同远程退出行为；非空 Ctrl+D 保留原生向前删除。自定义编辑器自己的处理及补全优先级保留。
 - `app.message.copy` 使用 `/copy` 的手机复制窗口，尊重用户重映射；不假称系统剪贴板已写入。
+- `app.message.followUp` 在模型生成或压缩时按原生 `streamingBehavior: "followUp"` 排队并清空草稿，空闲时走普通提交；提交失败只在草稿未被后续编辑时恢复。`app.message.dequeue` 原子取回 SDK 的 steering/follow-up，按原生顺序置于当前草稿之前，不自动重发。编辑器自产项没有外部 Command 身份；与持久输入混合时全部文本照常恢复，但无法精确对应的持久 input 标 unknown，不按文本猜身份。
+- `app.editor.external` 在手机打开带当前草稿的完整 editor 表单，保存后回填，取消保留原草稿；不会在服务器启动 `$EDITOR`。`app.thinking.toggle` 保存固定 SDK 的 hideThinkingBlock 设置，并通过可重放通知同步手机思考块显示；redacted 内容仍只显示隐藏标签。
 - `app.suspend` 明确提示挂起/恢复尚未接入；不向共享服务或 worker 发送 SIGTSTP。手机切后台不停止服务器任务。
-- `app.message.followUp`、`app.message.dequeue`、`app.editor.external`、`app.clipboard.pasteImage`、`app.thinking.toggle` 的编辑器热键仍待接入。手机已有 follow-up/附件入口继续独立使用。
+- `app.clipboard.pasteImage` 仍待接入：托管编辑器没有设备剪贴板图片字节，手机已有附件选择与上传入口，不把服务器剪贴板或文本表单伪装成图片粘贴。
 - 信息页沿固定导航键上下滚动、Page Up/Down、Home/End、Enter/Esc 关闭；不是原生交互 TUI 排版或共享焦点的完整替代。
 
 验证以 [开发进度](progress.md) 为准。本地合成 provider 的真实进程测试不替代真实模型、原生 TUI 或 Android/iOS 实机验收。

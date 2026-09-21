@@ -10,6 +10,7 @@ export interface ExtensionUiState {
   workingVisible: boolean;
   workingIndicator: { frames: string[]; intervalMs: number } | null;
   hiddenThinkingLabel: string;
+  thinkingVisible: boolean;
   windowTitle: string;
   toolsExpanded: boolean;
   toolsExpansionSeq: number;
@@ -20,7 +21,7 @@ export interface ExtensionUiState {
 
 export const emptyExtensionUi = (): ExtensionUiState => ({
   seq: 0, statuses: {}, widgets: {}, customFrames: {}, header: null, footer: null, widgetPlacements: {}, workingMessage: "", workingVisible: true,
-  workingIndicator: null, hiddenThinkingLabel: "思考内容已隐藏", windowTitle: "",
+  workingIndicator: null, hiddenThinkingLabel: "思考内容已隐藏", thinkingVisible: true, windowTitle: "",
   toolsExpanded: false, toolsExpansionSeq: 0, editorText: "", unsupported: null
 });
 
@@ -84,6 +85,7 @@ export function applyExtensionNotice(state: ExtensionUiState, notice: ExtensionN
       break;
     }
     case "setHiddenThinkingLabel": next.hiddenThinkingLabel = typeof key === "string" ? key : "思考内容已隐藏"; break;
+    case "setThinkingVisible": if (typeof key === "boolean") next.thinkingVisible = key; break;
     case "setTitle": if (typeof key === "string") next.windowTitle = key; break;
     case "setToolsExpanded":
       if (typeof key === "boolean") { next.toolsExpanded = key; next.toolsExpansionSeq = notice.seq; }

@@ -1199,6 +1199,58 @@ test('native editor actions clear, expand, dismiss completion and restore queued
   assert.ok(replay.events().some(e => e.type === 'runtime.notice' && e.payload.details?.method === 'setToolsExpanded'));
 });
 
+test('native editor queues follow-ups, dequeues drafts, toggles thinking and opens a full editor form', { timeout: 120000 }, async t => {
+  const h = await RealProcessHarness.create(t, { extension: true });
+  const install = await h.command('extension_command', { text: '/r16-editor' });
+  await h.workerPid(); await h.terminal(install.commandId);
+  const snapshot = () => h.http('GET', `/v1/sessions/${h.sessionId}/snapshot`);
+  let previous;
+  const nextEditor = () => until(async () => (await snapshot()).pendingInteractions.find(form => form.interactionId !== previous && form.title.startsWith('扩展编辑器')), 'editor action control', 5000);
+  const respond = async (form, value) => {
+    previous = form.interactionId;
+    const payload = { operationId: form.operationId, interactionId: form.interactionId, response: { value } };
+    const command = await h.command('respond', payload, randomUUID()); await h.terminal(command.commandId);
+  };
+  const answer = async value => { const form = await nextEditor(); await respond(form, value); };
+  const combo = async value => { await answer('组合键'); await answer(value); await nextEditor(); };
+  const draft = async text => { const command = await h.command('extension_command', { text: `/r16-editor-draft ${text}` }); await h.terminal(command.commandId); };
+  const editorText = async () => (await snapshot()).notices.filter(n => n.details?.method === 'setEditorText').at(-1)?.details.args[0];
+
+  await draft('FOLLOW_IDLE'); await combo('alt+enter');
+  await until(() => h.provider.requests.length === 1, 'idle follow-up submits normally');
+  assert.ok(JSON.stringify(h.provider.requests[0]).includes('FOLLOW_IDLE'));
+
+  const active = await h.command('prompt', { text: 'HOLD_MODEL' });
+  await until(() => h.provider.requests.length === 2, 'held model before follow-up');
+  await draft('EDITOR_STEER'); await answer('Enter'); await nextEditor();
+  const remoteSteer = await h.command('steer', { targetRunId: active.runId, text: 'REMOTE_STEER' });
+  await h.terminal(remoteSteer.commandId);
+  await draft('CURRENT_DRAFT'); await combo('alt+up');
+  assert.equal(await editorText(), 'EDITOR_STEER\n\nREMOTE_STEER\n\nCURRENT_DRAFT');
+  const inputUpdates = h.query("SELECT payload_json FROM events WHERE type = 'input.updated'").map(row => JSON.parse(row.payload_json));
+  const unknownSteer = inputUpdates.find(payload => payload.commandId === remoteSteer.commandId && payload.state === 'unknown');
+  assert.ok(unknownSteer, 'mixed editor and durable queue items remain unknown instead of guessing an input identity');
+
+  await draft('FOLLOW_QUEUED'); await combo('alt+enter');
+  assert.equal(await editorText(), '');
+  assert.equal(h.provider.requests.length, 2, 'streaming follow-up waits for the active response');
+  await combo('alt+up');
+  assert.equal(await editorText(), 'FOLLOW_QUEUED');
+  assert.ok((await snapshot()).notices.some(n => n.message === '已将 1 条排队消息恢复到编辑器'));
+
+  await combo('ctrl+t');
+  assert.equal((await snapshot()).notices.filter(n => n.details?.method === 'setThinkingVisible').at(-1)?.details.args[0], false);
+  assert.equal(JSON.parse(await readFile(join(h.agent, 'settings.json'), 'utf8')).hideThinkingBlock, true);
+
+  await combo('ctrl+g');
+  const fullEditor = await until(async () => (await snapshot()).pendingInteractions.find(form => form.title === '编辑完整草稿'), 'full editor form', 5000);
+  assert.equal(fullEditor.prefill, 'FOLLOW_QUEUED');
+  await respond(fullEditor, 'EDITED_FULL_DRAFT');
+  await until(async () => (await editorText()) === 'EDITED_FULL_DRAFT', 'full editor result');
+  assert.equal(h.provider.requests.length, 2);
+  await h.command('abort', { targetRunId: active.runId }); await h.terminal(active.commandId, 'cancelled');
+});
+
 test('terminal listeners consume and transform input before native extension shortcuts', { timeout: 120000 }, async t => {
   const h = await RealProcessHarness.create(t, { extension: true });
   for (const text of ['/r16-keys', '/r16-editor']) {
