@@ -714,3 +714,11 @@ next: <下一阶段>
 `test:live` 新增显式 `--accumulate`：同一 suite 分批执行 basic、controls、compact、configuration 等自动场景时，只从现有同源码 SHA-256 且通过完整报告校验的报告保留 automated passed 项。failed、not_run、未知项、人工证据、格式错误及旧源码报告均不继承；当前实际运行仍可更新同 ID 结果。这样可按预算拆分真实模型调用而不让后一场景覆盖前一场景，也不会把跨源码或人工结论静默拼接成通过。
 
 新增合同测试覆盖同源码自动成功累积和旧源码拒绝。最终 `pnpm test:acceptance` 27/27、lint、全仓 typecheck、文档检查及 diff 格式检查通过。该节点只提供证据累积机制，尚未因此增加任何真实场景 passed 项。
+
+## 2026-09-22 DeepSeek 常用命令链路累积复验
+
+在固定源码提交 `733e72e`、WSL 2、Node 24.19.0、pnpm 10.28.0、pi SDK 0.85.1 上，使用 Git 忽略的本地 `.env` 和 `deepseek-v4-flash` 分场景运行 `node --env-file=.env scripts/test-live.mjs --suite commands --scenario <scenario> --accumulate`。本地操作上限临时调整为 8，没有提交凭据或环境配置。累积报告为 9 passed / 6 not_run / 0 failed，状态 `blocked`，保存在 `test-results/live-commands/report.json`（默认不提交）。
+
+自动通过项覆盖：基础 prompt 工具往返与幂等、空闲配置；活动任务 stop、steer 及完整草稿取回；原生 compact 队列路径；生成摘要前取消与受控摘要流期间取消；活动配置后的恢复；空 Session 持久初始化与恢复。完整人工 `CMD-steer-stop-drafts` 也已有对应证据并保持通过。单模型环境不会产生原生 `model_select`，因此 `AUTO-CMD-model-select-error` 保持 not_run；没有把单模型选择结果当作双模型验收。
+
+完整 `CMD-compact-queue`、全阶段表单、原生 Session/标题及自主多 Run 仍需各自证据，自动 compact 子集没有替代完整人工项。第二个不同模型、完整 SDK 异常与长任务、Bash/TUI 人工对照、Android/iOS 设备仍未覆盖。下一大节点在同一源码身份上重跑 `live-sdk` 与 `live-realtime`，刷新当前源码的模型、工具、流式与断线恢复证据；无法满足的第二模型和设备项继续保持 not_run。
