@@ -708,3 +708,9 @@ next: <下一阶段>
 修复报告身份校验的矛盾：`sourceIdentity` 已明确从源码 SHA-256 排除 `docs/progress.md` 与 `docs/release-readiness.md`，但旧校验仍要求报告 commit 与当前 HEAD 完全相同，导致测试后按规定提交进度记录就会立即让同一源码证据失效。现在报告继续保存且必须提供合法 Git commit 作为来源记录，是否属于当前受测内容改由完整源码 SHA-256 决定；任何其他已跟踪或未跟踪源码字节变化仍会使证据失效。S13 的阶段报告检查与 live/parity 导入使用同一规则。
 
 验收合同测试新增元数据提交正例及空 commit、旧源码反例，最终 `pnpm test:acceptance` 26/26、lint、全仓 typecheck 和文档检查通过。该修改只修复证据生命周期，不把 blocked/not_run 改成 passed，也不接受缺失 commit、错误摘要或不完整覆盖。
+
+## 2026-09-22 同源码真实模型场景安全累积
+
+`test:live` 新增显式 `--accumulate`：同一 suite 分批执行 basic、controls、compact、configuration 等自动场景时，只从现有同源码 SHA-256 且通过完整报告校验的报告保留 automated passed 项。failed、not_run、未知项、人工证据、格式错误及旧源码报告均不继承；当前实际运行仍可更新同 ID 结果。这样可按预算拆分真实模型调用而不让后一场景覆盖前一场景，也不会把跨源码或人工结论静默拼接成通过。
+
+新增合同测试覆盖同源码自动成功累积和旧源码拒绝。最终 `pnpm test:acceptance` 27/27、lint、全仓 typecheck、文档检查及 diff 格式检查通过。该节点只提供证据累积机制，尚未因此增加任何真实场景 passed 项。

@@ -128,6 +128,32 @@ test("all CLI scopes emit complete blocked reports without credentials or SDK im
   }
 });
 
+test("live accumulation keeps validated same-source automated passes and rejects stale reports", { timeout: 30000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), "pi-live-accumulate-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const env = { ...process.env, PI_REMOTE_LIVE_TESTS: "0", PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR: "", PI_REMOTE_ACCEPTANCE_REPORT_DIR: directory };
+  const args = ["scripts/test-live.mjs", "--suite", "commands"];
+  const first = spawnSync(process.execPath, args, { cwd: root, env, encoding: "utf8", timeout: 15000 });
+  assert.equal(first.status, 1, first.stderr);
+  const path = join(directory, "live-commands", "report.json");
+  const report = JSON.parse(await readFile(path, "utf8"));
+  report.checks.push({ id: "AUTO-CMD-prompt-idempotency", status: "passed", provenance: "automated", evidence: ["synthetic accumulation fixture"] });
+  report.status = "blocked";
+  await writeFile(path, JSON.stringify(report));
+
+  const accumulated = spawnSync(process.execPath, [...args, "--accumulate"], { cwd: root, env, encoding: "utf8", timeout: 15000 });
+  assert.equal(accumulated.status, 1, accumulated.stderr);
+  const merged = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(merged.checks.find(check => check.id === "AUTO-CMD-prompt-idempotency")?.status, "passed");
+
+  merged.sourceSha256 = "c".repeat(64);
+  await writeFile(path, JSON.stringify(merged));
+  const stale = spawnSync(process.execPath, [...args, "--accumulate"], { cwd: root, env, encoding: "utf8", timeout: 15000 });
+  assert.equal(stale.status, 1, stale.stderr);
+  const reset = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(reset.checks.some(check => check.id === "AUTO-CMD-prompt-idempotency"), false);
+});
+
 for (const scenario of ["compact", "compact-cancel", "compact-cancel-stream", "configuration", "defaults"]) test(`${scenario} refuses insufficient operation budget before loading a runtime`, async t => {
   const directory = await mkdtemp(join(tmpdir(), "pi-compact-budget-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

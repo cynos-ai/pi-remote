@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { clearTimeout, setTimeout } from "node:timers";
 import { tmpdir } from "node:os";
-import { aggregate, importEvidence, liveCases, plan, sourceIdentity } from "./acceptance-evidence.mjs";
+import { aggregate, importEvidence, liveCases, plan, sourceIdentity, validateReport } from "./acceptance-evidence.mjs";
 import { selectLiveModels } from "./live-model-selection.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,6 +26,7 @@ if (!Object.hasOwn(liveCases, suite)) {
 }
 const scope = `live-${suite}`;
 const identity = await sourceIdentity();
+const accumulate = process.argv.includes("--accumulate");
 if (process.argv.includes("--plan")) {
   console.log(JSON.stringify(plan(scope, identity), null, 2));
   process.exit(0);
@@ -208,6 +209,21 @@ let phase = "evidence";
 try {
   const evidencePath = argument("--evidence") ?? (process.env.PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR ? join(process.env.PI_REMOTE_ACCEPTANCE_EVIDENCE_DIR, `${scope}.json`) : undefined);
   report.checks = await importEvidence(evidencePath, scope, identity);
+  if (accumulate) {
+    try {
+      const existing = JSON.parse(await readFile(join(reportDir, "report.json"), "utf8"));
+      if (["passed", "blocked"].includes(validateReport(existing, scope, identity))) {
+        for (const check of existing.checks) {
+          if (check.status !== "passed" || check.provenance !== "automated") continue;
+          const index = report.checks.findIndex(candidate => candidate.id === check.id);
+          if (index < 0) report.checks.push(check);
+          else if (report.checks[index].status !== "failed") report.checks[index] = check;
+        }
+      }
+    } catch {
+      // Missing, malformed, stale, or failed reports never contribute checks.
+    }
+  }
   phase = "execution";
   if (process.env.PI_REMOTE_LIVE_TESTS === "1" && !process.argv.includes("--evidence-only")) {
     if (!requireLiveConfiguration()) {
@@ -239,6 +255,7 @@ try {
 }
 report.status = aggregate(report.checks);
 report.limitations.push("Automated checks and operator-recorded captures are distinct evidence sources; full suite coverage is mandatory.");
+if (accumulate) report.limitations.push("Only validated automated passes from the same source fingerprint were accumulated; failures and stale reports were not carried forward.");
 report.limitations.push("PI_REMOTE_LIVE_MAX_OPERATIONS bounds top-level model operations (SDK: 2; backend basic: 1; controls: 3; configuration/defaults: 4; compact comparison/cancellation: 8), not provider HTTP requests or monetary spend. Native tool loops/retries may make additional calls; use provider-side spending limits.");
 
 await writeFile(join(reportDir, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");

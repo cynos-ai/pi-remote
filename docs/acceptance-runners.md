@@ -53,6 +53,8 @@ commands/realtime 使用生产 server/worker 和真实 HTTPS/WSS，绑定临时�
 
 定向控制验收使用 `node --env-file=.env scripts/test-live.mjs --suite commands --scenario controls`，要求 `PI_REMOTE_LIVE_MAX_OPERATIONS` 至少为 3（停止的任务、新任务、后续排队任务）。真实模型调用临时 Bash gate，确保有可观察的工具执行窗口；验证重复 steer 与 native followUp 完整草稿取回、持久 follow_up 暂停、旧 target 拒绝、新 Run 正常执行、steer 消费与 follow_up 顺序及幂等。gate 的等待上限仅属于测试脚本，不更改产品 Bash 时限。该场景只记 `CMD-steer-stop-drafts`，不覆盖 compact 或其他控制项。定向运行前应另存此前同 suite 报告；报告不会跨源码指纹自动合并旧结果。
 
+同一源码上连续运行多个自动场景时可加 `--accumulate`。runner 只从现有同 scope、同源码 SHA-256 且能通过完整报告校验的报告中保留 `provenance: automated` 的 passed 项；不会继承 failed、not_run、未知项、旧源码报告或人工证据。当前场景仍可把同 ID 的旧自动成功更新为本次实际结果。修改源码后第一轮会从空的当前报告重新开始。
+
 控制场景失败时额外保留脱敏结构：输入的 queued/consumed/returned 状态、原生历史中的合成指令标记、工具名称/错误标记及合成副作用顺序。只有固定允许列表中的标签进入报告，原始用户消息、模型回答、任意工具参数和输出均不复制。该结构用于区分输入交付与模型执行差异，不能把模型正常结束直接判定为所要求的工具执行成功。
 
 `--suite commands --scenario compact` 比较直接 SDK `session.compact()` 与生产后端：双方先建立上下文、在真实 Bash 调用中加入 steer / native followUp，再压缩并继续写文件。至少允许 8 次顶层操作（双方各 seed / gate / compact / 后续 prompt），队列继续执行及工具循环可能产生额外 HTTP 请求。测试将专用 agent 配置复制到临时目录，双方使用相同的 `keepRecentTokens=64` / `reserveTokens=2048` 来验证小上下文压缩；不改动运营者原配置或产品默认值。检查原生输入去向、旧 Run 的真实终态、持久 compaction 和摘要保留的标记。自动结果使用 `AUTO-CMD-compact-native-queue`；它不替代压缩取消、扩展和应用后续队列的完整范围内对照。无待消费输入和空历史失败恢复另由本地真实进程回归覆盖。
