@@ -21,6 +21,8 @@
 
 模型服务在网络另一端，SDK 在容器内调用它。项目编辑、Git、bash、构建和测试都在 Linux 容器里执行，不继承宿主机的软件环境。Android / iOS App 的发布构建是另一条流水线；Linux 后端容器不负责运行 Xcode。
 
+移动端构建配置位于 `apps/mobile/eas.json`。`development` 和 `preview` profile 为 Android 生成可直接安装的 APK，`production` 用于应用商店发布构建。Windows 开发机可在安装 JDK 17、Android SDK 和模拟器后运行 `pnpm mobile:android`，由 Expo 生成临时原生工程、编译并安装到已连接的 Android 设备。iOS 原生编译仍需 macOS / Xcode，Windows 上使用 EAS 云构建；首次关联 Expo 项目、Apple Developer 登录和签名必须使用发布者自己的账户。Expo、Apple、Android 签名凭据和构建服务 token 只保存在本机或构建服务中，不写入仓库。
+
 ## 1.1 国内依赖与镜像源
 
 项目默认使用国内源：Node / pnpm 依赖由根 `.npmrc` 固定到 `https://registry.npmmirror.com`，CI 同时设置 `NPM_CONFIG_REGISTRY`，避免 CI 回退到公共 npm registry。S12 的 Dockerfile、Compose 和 CI 镜像步骤默认使用 `docker.m.daocloud.io` 作为 Docker Hub 镜像前缀；镜像源应通过显式变量保留可运维覆盖能力，凭据不得写入仓库。S12 已在 WSL 2 上实际完成 npm / Docker 国内源检查和镜像构建。

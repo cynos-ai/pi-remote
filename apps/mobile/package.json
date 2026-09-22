@@ -4,6 +4,9 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "build": "expo export --platform all --output-dir ../../test-results/s01-mobile-export",
     "build:android": "expo export --platform android --output-dir ../../test-results/s01-mobile-android",
     "build:ios": "expo export --platform ios --output-dir ../../test-results/s01-mobile-ios",
@@ -23,6 +26,7 @@
   },
   "devDependencies": {
     "@types/react": "19.3.0",
+    "babel-preset-expo": "57.0.11",
     "typescript": "6.0.3"
   }
 }

@@ -10,7 +10,7 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck:packages": "pnpm --filter @pi-remote/protocol typecheck && pnpm --filter @pi-remote/agent-pi typecheck",
-    "typecheck:server": "pnpm --filter @pi-remote/protocol build && pnpm --filter @pi-remote/server typecheck",
+    "typecheck:server": "pnpm run build:packages && pnpm --filter @pi-remote/server typecheck",
     "typecheck:mobile": "pnpm --filter @pi-remote/mobile typecheck",
     "typecheck": "pnpm run typecheck:packages && pnpm run typecheck:server && pnpm run typecheck:mobile && tsc -p tsconfig.tests.json",
     "build:packages": "pnpm --filter @pi-remote/protocol build && pnpm --filter @pi-remote/agent-pi build",
@@ -18,6 +18,9 @@
     "build:mobile": "pnpm --filter @pi-remote/mobile build",
     "build:android": "pnpm --filter @pi-remote/mobile run build:android",
     "build:ios": "pnpm --filter @pi-remote/mobile run build:ios",
+    "mobile:start": "pnpm --filter @pi-remote/mobile run start",
+    "mobile:android": "pnpm --filter @pi-remote/mobile run android",
+    "mobile:ios": "pnpm --filter @pi-remote/mobile run ios",
     "build": "pnpm run build:server && pnpm run build:mobile",
     "test:unit": "vitest run --config vitest.config.mjs",
     "test:acceptance": "node --test tests/acceptance/*.test.mjs",

@@ -730,3 +730,15 @@ next: <下一阶段>
 随后重跑 S01–S12。S01 为 13/13、S03 为 4/4、S04 为 9/9、S05 为 12/12，均 passed。其余阶段没有 failed：S02 为 10 passed / 3 not_run，S06 为 12/2，S07 为 14/2，S08 为 14/3，S09 为 22/2，S10 为 17/2，S11 为 19/2，完整 S12 为 34/2。Linux 全量单测、server/package 构建、Android/iOS JavaScript bundle、协议/存储/API/运行时/命令/实时/移动合同、真实进程 E2E、worker SIGKILL 恢复、Docker 镜像与 Compose、HTTP/HTTPS、非 root 工具链、配对、doctor、SQLite/JSONL/artifact 持久化、备份及新卷恢复均通过。S12 两项 not_run 仅为 Docker Bash/TUI 人工对照；阶段报告位于 Git 忽略的 `test-results/s01` 至 `s12`。
 
 最终 `pnpm verify:S13` 为 6 passed / 23 not_run / 0 failed，状态 blocked。S01、S03–S05、发布说明和真实进程 E2E 通过；其余阶段因明确的外部验收缺口保持 not_run，没有过期源码身份、缺失报告或产品检查失败。当前剩余发布门槛为：第二个不同模型与完整 live 异常/长任务矩阵、范围内 B01–B08/T01–T08 运营者人工对照、Android/iOS 真机流程。完整终端像素和低频 TUI 复刻继续不属于 V1 范围。
+
+## 2026-09-22 Android 模拟器原生构建与启动验证
+
+补齐移动端本地与云构建入口：`apps/mobile/eas.json` 提供 development、preview 和 production 三个 EAS profile，其中前两项生成可直接安装的 Android APK；根工作区及移动包增加 Expo start、Android 和 iOS 原生运行脚本。部署文档明确 Windows 可本地构建 Android，iOS 仍需 macOS / Xcode 或 EAS 云构建，Expo、Apple 和签名凭据不得入库。原生内嵌 bundle 首次暴露 `babel.config.js` 引用的 `babel-preset-expo` 未声明为直接依赖，现按 Expo 57 锁定到 57.0.11 并更新 pnpm lockfile。全新 Git 克隆还暴露服务端类型检查依赖旧 `agent-pi/dist` 的隐式前置条件，`typecheck:server` 现先执行工作区包构建，避免旧产物掩盖干净环境失败。
+
+验证环境为 Windows 11、Node 24.19.0、pnpm 10.28.0、Temurin JDK 17.0.20.1、Android SDK / target API 36、Build Tools 36.0.0、NDK 27.1.12297006、CMake 3.22.1、Gradle 9.3.1 和 Android 16 / API 36 x86_64 模拟器 `PiRemote_API_36`。为绕过 Windows 原生对象路径上限，在一次性短路径副本中执行 Expo prebuild，并仅为本地验证临时配置国内 Maven 镜像及 x86_64 ABI；这些生成文件和本机构建配置没有写入仓库。
+
+- 协议包构建、移动端 typecheck、Android JavaScript export 和 Expo Android prebuild 通过。
+- 全新短路径 Git 克隆中的 `pnpm verify:S10` 为 17 passed / 2 not_run / 0 failed，移动合同、Android / iOS JavaScript bundle、lint、全仓 typecheck 和文档检查通过；阶段状态仍为 blocked，两个 device 项继续等待完整设备流程。
+- `gradlew assembleDebug -PreactNativeArchitectures=x86_64` 通过；验证包内嵌 JavaScript bundle，大小 50026197 字节，SHA-256 为 `E73C46A74BD6DE96942C8761BB56FFCCD0D1A7E2312B658D029B4A6FA24A8FA6`。
+- ADB 将 APK 安装到 `emulator-5554` 成功；包 `com.piremote.mobile` 的 `versionName=0.1.0`、`versionCode=1`、targetSdk 36，`MainActivity` 成为 top resumed activity 且应用进程存活。断开 Metro 转发后仍显示真实配对首屏，截图保存在 Git 忽略的 `test-results/android-native-smoke-screen.png`。
+- 本次证据只证明 Android 模拟器上的原生编译、安装和独立首屏启动，不替代 AT21 / AT22 的 Android / iOS 真机配对、后台恢复、附件、通知和弱网验收。iOS 未在 Windows 编译；EAS 首次项目关联、Expo 登录、Apple Developer 签名及商店发布仍需发布者账户。
