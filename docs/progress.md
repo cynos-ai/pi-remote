@@ -722,3 +722,11 @@ next: <下一阶段>
 自动通过项覆盖：基础 prompt 工具往返与幂等、空闲配置；活动任务 stop、steer 及完整草稿取回；原生 compact 队列路径；生成摘要前取消与受控摘要流期间取消；活动配置后的恢复；空 Session 持久初始化与恢复。完整人工 `CMD-steer-stop-drafts` 也已有对应证据并保持通过。单模型环境不会产生原生 `model_select`，因此 `AUTO-CMD-model-select-error` 保持 not_run；没有把单模型选择结果当作双模型验收。
 
 完整 `CMD-compact-queue`、全阶段表单、原生 Session/标题及自主多 Run 仍需各自证据，自动 compact 子集没有替代完整人工项。第二个不同模型、完整 SDK 异常与长任务、Bash/TUI 人工对照、Android/iOS 设备仍未覆盖。下一大节点在同一源码身份上重跑 `live-sdk` 与 `live-realtime`，刷新当前源码的模型、工具、流式与断线恢复证据；无法满足的第二模型和设备项继续保持 not_run。
+
+## 2026-09-22 当前源码全阶段发布复验
+
+在提交 `be33a9c` 对应源码身份、WSL 2、Node 24.19.0、pnpm 10.28.0、pi SDK 0.85.1 和 Docker 28.3.3 上建立独立 Linux clone，并按锁文件安装依赖。真实 DeepSeek `live-sdk` 首轮工具读写通过、thinking 请求出现一次脱敏的 provider execution 失败；按预算仅重试一次后，AT02 工具读写、单模型 thinking 和 S02 live 汇总 3 项通过，第二模型、完整 retry/settle 及长时间开发 3 项 not_run，0 failed。`live-realtime` 的流式工具和断线 cursor/SQLite 一致性 2 项通过，snapshot handoff、慢连接 artifact 和设备吊销 3 项 not_run，0 failed。三份 live 报告与十份 Bash/TUI 清单均绑定同一源码 SHA-256；人工清单没有伪造通过项。
+
+随后重跑 S01–S12。S01 为 13/13、S03 为 4/4、S04 为 9/9、S05 为 12/12，均 passed。其余阶段没有 failed：S02 为 10 passed / 3 not_run，S06 为 12/2，S07 为 14/2，S08 为 14/3，S09 为 22/2，S10 为 17/2，S11 为 19/2，完整 S12 为 34/2。Linux 全量单测、server/package 构建、Android/iOS JavaScript bundle、协议/存储/API/运行时/命令/实时/移动合同、真实进程 E2E、worker SIGKILL 恢复、Docker 镜像与 Compose、HTTP/HTTPS、非 root 工具链、配对、doctor、SQLite/JSONL/artifact 持久化、备份及新卷恢复均通过。S12 两项 not_run 仅为 Docker Bash/TUI 人工对照；阶段报告位于 Git 忽略的 `test-results/s01` 至 `s12`。
+
+最终 `pnpm verify:S13` 为 6 passed / 23 not_run / 0 failed，状态 blocked。S01、S03–S05、发布说明和真实进程 E2E 通过；其余阶段因明确的外部验收缺口保持 not_run，没有过期源码身份、缺失报告或产品检查失败。当前剩余发布门槛为：第二个不同模型与完整 live 异常/长任务矩阵、范围内 B01–B08/T01–T08 运营者人工对照、Android/iOS 真机流程。完整终端像素和低频 TUI 复刻继续不属于 V1 范围。

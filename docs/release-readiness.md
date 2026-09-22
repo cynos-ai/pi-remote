@@ -1,10 +1,10 @@
 # 发布就绪记录
 
-状态：`blocked`。当前源码的 S12 deployment-only 已在 WSL 2 完成 34/34 部署与恢复检查；S13 只在所有范围内必需阶段报告、真实 provider 常用流程、范围内 Bash/TUI 行为对照和 Android / iOS 实机证据齐全后才能改为 `passed`。完整原生 pi TUI 复刻不属于 V1 发布门槛。本记录不触发任何外部发布、镜像推送或应用商店操作。
+状态：`blocked`。当前源码已在 WSL 2 完成 S01–S12 全阶段重跑；完整 S12 为 34 passed / 2 not_run / 0 failed，S13 为 6 passed / 23 not_run / 0 failed。未运行项来自仍缺少的第二模型与完整 live 矩阵、范围内 Bash/TUI 人工对照和 Android / iOS 实机证据。完整原生 pi TUI 复刻不属于 V1 发布门槛。本记录不触发任何外部发布、镜像推送或应用商店操作。
 
 ## 已完成
 
-- S01–S12 的实现和阶段验证入口已在仓库中。2026-09-22 的 S12 deployment-only 复验为 34/34：包含真实 Linux worker 故障恢复、doctor、非 root 工具链、SQLite/JSONL/artifact 持久化、v1 `custom_entry` 原位升级、容器重建、正常停机恢复、备份和新卷恢复；该报告仍不替代完整 Docker Bash/TUI 对照。
+- S01–S12 的实现和阶段验证入口已在仓库中。2026-09-22 的当前源码完整 S12 复验中 34 项自动检查全部通过：包含真实 Linux worker 故障恢复、doctor、非 root 工具链、SQLite/JSONL/artifact 持久化、v1 `custom_entry` 原位升级、容器重建、正常停机恢复、备份和新卷恢复；Docker Bash/TUI 两组人工对照保持 not_run。
 - Docker 使用 `docker.m.daocloud.io`，npm / pnpm 使用 `https://registry.npmmirror.com`；CI 同样设置这两个国内源变量。
 - `pnpm verify:S13` 检查 S01–S12 源码指纹及完整 live/parity 报告，重新执行 `pnpm test:e2e` 和设备 runner；不隐式重复付费模型调用。任何缺失、过期、失败或未运行的必需证据均不能通过。入口、采集和导入流程见[验收入口说明](acceptance-runners.md)。
 - 2026-09-19 修复直接 prompt 异常结束后旧 follow_up 未暂停的问题；既有进程故障回归 9/9 通过。继续复验后，DeepSeek 的 `CMD-steer-stop-drafts` 完整场景通过：包含完整草稿、暂停旧队列、旧 target、新任务、steer 消费和 follow_up 精确副作用顺序。本地后端/诊断回归 4/4 通过。此前请求超时和断言失败的证据保留，不能据本次通过断言所有历史根因已查明；详见开发进度。完整 commands 矩阵仍缺 compact 等场景。
@@ -23,7 +23,7 @@
 
 2026-09-19 配置补充：DeepSeek 单模型在活动工具期间选择模型/调整等级、停止后重启恢复 low、后续实际调用与默认值隔离均通过。persist=true 和空历史回收的后续实测见上；两个不同模型切换与 model_select 错误仍只有合成 provider 证据。
 
-- 真实 provider：2026-09-22 在提交 `ae57e78` 重新验证 DeepSeek 单模型工具读写和 thinking smoke、生产 server/worker 基本命令与幂等、HTTPS/WSS 流式工具及断线回放；三份报告均因完整矩阵缺项保持 blocked，没有失败项。仍需第二个不同模型、完整控制/交互和 compact 矩阵、重试及长时间开发验证。旧 ID `deepseek-v4-flash` 实际由官方映射到 V4.1-Flash；详情和证据见[开发进度](progress.md)。
+- 真实 provider：2026-09-22 在提交 `be33a9c` 对应源码身份重新验证 DeepSeek 单模型工具读写和 thinking smoke、生产 server/worker 常用命令、控制/compact/configuration/defaults 自动子集、HTTPS/WSS 流式工具及断线回放。`live-sdk` 为 3 passed / 3 not_run，`live-commands` 为 9 passed / 6 not_run，`live-realtime` 为 2 passed / 3 not_run，三份报告均为 0 failed。仍需第二个不同模型、完整人工交互矩阵、重试及长时间开发验证。旧 ID `deepseek-v4-flash` 实际由官方映射到 V4.1-Flash；详情和证据见[开发进度](progress.md)。
 - 常用原生行为：在相同 Linux、SDK、资源和配置下完成 T01–T08 / B01–B08 的范围内对照。确定性 SDK 与 `/bin/bash` smoke 不能代替真实 provider、Docker 或设备条件；无需证明终端像素和完整交互式 TUI 相同。
 - Android / iOS：安装实际构建，在两平台分别完成配对、历史、命令、表单、锁屏后台恢复、弱网和双设备流程；需要设备可访问的 HTTPS/WSS 后端。
 - 移动端差异：附件已接通 Expo 系统文件选择器、Session 归属校验和二进制上传；仍需在 Android / iOS 真机验证权限、弱网与后台恢复。custom renderer 已有有界文本投影及结构化失败状态，仍需真机确认可读性；当前不会静默丢弃输入。
