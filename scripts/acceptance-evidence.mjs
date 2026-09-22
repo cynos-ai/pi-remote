@@ -87,6 +87,16 @@ export function plan(scope, identity) {
 
 const nonempty = value => typeof value === "string" && value.trim().length > 0;
 const digest = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+const commitId = value => typeof value === "string" && /^[a-f0-9]{40,64}$/.test(value);
+
+// A progress/release-readiness commit does not change the tested source hash.
+// Keep the report's commit as provenance, while binding validity to the exact
+// non-metadata bytes represented by sourceSha256.
+export function matchesSourceIdentity(candidate, identity) {
+  return commitId(candidate?.commit)
+    && digest(candidate?.sourceSha256)
+    && candidate.sourceSha256 === identity?.sourceSha256;
+}
 
 async function artifactDigest(base, artifact) {
   if (!artifact || !nonempty(artifact.path) || isAbsolute(artifact.path) || !digest(artifact.sha256)) throw new Error("invalid artifact reference");
@@ -114,7 +124,7 @@ export async function importEvidence(path, scope, identity) {
     throw new Error("invalid evidence JSON", { cause: error });
   }
   const env = manifest.environment;
-  if (manifest.schemaVersion !== 1 || manifest.scope !== scope || manifest.commit !== identity.commit || manifest.sourceSha256 !== identity.sourceSha256) throw new Error("evidence scope or source identity mismatch; rerun against current source");
+  if (manifest.schemaVersion !== 1 || manifest.scope !== scope || !matchesSourceIdentity(manifest, identity)) throw new Error("evidence scope or source identity mismatch; rerun against current source");
   const date = Date.parse(manifest.recordedAt);
   if (!Number.isFinite(date) || date > Date.now() + 300000) throw new Error("invalid evidence timestamp");
   if (!env || env.os !== "linux" || env.sdk !== "0.85.1" || !/^v?24\./.test(env.node ?? "") || !Array.isArray(env.modelIds) || !env.modelIds.length || !env.modelIds.every(nonempty) || !digest(env.resourceSha256) || !digest(env.configSha256)) throw new Error("evidence requires Linux, Node 24, SDK 0.85.1, real model IDs and resource/config digests");
@@ -149,7 +159,7 @@ export async function importEvidence(path, scope, identity) {
 }
 
 export function validateReport(report, scope, identity) {
-  if (!report || report.schemaVersion !== 1 || report.scope !== scope || report.commit !== identity.commit || report.sourceSha256 !== identity.sourceSha256) return "failed";
+  if (!report || report.schemaVersion !== 1 || report.scope !== scope || !matchesSourceIdentity(report, identity)) return "failed";
   if (!Array.isArray(report.checks)) return "failed";
   const ids = report.checks.map(c => c.id);
   if (new Set(ids).size !== ids.length || !requiredCases(scope).every(id => ids.includes(id))) return "failed";

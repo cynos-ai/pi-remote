@@ -702,3 +702,9 @@ next: <下一阶段>
 模型请求名仍为 `deepseek-v4-flash`，按供应商当前映射实际服务为 V4.1-Flash。本轮没有把单模型 thinking smoke 计为 AT03，没有重跑高操作数 controls/compact/configuration/defaults，也没有生成 Bash/TUI 人工对照或设备证据。临时 Linux checkout、专用会话和模型产物已清理；仓库只保留 Git 忽略的脱敏机器报告。
 
 随后为当前源码重新生成五类 target 的 Bash/TUI 证据清单；没有运营者双端采集的 80 项均保持 not_run。`pnpm verify:S02` 最终为 10 passed / 3 not_run / 0 failed：SDK 合同、固定版本、构建和常用能力清单通过，live-sdk 完整矩阵、SDK Bash 对照及 SDK 常用 TUI 行为对照保持 blocked。该结果确认当前报告不再因旧源码指纹失败，但不表示外部验收已经完成。
+
+## 2026-09-22 验收元数据提交不再误判证据过期
+
+修复报告身份校验的矛盾：`sourceIdentity` 已明确从源码 SHA-256 排除 `docs/progress.md` 与 `docs/release-readiness.md`，但旧校验仍要求报告 commit 与当前 HEAD 完全相同，导致测试后按规定提交进度记录就会立即让同一源码证据失效。现在报告继续保存且必须提供合法 Git commit 作为来源记录，是否属于当前受测内容改由完整源码 SHA-256 决定；任何其他已跟踪或未跟踪源码字节变化仍会使证据失效。S13 的阶段报告检查与 live/parity 导入使用同一规则。
+
+验收合同测试新增元数据提交正例及空 commit、旧源码反例，最终 `pnpm test:acceptance` 26/26、lint、全仓 typecheck 和文档检查通过。该修改只修复证据生命周期，不把 blocked/not_run 改成 passed，也不接受缺失 commit、错误摘要或不完整覆盖。

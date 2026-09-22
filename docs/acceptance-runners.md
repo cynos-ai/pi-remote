@@ -25,7 +25,7 @@ node scripts/test-live.mjs --suite commands --plan
 node scripts/test-parity.mjs tui --target runtime --plan
 ```
 
-保存清单到仓库外的私有证据目录；清单中有当前 commit、源码 SHA-256 和每项操作说明。不要删除必需项，也不要把未执行项改成 passed。源码包含未提交文件，忽略构建、凭据、会话及 test-results；进度和发布就绪两份结果记录也不参与指纹，以便测试后补记结果。修改其余源码后必须重新生成清单并重新验证相关证据。文件字节及换行也是指纹的一部分，应在同一 Linux checkout 中完成。
+保存清单到仓库外的私有证据目录；清单中有采集时 commit、源码 SHA-256 和每项操作说明。不要删除必需项，也不要把未执行项改成 passed。源码包含未提交文件，忽略构建、凭据、会话及 test-results；进度和发布就绪两份结果记录也不参与指纹，以便测试后补记结果。校验保留并检查报告 commit 的格式和来源记录，但以源码 SHA-256 判断受测内容是否相同，因此只提交这两份元数据不会使刚生成的证据过期；修改其余源码后必须重新生成清单并重新验证相关证据。文件字节及换行也是指纹的一部分，应在同一 Linux checkout 中完成。
 
 自动 live 运行需要 Linux、Node 24.19.0、已构建的生产 server/agent-pi，以及 openssl（后端两类 suite）。在运营者私有环境设置：
 

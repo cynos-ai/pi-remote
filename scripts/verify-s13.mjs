@@ -1,4 +1,4 @@
-import { sourceIdentity, consumeReport } from "./acceptance-evidence.mjs";
+import { sourceIdentity, consumeReport, matchesSourceIdentity } from "./acceptance-evidence.mjs";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -99,7 +99,7 @@ async function requireStageReport(stage) {
   }
   const identity = await sourceIdentity();
   const statuses = Array.isArray(report.checks) ? report.checks.map((check) => check?.status) : [];
-  if (report.stage !== stage || !statuses.length || statuses.some(status => !["passed", "failed", "not_run"].includes(status)) || report.commit !== identity.commit || report.sourceSha256 !== identity.sourceSha256) {
+  if (report.stage !== stage || !statuses.length || statuses.some(status => !["passed", "failed", "not_run"].includes(status)) || !matchesSourceIdentity(report, identity)) {
     record(`S13-report-${stage}`, "failed", path, [], "stage identity, nonempty checks and current source fingerprint are required; rerun stage verification");
     return;
   }

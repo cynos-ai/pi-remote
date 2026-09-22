@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { aggregate, importEvidence, plan, requiredCases, root, validateReport } from "../../scripts/acceptance-evidence.mjs";
+import { aggregate, importEvidence, matchesSourceIdentity, plan, requiredCases, root, validateReport } from "../../scripts/acceptance-evidence.mjs";
 
 const identity = { commit: "a".repeat(40), sourceSha256: "b".repeat(64) };
 const hash = text => createHash("sha256").update(text).digest("hex");
@@ -52,6 +52,15 @@ test("captured comparisons validate hashes and preserve manual provenance", asyn
   assert.equal(aggregate(await importEvidence(f.path, f.scope, identity)), "blocked");
 });
 
+test("metadata-only commits retain evidence with the same source fingerprint", async t => {
+  const f = await fixture(t);
+  f.manifest.commit = "c".repeat(40);
+  await f.save();
+  assert.equal(aggregate(await importEvidence(f.path, f.scope, identity)), "passed");
+  assert.equal(matchesSourceIdentity(f.manifest, identity), true);
+  assert.equal(matchesSourceIdentity({ ...f.manifest, commit: "" }, identity), false);
+});
+
 for (const [name, mutate] of [
   ["wrong scope", m => { m.scope = "parity-tui-sdk"; }],
   ["stale source", m => { m.sourceSha256 = "c".repeat(64); }],
@@ -87,10 +96,11 @@ test("release consumer rejects empty, duplicate, incomplete, stale and inconsist
   const report = { schemaVersion: 1, scope: "live-realtime", ...identity, status: "passed",
     checks: requiredCases("live-realtime").map(id => ({ id, status: "passed", provenance: "operator-recorded", evidence: [{ role: "application", sha256: hash("synthetic contract") }] })) };
   assert.equal(validateReport(report, report.scope, identity), "passed");
+  assert.equal(validateReport({ ...report, commit: "c".repeat(40) }, report.scope, identity), "passed");
   for (const changed of [
     { ...report, checks: [] }, { ...report, checks: report.checks.slice(1) },
     { ...report, checks: [...report.checks, report.checks[0]] },
-    { ...report, sourceSha256: "stale" }, { ...report, status: "blocked" },
+    { ...report, commit: "" }, { ...report, sourceSha256: "stale" }, { ...report, status: "blocked" },
     { ...report, checks: report.checks.map(c => ({ ...c, evidence: [] })) },
     { ...report, checks: report.checks.map(c => ({ ...c, provenance: "automated" })) }
   ]) assert.equal(validateReport(changed, report.scope, identity), "failed");
